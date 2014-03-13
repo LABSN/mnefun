@@ -4,6 +4,7 @@ import numpy as np
 from scipy import io as spio
 import warnings
 from shutil import move
+import subprocess
 
 from mne import (compute_proj_raw, make_fixed_length_events, Epochs,
                  find_events, read_events, write_events, concatenate_events,
@@ -24,6 +25,18 @@ from mne.cov import regularize
 from mne.minimum_norm import write_inverse_operator
 from mne.layouts import make_eeg_layout
 from mne.viz import plot_drop_log
+
+
+# python2/3 conversions
+try:
+    string_types = basestring  # noqa
+except Exception:
+    string_types = str
+
+try:
+    from functools import reduce
+except Exception:
+    pass
 
 
 class Params(object):
@@ -122,7 +135,7 @@ class Params(object):
         self.decim = decim
         self.drop_thresh = drop_thresh
         self.fname_style = fname_style
-        if isinstance(epochs_type, basestring):
+        if isinstance(epochs_type, string_types):
             epochs_type = (epochs_type,)
         if not all([t in ('mat', 'fif') for t in epochs_type]):
             raise ValueError('All entries in "epochs_type" must be "mat" '
@@ -151,7 +164,7 @@ def fix_eeg_files(p, subjects, structurals=None, dates=None, verbose=True):
     """
     for si, subj in enumerate(subjects):
         if p.disp_files:
-            print '  Fixing subject %g/%g.' % (si + 1, len(subjects))
+            print('  Fixing subject %g/%g.' % (si + 1, len(subjects)))
         raw_dir = op.join(p.work_dir, subj, p.orig_dir_tag)
 
         # Create SSP projection vectors after marking bad channels
@@ -314,7 +327,7 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
     drop_logs = list()
     for subj in subjects:
         if p.disp_files:
-            print '  Loading raw files for subject %s.' % subj
+            print('  Loading raw files for subject %s.' % subj)
         pca_dir = op.join(p.work_dir, subj, p.raw_dir_tag)
         lst_dir = op.join(p.work_dir, subj, p.list_dir)
         epochs_dir = op.join(p.work_dir, subj, p.epochs_dir)
@@ -339,7 +352,7 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
         t_adj[0, 0] = np.round(-p.t_adjust * raw.info['sfreq']).astype(int)
         events = events.astype(int) + t_adj
         if p.disp_files:
-            print '    Epoching data.'
+            print('    Epoching data.')
         epochs = Epochs(raw, events, event_id=old_dict, tmin=p.tmin,
                         tmax=p.tmax, baseline=(p.bmin, p.bmax),
                         reject=p.reject, flat=p.flat, proj=True,
@@ -354,7 +367,7 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
         fif_file = op.join(epochs_dir, 'All_%d' % p.lp_cut +
                            p.inv_tag + '_' + subj + p.epochs_tag + '.fif')
         if p.disp_files:
-            print '    Saving epochs to disk.'
+            print('    Saving epochs to disk.')
         if 'mat' in p.epochs_type:
             spio.savemat(mat_file, dict(epochs=epochs.get_data(),
                                         events=epochs.events, sfreq=sfreq,
@@ -365,7 +378,7 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
 
         # now deal with conditions to save evoked
         if p.disp_files:
-            print '    Saving evoked data to disk.'
+            print('    Saving evoked data to disk.')
         for analysis, names, numbers, match in zip(analyses, out_names,
                                                    out_numbers, must_match):
             # first, equalize trial counts (this will make a copy)
@@ -416,7 +429,7 @@ def gen_inverses(p, subjects, use_old_rank=False):
     fif_extra = ('_allclean_fil%d' % p.lp_cut)
     for subj in subjects:
         if p.disp_files:
-            print '  Subject %s. ' % (subj)
+            print('  Subject %s. ' % (subj))
         inv_dir = op.join(p.work_dir, subj, p.inverse_dir)
         fwd_dir = op.join(p.work_dir, subj, p.forward_dir)
         cov_dir = op.join(p.work_dir, subj, p.cov_dir)
@@ -596,7 +609,7 @@ def _raw_LRFCP(raw_names, sfreq, l_freq, h_freq, n_jobs, n_jobs_resample,
     if isinstance(raw_names, str):
         raw_names = [raw_names]
     if disp_files:
-        print '    Loading and filtering %d files.' % len(raw_names)
+        print('    Loading and filtering %d files.' % len(raw_names))
     raw = list()
     for rn in raw_names:
         r = Raw(rn, preload=True)
@@ -613,7 +626,7 @@ def _raw_LRFCP(raw_names, sfreq, l_freq, h_freq, n_jobs, n_jobs_resample,
     for r in raws_del:
         del r
     if disp_files and apply_proj and len(projs) > 0:
-        print '    Adding and applying projectors.'
+        print('    Adding and applying projectors.')
     raw.add_proj(projs)
     if apply_proj:
         raw.apply_proj()
@@ -635,7 +648,7 @@ def do_preprocessing_combined(p, subjects):
     drop_logs = list()
     for si, subj in enumerate(subjects):
         if p.disp_files:
-            print '  Preprocessing subject %g/%g.' % (si + 1, len(subjects))
+            print('  Preprocessing subject %g/%g.' % (si + 1, len(subjects)))
         raw_dir = op.join(p.work_dir, subj, p.orig_dir_tag)
         pca_dir = op.join(p.work_dir, subj, p.raw_dir_tag)
         bad_dir = op.join(p.work_dir, subj, p.bad_dir_tag)
@@ -708,7 +721,7 @@ def do_preprocessing_combined(p, subjects):
         # Calculate and apply the ECG projectors
         if any(proj_nums[0]):
             if p.disp_files:
-                print '    Computing ECG projectors.'
+                print('    Computing ECG projectors.')
             raw = raw_orig.copy()
             raw.filter(ecg_f_lims[0], ecg_f_lims[1], n_jobs=p.n_jobs_fir,
                        method='fft', filter_length=p.filter_length)
@@ -732,7 +745,7 @@ def do_preprocessing_combined(p, subjects):
         # Next calculate and apply the EOG projectors
         if any(proj_nums[1]):
             if p.disp_files:
-                print '    Computing EOG projectors.'
+                print('    Computing EOG projectors.')
             raw = raw_orig.copy()
             raw.filter(eog_f_lims[0], eog_f_lims[1], n_jobs=p.n_jobs_fir,
                        method='fft', filter_length=p.filter_length)
@@ -1072,3 +1085,19 @@ def anova_time(X):
     dof = r / (n_time - 1)  # Greenhouse-Geisser correction to the DOF
     p = np.sign(t) * 2 * stats.t.cdf(-abs(t), dof)
     return t, p, dof
+
+
+def source_script(script_name):
+    """Set environmental variables by source-ing a bash script
+
+    Parameters
+    ----------
+    script_name : str
+        Path to the script to execute and get the environment variables from.
+    """
+    cmd = ['bash', '-c', 'source ' + script_name + ' > /dev/null && env']
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE)
+    for line in proc.stdout:
+        (key, _, value) = line.partition("=")
+        os.environ[key] = value.strip()
+    proc.communicate()
