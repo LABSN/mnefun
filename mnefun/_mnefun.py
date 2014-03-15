@@ -168,15 +168,15 @@ def fix_eeg_files(p, subjects, structurals=None, dates=None, verbose=True):
         raw_dir = op.join(p.work_dir, subj, p.orig_dir_tag)
 
         # Create SSP projection vectors after marking bad channels
-        raw_names = [op.join(raw_dir, _safe_inserter(r, subj) + p.fif_tag)
+        raw_names = [op.join(raw_dir, safe_inserter(r, subj) + p.fif_tag)
                      for r in p.run_names]
-        raw_names += [op.join(raw_dir, _safe_inserter(r, subj) + p.fif_tag)
+        raw_names += [op.join(raw_dir, safe_inserter(r, subj) + p.fif_tag)
                       for r in p.runs_empty]
         if p.extra_dir_tag is not None:
             raw_dir = op.join(p.work_dir, subj, p.extra_dir_tag)
-            raw_names += [op.join(raw_dir, _safe_inserter(r, subj) +
+            raw_names += [op.join(raw_dir, safe_inserter(r, subj) +
                                   p.extra_fif_tag) for r in p.run_names]
-            raw_names += [op.join(raw_dir, _safe_inserter(r, subj) +
+            raw_names += [op.join(raw_dir, safe_inserter(r, subj) +
                                   p.extra_fif_tag) for r in p.runs_empty]
         # Now let's make sure we only run files that actually exist
         names = []
@@ -338,13 +338,13 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
             os.mkdir(evoked_dir)
 
         # read in raw files
-        raw_names = [op.join(pca_dir, _safe_inserter(r, subj) + fif_extra)
+        raw_names = [op.join(pca_dir, safe_inserter(r, subj) + fif_extra)
                      for r in p.run_names]
         raw = Raw(raw_names, preload=False)
 
         # read in events
         events = [read_events(op.join(lst_dir, 'ALL_' +
-                  _safe_inserter(p.run_names[ri], subj) + '.lst'))
+                  safe_inserter(p.run_names[ri], subj) + '.lst'))
                   for ri in range(n_runs)]
         events = concatenate_events(events, raw._first_samps, raw._last_samps)
         # do time adjustment
@@ -437,17 +437,17 @@ def gen_inverses(p, subjects, use_old_rank=False):
         if not op.isdir(inv_dir):
             os.mkdir(inv_dir)
 
-        cov_name = op.join(cov_dir, _safe_inserter(p.runs_empty[0], subj)
+        cov_name = op.join(cov_dir, safe_inserter(p.runs_empty[0], subj)
                            + ('_allclean_fil%d' % p.lp_cut)
                            + p.inv_tag + '-cov.fif')
         empty_cov = read_cov(cov_name)
         for name in p.inv_names:
-            s_name = _safe_inserter(name, subj)
+            s_name = safe_inserter(name, subj)
             temp_name = s_name + ('-%d' % p.lp_cut) + p.inv_tag
             fwd_name = op.join(fwd_dir, s_name + p.inv_tag + '-fwd.fif')
             fwd = read_forward_solution(fwd_name, surf_ori=True)
             # Shouldn't matter which raw file we use
-            raw_fname = op.join(pca_dir, _safe_inserter(p.run_names[0], subj)
+            raw_fname = op.join(pca_dir, safe_inserter(p.run_names[0], subj)
                                 + fif_extra + p.fif_tag)
             raw = Raw(raw_fname)
 
@@ -510,10 +510,10 @@ def gen_forwards(p, subjects, structurals):
         if p.data_transformed:
             for ii, (inv_name, inv_run) in enumerate(zip(p.inv_names,
                                                          p.inv_runs)):
-                s_name = _safe_inserter(p.run_names[inv_run[0]], subj)
+                s_name = safe_inserter(p.run_names[inv_run[0]], subj)
                 raw_name = op.join(raw_dir, s_name + p.fif_tag)
                 info = read_info(raw_name)
-                fwd_name = op.join(fwd_dir, _safe_inserter(inv_name, subj)
+                fwd_name = op.join(fwd_dir, safe_inserter(inv_name, subj)
                                    + p.inv_tag + '-fwd.fif')
                 make_forward_solution(info, mri_file, src_file, bem_file,
                                       fname=fwd_name, n_jobs=p.n_jobs,
@@ -522,7 +522,7 @@ def gen_forwards(p, subjects, structurals):
             # Legacy code for when runs are in different positions
             fwds = list()
             for ri, run_name in enumerate(p.run_names):
-                s_name = _safe_inserter(run_name, subj)
+                s_name = safe_inserter(run_name, subj)
                 raw_name = op.join(raw_dir, s_name + p.fif_tag)
                 info = read_info(raw_name)
                 fwd_name = op.join(fwd_dir, s_name + p.inv_tag + '-fwd.fif')
@@ -534,7 +534,7 @@ def gen_forwards(p, subjects, structurals):
             for ii, (inv_name, inv_run) in enumerate(zip(p.inv_names,
                                                          p.inv_runs)):
                 fwds_use = [f for fi, f in enumerate(fwds) if fi in inv_run]
-                fwd_name = op.join(fwd_dir, _safe_inserter(inv_name, subj)
+                fwd_name = op.join(fwd_dir, safe_inserter(inv_name, subj)
                                    + p.inv_tag + '-fwd.fif')
                 fwd_ave = average_forward_solutions(fwds_use)
                 write_forward_solution(fwd_name, fwd_ave, overwrite=True)
@@ -564,7 +564,7 @@ def gen_covariances(p, subjects):
         if p.runs_empty:
             if len(p.runs_empty) > 1:
                 raise ValueError('Too many empty rooms; undefined output!')
-            new_run = _safe_inserter(p.runs_empty[0], subj)
+            new_run = safe_inserter(p.runs_empty[0], subj)
             empty_cov_name = op.join(cov_dir, new_run + fif_extra
                                      + p.inv_tag + '-cov.fif')
             empty_fif = op.join(pca_dir, new_run + fif_extra + p.fif_tag)
@@ -576,25 +576,38 @@ def gen_covariances(p, subjects):
         # Make evoked covariances
         rn = p.run_names
         for inv_name, inv_run in zip(p.inv_names, p.inv_runs):
-            raw_fnames = [op.join(pca_dir, _safe_inserter(rn[ir], subj)
+            raw_fnames = [op.join(pca_dir, safe_inserter(rn[ir], subj)
                                   + fif_extra + p.fif_tag)
                           for ir in inv_run]
             raw = Raw(raw_fnames, preload=False)
-            e_names = [op.join(lst_dir, 'ALL_' + _safe_inserter(rn[ir], subj)
+            e_names = [op.join(lst_dir, 'ALL_' + safe_inserter(rn[ir], subj)
                        + '.lst') for ir in inv_run]
             events = [read_events(e) for e in e_names]
             events = concatenate_events(events, raw._first_samps,
                                         raw._last_samps)
             epochs = Epochs(raw, events, event_id=None, tmin=p.bmin,
                             tmax=p.bmax, baseline=(None, None), preload=True)
-            cov_name = op.join(cov_dir, _safe_inserter(inv_name, subj)
+            cov_name = op.join(cov_dir, safe_inserter(inv_name, subj)
                                + ('-%d' % p.lp_cut) + p.inv_tag + '-cov.fif')
             cov = compute_covariance(epochs)
             write_cov(cov_name, cov)
 
 
-def _safe_inserter(string, inserter):
+def safe_inserter(string, inserter):
     """Helper to insert a subject name into a string if %s is present
+
+    Parameters
+    ----------
+    string : str
+        String to fill.
+
+    inserter : str
+        The string to put in ``string`` if ``'%s'`` is present.
+
+    Returns
+    -------
+    string : str
+        The modified string.
     """
     if '%s' in string:
         string = string % inserter
@@ -654,9 +667,9 @@ def do_preprocessing_combined(p, subjects):
         bad_dir = op.join(p.work_dir, subj, p.bad_dir_tag)
 
         # Create SSP projection vectors after marking bad channels
-        raw_names = [op.join(raw_dir, _safe_inserter(r, subj) + p.fif_tag)
+        raw_names = [op.join(raw_dir, safe_inserter(r, subj) + p.fif_tag)
                      for r in p.run_names]
-        empty_names = [op.join(raw_dir, _safe_inserter(r, subj) + p.fif_tag)
+        empty_names = [op.join(raw_dir, safe_inserter(r, subj) + p.fif_tag)
                        for r in p.runs_empty]
         for r in raw_names + empty_names:
             if not op.isfile(r):
@@ -807,11 +820,11 @@ def apply_preprocessing_combined(p, subjects):
                   % (si + 1, len(subjects)))
         raw_dir = op.join(p.work_dir, subj, p.orig_dir_tag)
         pca_dir = op.join(p.work_dir, subj, p.raw_dir_tag)
-        raw_names = [op.join(raw_dir, _safe_inserter(r, subj) + p.fif_tag)
+        raw_names = [op.join(raw_dir, safe_inserter(r, subj) + p.fif_tag)
                      for r in p.run_names]
-        emp_names = [op.join(raw_dir, _safe_inserter(r, subj) + p.fif_tag)
+        emp_names = [op.join(raw_dir, safe_inserter(r, subj) + p.fif_tag)
                      for r in p.runs_empty]
-        names_out = [op.join(pca_dir, _safe_inserter(r, subj)
+        names_out = [op.join(pca_dir, safe_inserter(r, subj)
                      + '_allclean_fil%d' % p.lp_cut + p.fif_tag)
                      for r in p.run_names + p.runs_empty]
         bad_dir = op.join(p.work_dir, subj, p.bad_dir_tag)
@@ -895,7 +908,7 @@ def calc_head_centers(p, subjects):
         os.mkdir(pout_dir)
     for si in range(len(subjects)):
         for ri in range(len(p.run_names)):
-            new_run = _safe_inserter(p.run_names[ri], subjects[si])
+            new_run = safe_inserter(p.run_names[ri], subjects[si])
             in_fif = op.join(p.work_dir, subjects[si], dir_tag,
                              new_run + fif_tag)
             out_pos = op.join(pout_dir, new_run + '_pos.txt')
@@ -917,7 +930,7 @@ def gen_layouts(p, subjects):
     lout_dir = op.join(p.mne_root, 'share', 'mne', 'mne_analyze', 'lout')
     for si in range(len(subjects)):
         ri = 1
-        new_run = _safe_inserter(p.run_names[ri], subjects[si])
+        new_run = safe_inserter(p.run_names[ri], subjects[si])
         in_fif = op.join(p.work_dir, subjects[si], p.orig_dir_tag,
                          new_run + p.fif_tag)
         out_lout = op.join(lout_dir, subjects[si] + '_eeg.lout')
