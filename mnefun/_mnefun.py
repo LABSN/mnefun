@@ -407,7 +407,7 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
                                             p.eq_tag, subj)
             write_evoked(op.join(evoked_dir, fn), evokeds)
             if p.disp_files:
-                print('        Analysis "%s": %s epochs / condition'
+                print('      Analysis "%s": %s epochs / condition'
                       % (analysis, evokeds[0].nave))
 
         if p.disp_files:
