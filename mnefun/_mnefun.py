@@ -288,7 +288,7 @@ def get_fsaverage_medial_vertices(concatenate=True):
 
 
 def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
-                out_numbers, must_match):
+                out_numbers, must_match, match_fun=None):
     """Generate epochs from raw data based on events
 
     Can only complete after preprocessing is complete.
@@ -315,6 +315,10 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
         Indices from the original in_names that must match in event counts
         before collapsing. Should eventually be expanded to allow for
         ratio-based collapsing.
+    match_fun : function | None
+        If None, standard matching will be performed. If a function,
+        must_match will be ignored, and ``match_fun`` will be called
+        to equalize event counts.
     """
     in_names = np.asanyarray(in_names)
     old_dict = dict()
@@ -366,6 +370,46 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
                            p.inv_tag + '_' + subj + p.epochs_tag + '.mat')
         fif_file = op.join(epochs_dir, 'All_%d' % p.lp_cut +
                            p.inv_tag + '_' + subj + p.epochs_tag + '.fif')
+        # now deal with conditions to save evoked
+        if p.disp_files:
+            print('    Saving evoked data to disk.')
+        for analysis, names, numbers, match in zip(analyses, out_names,
+                                                   out_numbers, must_match):
+            # do matching
+            numbers = np.asanyarray(numbers)
+            nn = numbers[numbers >= 0]
+            new_numbers = np.unique(numbers[numbers >= 0])
+            in_names_match = in_names[match]
+            if not len(new_numbers) == len(names):
+                raise ValueError('out_numbers length must match out_names '
+                                 'length for analysis %s' % analysis)
+            if match_fun is None:
+                # first, equalize trial counts (this will make a copy)
+                if len(in_names_match) > 1:
+                    e = epochs.equalize_event_counts(in_names_match)[0]
+                else:
+                    e = epochs.copy()
+
+                # second, collapse types
+                for num, name in zip(new_numbers, names):
+                    combine_event_ids(e, in_names[num == numbers], {name: num},
+                                      copy=False)
+            else:  # custom matching
+                e = match_fun(epochs.copy(), analysis, nn,
+                              in_names_match, names)
+
+            # now make evoked for each out type
+            evokeds = list()
+            for name in names:
+                evokeds.append(e[name].average())
+                evokeds.append(e[name].standard_error())
+            fn = '%s_%d%s_%s_%s-ave.fif' % (analysis, p.lp_cut, p.inv_tag,
+                                            p.eq_tag, subj)
+            write_evoked(op.join(evoked_dir, fn), evokeds)
+            if p.disp_files:
+                print('        Analysis "%s": %s epochs / condition'
+                      % (analysis, evokeds[0].nave))
+
         if p.disp_files:
             print('    Saving epochs to disk.')
         if 'mat' in p.epochs_type:
@@ -375,35 +419,6 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
                          do_compression=True, oned_as='column')
         if 'fif' in p.epochs_type:
             epochs.save(fif_file)
-
-        # now deal with conditions to save evoked
-        if p.disp_files:
-            print('    Saving evoked data to disk.')
-        for analysis, names, numbers, match in zip(analyses, out_names,
-                                                   out_numbers, must_match):
-            # first, equalize trial counts (this will make a copy)
-            if len(in_names[match]) > 1:
-                e = epochs.equalize_event_counts(in_names[match])[0]
-            else:
-                e = epochs.copy()
-
-            # second, collapse types
-            numbers = np.asanyarray(numbers)
-            new_numbers = np.unique(numbers[numbers >= 0])
-            if not len(new_numbers) == len(names):
-                raise ValueError('out_numbers length must match out_names '
-                                 'length for analysis %s' % analysis)
-            for num, name in zip(new_numbers, names):
-                combine_event_ids(e, in_names[num == numbers], {name: num},
-                                  copy=False)
-            # now make evoked for each out type
-            evokeds = list()
-            for name in names:
-                evokeds.append(e[name].average())
-                evokeds.append(e[name].standard_error())
-            fn = '%s_%d%s_%s_%s-ave.fif' % (analysis, p.lp_cut, p.inv_tag,
-                                            p.eq_tag, subj)
-            write_evoked(op.join(evoked_dir, fn), evokeds)
 
     for subj, drop_log in zip(subjects, drop_logs):
         plot_drop_log(drop_log, threshold=p.drop_thresh, subject=subj)
