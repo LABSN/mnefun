@@ -451,11 +451,15 @@ def gen_inverses(p, subjects, use_old_rank=False):
         pca_dir = op.join(p.work_dir, subj, p.raw_dir_tag)
         if not op.isdir(inv_dir):
             os.mkdir(inv_dir)
-
-        cov_name = op.join(cov_dir, safe_inserter(p.runs_empty[0], subj)
-                           + ('_allclean_fil%d' % p.lp_cut)
-                           + p.inv_tag + '-cov.fif')
-        empty_cov = read_cov(cov_name)
+        if len(p.runs_empty) == 1:
+            cov_name = op.join(cov_dir, safe_inserter(p.runs_empty[0], subj)
+                               + ('_allclean_fil%d' % p.lp_cut)
+                               + p.inv_tag + '-cov.fif')
+            empty_cov = read_cov(cov_name)
+        else:
+            cov_name = op.join(cov_dir, safe_inserter(subj, subj)
+                               + ('_allclean_fil%d' % p.lp_cut)
+                               + p.inv_tag + '-cov.fif')
         for name in p.inv_names:
             s_name = safe_inserter(name, subj)
             temp_name = s_name + ('-%d' % p.lp_cut) + p.inv_tag
@@ -468,7 +472,8 @@ def gen_inverses(p, subjects, use_old_rank=False):
 
             cov = read_cov(op.join(cov_dir, temp_name + '-cov.fif'))
             cov_reg = regularize(cov, raw.info)
-            empty_cov_reg = regularize(empty_cov, raw.info)
+            if 'empty_cov' in locals():
+                empty_cov_reg = regularize(empty_cov, raw.info)
             for f, m, e in zip(meg_out_flags, meg_bools, eeg_bools):
                 fwd_restricted = pick_types_forward(fwd, meg=m, eeg=e)
                 for l, s, x in zip([None, 0.2], [p.inv_fixed_tag, ''],
