@@ -5,6 +5,8 @@ from scipy import io as spio
 import warnings
 from shutil import move
 import subprocess
+import re
+import glob
 
 from mne import (compute_proj_raw, make_fixed_length_events, Epochs,
                  find_events, read_events, write_events, concatenate_events,
@@ -247,7 +249,12 @@ def fix_eeg_channels(raw_files, anon=None, verbose=True):
             if verbose:
                 print('    Making a backup and %s file %i' % (to_do, ri + 1))
             raw = Raw(raw_file, preload=True, allow_maxshield=True)
-            move(raw_file, raw_file + '.orig')
+            # rename split files if any
+            regex = re.compile("-*.fif")
+            split_files = glob.glob(raw_file[:-4] + regex.pattern)
+            move_files = [raw_file] + split_files
+            for file in move_files:
+                move(file, file + '.orig')
             if need_reorder:
                 raw._data[picks, :] = raw._data[picks, :][order]
             if need_anon:
@@ -451,11 +458,15 @@ def gen_inverses(p, subjects, use_old_rank=False):
         pca_dir = op.join(p.work_dir, subj, p.raw_dir_tag)
         if not op.isdir(inv_dir):
             os.mkdir(inv_dir)
-
-        cov_name = op.join(cov_dir, safe_inserter(p.runs_empty[0], subj)
-                           + ('_allclean_fil%d' % p.lp_cut)
-                           + p.inv_tag + '-cov.fif')
-        empty_cov = read_cov(cov_name)
+        make_erm_inv = len(p.runs_empty) > 0
+        if make_erm_inv:
+            cov_name = op.join(cov_dir, safe_inserter(p.runs_empty[0], subj)
+                               + ('_allclean_fil%d' % p.lp_cut)
+                               + p.inv_tag + '-cov.fif')
+            empty_cov = read_cov(cov_name)
+        else:
+            cov_name = op.join(cov_dir, safe_inserter(subj, subj)
+                               + ('-%d' % p.lp_cut) + p.inv_tag + '-cov.fif')
         for name in p.inv_names:
             s_name = safe_inserter(name, subj)
             temp_name = s_name + ('-%d' % p.lp_cut) + p.inv_tag
@@ -466,9 +477,10 @@ def gen_inverses(p, subjects, use_old_rank=False):
                                 + fif_extra + p.fif_tag)
             raw = Raw(raw_fname)
 
-            cov = read_cov(op.join(cov_dir, temp_name + '-cov.fif'))
+            cov = read_cov(cov_name)
             cov_reg = regularize(cov, raw.info)
-            empty_cov_reg = regularize(empty_cov, raw.info)
+            if make_erm_inv:
+                empty_cov_reg = regularize(empty_cov, raw.info)
             for f, m, e in zip(meg_out_flags, meg_bools, eeg_bools):
                 fwd_restricted = pick_types_forward(fwd, meg=m, eeg=e)
                 for l, s, x in zip([None, 0.2], [p.inv_fixed_tag, ''],
