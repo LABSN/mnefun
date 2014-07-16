@@ -5,6 +5,8 @@ from scipy import io as spio
 import warnings
 from shutil import move
 import subprocess
+import re
+import glob
 
 from mne import (compute_proj_raw, make_fixed_length_events, Epochs,
                  find_events, read_events, write_events, concatenate_events,
@@ -248,6 +250,11 @@ def fix_eeg_channels(raw_files, anon=None, verbose=True):
                 print('    Making a backup and %s file %i' % (to_do, ri + 1))
             raw = Raw(raw_file, preload=True, allow_maxshield=True)
             move(raw_file, raw_file + '.orig')
+            # rename split files if any
+            regex = re.compile("-*.fif")
+            split_files = glob.glob(raw_file[:-4] + regex.pattern)
+            for file in split_files:
+                move(file, file + '.orig')
             if need_reorder:
                 raw._data[picks, :] = raw._data[picks, :][order]
             if need_anon:
