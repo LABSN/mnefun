@@ -356,13 +356,19 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
         # read in raw files
         raw_names = [op.join(pca_dir, safe_inserter(r, subj) + fif_extra)
                      for r in p.run_names]
-        raw = Raw(raw_names, preload=False)
-
         # read in events
+        first_samps = []
+        last_samps = []
+        for raw_fname in raw_names:
+            raw = Raw(raw_fname, preload=False)
+            first_samps.append(raw._first_samps[0])
+            last_samps.append(raw._last_samps[-1])
+        # read in raw files
+        raw = Raw(raw_names, preload=False)
         events = [read_events(op.join(lst_dir, 'ALL_' +
                   safe_inserter(p.run_names[ri], subj) + '.lst'))
                   for ri in range(n_runs)]
-        events = concatenate_events(events, raw._first_samps, raw._last_samps)
+        events = concatenate_events(events, first_samps, last_samps)
         # do time adjustment
         t_adj = np.zeros((1, 3), dtype='int')
         t_adj[0, 0] = np.round(-p.t_adjust * raw.info['sfreq']).astype(int)
@@ -373,6 +379,7 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
                         tmax=p.tmax, baseline=(p.bmin, p.bmax),
                         reject=p.reject, flat=p.flat, proj=True,
                         preload=True, decim=p.decim)
+        print(epochs)
         del raw
         drop_logs.append(epochs.drop_log)
         ch_namess.append(epochs.ch_names)
@@ -611,12 +618,18 @@ def gen_covariances(p, subjects):
             raw_fnames = [op.join(pca_dir, safe_inserter(rn[ir], subj)
                                   + fif_extra + p.fif_tag)
                           for ir in inv_run]
+            first_samps = []
+            last_samps = []
+            for raw_fname in raw_fnames:
+                raw = Raw(raw_fname, preload=False)
+                first_samps.append(raw._first_samps[0])
+                last_samps.append(raw._last_samps[-1])
             raw = Raw(raw_fnames, preload=False)
             e_names = [op.join(lst_dir, 'ALL_' + safe_inserter(rn[ir], subj)
                        + '.lst') for ir in inv_run]
             events = [read_events(e) for e in e_names]
-            events = concatenate_events(events, raw._first_samps,
-                                        raw._last_samps)
+            events = concatenate_events(events, first_samps,
+                                        last_samps)
             epochs = Epochs(raw, events, event_id=None, tmin=p.bmin,
                             tmax=p.bmax, baseline=(None, None), preload=True)
             cov_name = op.join(cov_dir, safe_inserter(inv_name, subj)
