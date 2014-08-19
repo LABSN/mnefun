@@ -7,6 +7,7 @@ from shutil import move
 import subprocess
 import re
 import glob
+import collections
 
 from mne import (compute_proj_raw, make_fixed_length_events, Epochs,
                  find_events, read_events, write_events, concatenate_events,
@@ -47,7 +48,7 @@ class Params(object):
                  n_jobs_fir='cuda', n_jobs_resample='cuda',
                  filter_length=32768, drop_thresh=1, fname_style='new',
                  epochs_type=('fif', 'mat'), fwd_mindist=2.0,
-                 bem_type='5120-5120-5120'):
+                 bem_type='5120-5120-5120', auto_bad=False, ecg_surrogate=None):
         """Make a useful parameter structure
 
         This is technically a class, but it doesn't currently have any methods
@@ -149,6 +150,8 @@ class Params(object):
                              'or "fif"')
         self.epochs_type = epochs_type
         self.fwd_mindist = fwd_mindist
+        self.auto_bad = auto_bad
+        self.ecg_surrogate = ecg_surrogate
 
 
 def fix_eeg_files(p, subjects, structurals=None, dates=None, verbose=True):
@@ -724,7 +727,32 @@ def do_preprocessing_combined(p, subjects):
         if not op.isfile(bad_file):
             print('    No bad channel file found, clearing bad channels:\n'
                   '        %s' % bad_file)
-            bad_file = None
+        if isinstance(p.auto_bad, float):
+            print('    Creating bad channel file, marking bad channels:\n'
+                  '        %s' % bad_file)
+            # do autobad
+            raw = _raw_LRFCP(raw_names, p.proj_sfreq, None, None, p.n_jobs_fir,
+                p.n_jobs_resample, list(), None, p.disp_files,
+                method='fft', filter_length=p.filter_length)
+            ev = find_events(raw, stim_channel='STI101')
+            epochs = Epochs(raw, ev, event_id=None, tmin=p.tmin,
+                tmax=p.tmax, baseline=(p.bmin, p.bmax),
+                reject=p.reject, flat=p.flat, proj=True,
+                preload=True, decim=p.decim)
+            # channel scores from drop log
+            scores = collections.Counter([ch for d in epochs.drop_log for ch in d])
+            ch_names = np.array(scores.keys())
+            # channel scores expressed as percentile and rank ordered
+            counts = 100 * np.array(scores.values(), dtype=float) / len(epochs.drop_log)
+            order = np.flipud(np.argsort(counts))
+            # boolean array masking out channels with less than % epochs dropped
+            mask = counts[order] > p.auto_bad
+            badChs = ch_names[order[mask]]
+            print('    The following channels resulted in greater than {0:.0f}% trials dropped:\n'.format(p.auto_bad))
+            print(badChs)
+            with open(bad_file, 'w') as f:
+                f.write('\n'.join(i for i in badChs))
+            f.close()
 
         proj_nums = p.proj_nums
         eog_t_lims = [-0.25, 0.25]
@@ -785,12 +813,21 @@ def do_preprocessing_combined(p, subjects):
                        method='fft', filter_length=p.filter_length)
             raw.add_proj(projs)
             raw.apply_proj()
-            o = compute_proj_ecg(raw, n_grad=proj_nums[0][0],
-                                 n_jobs=p.n_jobs_mkl,
-                                 n_mag=proj_nums[0][1], n_eeg=proj_nums[0][2],
-                                 tmin=ecg_t_lims[0], tmax=ecg_t_lims[1],
-                                 l_freq=None, h_freq=None, no_proj=True,
-                                 qrs_threshold=0.9)
+            if isinstance(p.ecg_surrogate, str):
+                o = compute_proj_ecg(raw, n_grad=proj_nums[0][0],
+                                     n_jobs=p.n_jobs_mkl,
+                                     n_mag=proj_nums[0][1], n_eeg=proj_nums[0][2],
+                                     tmin=ecg_t_lims[0], tmax=ecg_t_lims[1],
+                                     l_freq=None, h_freq=None, no_proj=True,
+                                     qrs_threshold=0.9, ch_name=p.ecg_surrogate)
+            else:
+                o = compute_proj_ecg(raw, n_grad=proj_nums[0][0],
+                                     n_jobs=p.n_jobs_mkl,
+                                     n_mag=proj_nums[0][1], n_eeg=proj_nums[0][2],
+                                     tmin=ecg_t_lims[0], tmax=ecg_t_lims[1],
+                                     l_freq=None, h_freq=None, no_proj=True,
+                                     qrs_threshold=0.9)
+
             pr, ecg_events = o
             if ecg_events.shape[0] >= 20:
                 write_events(ecg_eve, ecg_events)
@@ -1159,3 +1196,30 @@ def source_script(script_name):
         (key, _, value) = line.partition("=")
         os.environ[key] = value.strip()
     proc.communicate()
+
+
+def autobad(raw_path, p, stim_channel='STI101'):
+    raw = Raw(raw_path, p.proj_sfreq, None, None, p.n_jobs_fir,
+                     p.n_jobs_resample, list(), None, p.disp_files,
+                     method='fft', filter_length=p.filter_length)
+    events = find_events(raw, stim_channel=stim_channel)
+    epochs = Epochs(raw, events, event_id=None, tmin=p.tmin,
+                    tmax=p.tmax, baseline=(p.bmin, p.bmax),
+                    reject=p.reject, flat=p.flat, proj=True,
+                    preload=True, decim=p.decim)
+    # channel scores from drop log
+    scores = collections.Counter([ch for d in epochs.drop_log for ch in d])
+    ch_names = np.array(scores.keys())
+    # channel scores expressed as percentile and rank ordered
+    counts = 100 * np.array(scores.values(), dtype=float) / len(epochs.drop_log)
+    order = np.flipud(np.argsort(counts))
+    # boolean array masking out channels with less than 15% epochs dropped
+    mask = counts[order] > 15
+    badChs = ch_names[order[mask]]
+    print(counts[order[mask]])
+    print('Likely bad channels:')
+    print(ch_names[order[mask]])
+    print(bad_file)
+    with open(bad_file, 'w') as f:
+        f.write('\n'.join(i for i in badChs))
+    f.close()
