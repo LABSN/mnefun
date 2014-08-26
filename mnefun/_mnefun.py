@@ -14,15 +14,15 @@ from mne import (compute_proj_raw, make_fixed_length_events, Epochs,
                  compute_raw_data_covariance, compute_covariance,
                  write_proj, read_proj, setup_source_space,
                  make_forward_solution, average_forward_solutions,
-                 write_forward_solution, get_config,
+                 write_forward_solution, get_config, write_evokeds,
                  add_source_space_distances, write_source_spaces)
 from mne.preprocessing.ssp import compute_proj_ecg, compute_proj_eog
 from mne.preprocessing.maxfilter import fit_sphere_to_headshape
 from mne.minimum_norm import make_inverse_operator
 from mne.label import read_label
 from mne.epochs import combine_event_ids
-from mne.fiff import Raw, concatenate_raws, pick_types_forward, write_evoked, \
-    pick_types, read_info
+from mne.io import Raw, concatenate_raws, read_info
+from mne.io.pick import pick_types_forward, pick_types
 from mne.cov import regularize
 from mne.minimum_norm import write_inverse_operator
 from mne.layouts import make_eeg_layout
@@ -412,7 +412,7 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
                 evokeds.append(e[name].standard_error())
             fn = '%s_%d%s_%s_%s-ave.fif' % (analysis, p.lp_cut, p.inv_tag,
                                             p.eq_tag, subj)
-            write_evoked(op.join(evoked_dir, fn), evokeds)
+            write_evokeds(op.join(evoked_dir, fn), evokeds)
             if p.disp_files:
                 print('      Analysis "%s": %s epochs / condition'
                       % (analysis, evokeds[0].nave))
