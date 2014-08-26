@@ -29,7 +29,6 @@ from mne.minimum_norm import write_inverse_operator
 from mne.layouts import make_eeg_layout
 from mne.viz import plot_drop_log
 
-
 # python2/3 conversions
 try:
     string_types = basestring  # noqa
@@ -41,14 +40,13 @@ try:
 except Exception:
     pass
 
-
 class Params(object):
     def __init__(self, tmin=None, tmax=None, t_adjust=0, bmin=-0.2, bmax=0.0,
                  n_jobs=6, lp_cut=55, decim=5, proj_sfreq=None, n_jobs_mkl=1,
                  n_jobs_fir='cuda', n_jobs_resample='cuda',
                  filter_length=32768, drop_thresh=1, fname_style='new',
                  epochs_type=('fif', 'mat'), fwd_mindist=2.0, auto_bad=False,
-                 ecg_surrogate=None):
+                 ecg_surrogate=None, plot_raw_proj_events=False):
         """Make a useful parameter structure
 
         This is technically a class, but it doesn't currently have any methods
@@ -148,6 +146,7 @@ class Params(object):
         self.fwd_mindist = fwd_mindist
         self.auto_bad = auto_bad
         self.ecg_surrogate = ecg_surrogate
+        self.plot_raw_proj_events = plot_raw_proj_events
 
 
 def fix_eeg_files(p, subjects, structurals=None, dates=None, verbose=True):
@@ -257,8 +256,8 @@ def fix_eeg_channels(raw_files, anon=None, verbose=True):
             regex = re.compile("-*.fif")
             split_files = glob.glob(raw_file[:-4] + regex.pattern)
             move_files = [raw_file] + split_files
-            for file in move_files:
-                move(file, file + '.orig')
+            for f in move_files:
+                move(f, file + '.orig')
             if need_reorder:
                 raw._data[picks, :] = raw._data[picks, :][order]
             if need_anon:
@@ -365,7 +364,7 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
         # read in raw files
         raw = Raw(raw_names, preload=False)
         events = [read_events(op.join(lst_dir, 'ALL_' +
-                  safe_inserter(p.run_names[ri], subj) + '.lst'))
+                                      safe_inserter(p.run_names[ri], subj) + '.lst'))
                   for ri in range(n_runs)]
         events = concatenate_events(events, first_samps, last_samps)
         # do time adjustment
@@ -462,7 +461,7 @@ def gen_inverses(p, subjects, use_old_rank=False):
     fif_extra = ('_allclean_fil%d' % p.lp_cut)
     for subj in subjects:
         if p.disp_files:
-            print('  Subject %s. ' % (subj))
+            print('  Subject %s. ' % subj)
         inv_dir = op.join(p.work_dir, subj, p.inverse_dir)
         fwd_dir = op.join(p.work_dir, subj, p.forward_dir)
         cov_dir = op.join(p.work_dir, subj, p.cov_dir)
@@ -625,7 +624,7 @@ def gen_covariances(p, subjects):
                 last_samps.append(raw._last_samps[-1])
             raw = Raw(raw_fnames, preload=False)
             e_names = [op.join(lst_dir, 'ALL_' + safe_inserter(rn[ir], subj)
-                       + '.lst') for ir in inv_run]
+                               + '.lst') for ir in inv_run]
             events = [read_events(e) for e in e_names]
             events = concatenate_events(events, first_samps,
                                         last_samps)
@@ -720,21 +719,22 @@ def do_preprocessing_combined(p, subjects):
                 raise NameError('File not found (' + r + ')')
 
         bad_file = op.join(bad_dir, 'bad_ch_' + subj + p.bad_tag)
-        if not op.isfile(bad_file):
-            print('    No bad channel file found, clearing bad channels:\n'
-                  '        %s' % bad_file)
         if isinstance(p.auto_bad, float):
             print('    Creating bad channel file, marking bad channels:\n'
                   '        %s' % bad_file)
             # do autobad
             raw = _raw_LRFCP(raw_names, p.proj_sfreq, None, None, p.n_jobs_fir,
-                p.n_jobs_resample, list(), None, p.disp_files,
-                method='fft', filter_length=p.filter_length)
-            ev = find_events(raw, stim_channel='STI101')
-            epochs = Epochs(raw, ev, event_id=None, tmin=p.tmin,
-                tmax=p.tmax, baseline=(p.bmin, p.bmax),
-                reject=p.reject, flat=p.flat, proj=True,
-                preload=True, decim=p.decim)
+                             p.n_jobs_resample, list(), None, p.disp_files,
+                             method='fft', filter_length=p.filter_length)
+            events = fixed_len_events(p, raw)
+            epochs = Epochs(raw, events, event_id=None, tmin=p.tmin,
+                            tmax=p.tmax, baseline=(p.bmin, p.bmax),
+                            reject=p.reject, flat=p.flat, proj=True,
+                            preload=True, decim=p.decim)
+            # do not mark eog channels bad
+            picks = pick_types(epochs.info, eog=False, exclude=[])
+            picks = [epochs.info.get('ch_names')[i] for i in picks]
+            epochs.pick_channels(picks)
             # channel scores from drop log
             scores = collections.Counter([ch for d in epochs.drop_log for ch in d])
             ch_names = np.array(scores.keys())
@@ -743,12 +743,16 @@ def do_preprocessing_combined(p, subjects):
             order = np.flipud(np.argsort(counts))
             # boolean array masking out channels with less than % epochs dropped
             mask = counts[order] > p.auto_bad
-            badChs = ch_names[order[mask]]
+            badchs = ch_names[order[mask]]
             print('    The following channels resulted in greater than {0:.0f}% trials dropped:\n'.format(p.auto_bad))
-            print(badChs)
+            print(badchs)
             with open(bad_file, 'w') as f:
-                f.write('\n'.join(i for i in badChs))
+                f.write('\n'.join(i for i in badchs))
             f.close()
+        if not op.isfile(bad_file):
+            print('    No bad channel file found, clearing bad channels:\n'
+                  '        %s' % bad_file)
+            bad_file = None
 
         proj_nums = p.proj_nums
         eog_t_lims = [-0.25, 0.25]
@@ -772,7 +776,8 @@ def do_preprocessing_combined(p, subjects):
         # Calculate and apply continuous projectors if requested
         projs = list()
         reject = dict(grad=np.inf, mag=np.inf, eeg=np.inf, eog=np.inf)
-        raw_orig = _raw_LRFCP(pre_list, p.proj_sfreq, None, None, p.n_jobs_fir,
+        print(bad_file)
+        raw_orig = _raw_LRFCP(pre_list, p.proj_sfreq, None, bad_file, p.n_jobs_fir,
                               p.n_jobs_resample, projs, bad_file, p.disp_files,
                               method='fft', filter_length=p.filter_length)
 
@@ -809,21 +814,17 @@ def do_preprocessing_combined(p, subjects):
                        method='fft', filter_length=p.filter_length)
             raw.add_proj(projs)
             raw.apply_proj()
-            if isinstance(p.ecg_surrogate, str):
-                o = compute_proj_ecg(raw, n_grad=proj_nums[0][0],
-                                     n_jobs=p.n_jobs_mkl,
-                                     n_mag=proj_nums[0][1], n_eeg=proj_nums[0][2],
-                                     tmin=ecg_t_lims[0], tmax=ecg_t_lims[1],
-                                     l_freq=None, h_freq=None, no_proj=True,
-                                     qrs_threshold=0.9, ch_name=p.ecg_surrogate)
+            # check for surrogate ecg channel
+            if not isinstance(p.ecg_surrogate, str):
+                ch_name = None
             else:
-                o = compute_proj_ecg(raw, n_grad=proj_nums[0][0],
-                                     n_jobs=p.n_jobs_mkl,
-                                     n_mag=proj_nums[0][1], n_eeg=proj_nums[0][2],
-                                     tmin=ecg_t_lims[0], tmax=ecg_t_lims[1],
-                                     l_freq=None, h_freq=None, no_proj=True,
-                                     qrs_threshold=0.9)
-
+                ch_name = p.ecg_surrogate
+            o = compute_proj_ecg(raw, n_grad=proj_nums[0][0],
+                                 n_jobs=p.n_jobs_mkl,
+                                 n_mag=proj_nums[0][1], n_eeg=proj_nums[0][2],
+                                 tmin=ecg_t_lims[0], tmax=ecg_t_lims[1],
+                                 l_freq=None, h_freq=None, no_proj=True,
+                                 qrs_threshold=0.9, ch_name=ch_name)
             pr, ecg_events = o
             if ecg_events.shape[0] >= 20:
                 write_events(ecg_eve, ecg_events)
@@ -865,8 +866,7 @@ def do_preprocessing_combined(p, subjects):
         raw_orig.add_proj(projs)
         raw_orig.apply_proj()
         # now let's epoch with 1-sec windows to look for DQs
-        dur = p.tmax - p.tmin
-        events = make_fixed_length_events(raw_orig, 1, duration=dur)
+        events = fixed_len_events(p, raw_orig)
         epochs = Epochs(raw_orig, events, None, p.tmin, p.tmax, preload=False,
                         baseline=(p.bmin, p.bmax), reject=p.reject,
                         flat=p.flat, proj=False)
@@ -874,6 +874,11 @@ def do_preprocessing_combined(p, subjects):
         drop_logs.append(epochs.drop_log)
         del raw_orig
         del epochs
+        if p.plot_raw_proj_events:
+            import matplotlib.pyplot as mpl
+            mpl.ion()
+            viz_raw_ssp_events(p, subj)
+            mpl.ioff()
     return drop_logs
 
 
@@ -891,7 +896,7 @@ def apply_preprocessing_combined(p, subjects):
     subjects : list of str
         Subject names to analyze (e.g., ['Eric_SoP_001', ...]).
     """
-        # Now actually save some data
+    # Now actually save some data
     for si, subj in enumerate(subjects):
         if p.disp_files:
             print('  Applying processing to subject %g/%g.'
@@ -903,7 +908,7 @@ def apply_preprocessing_combined(p, subjects):
         emp_names = [op.join(raw_dir, safe_inserter(r, subj) + p.fif_tag)
                      for r in p.runs_empty]
         names_out = [op.join(pca_dir, safe_inserter(r, subj)
-                     + '_allclean_fil%d' % p.lp_cut + p.fif_tag)
+                             + '_allclean_fil%d' % p.lp_cut + p.fif_tag)
                      for r in p.run_names + p.runs_empty]
         bad_dir = op.join(p.work_dir, subj, p.bad_dir_tag)
         bad_file = op.join(bad_dir, 'bad_ch_' + subj + p.bad_tag)
@@ -1097,6 +1102,7 @@ def make_standard_tags(p, use_sss=True, data_transformed=None):
 
 class FakeEpochs():
     """Make iterable epoch-like class, convenient for MATLAB transition"""
+
     def __init__(self, data, ch_names, tmin=-0.2, sfreq=1000.0):
         self._data = data
         self.info = dict(ch_names=ch_names, sfreq=sfreq)
@@ -1157,6 +1163,7 @@ def anova_time(X):
     """
     import patsy
     from scipy import linalg, stats
+
     n_subjects, n_nested, n_sources = X.shape
     n_time = n_nested / 2
     # Turn Y into (2 x n_time x n_subjects) x n_sources
@@ -1194,28 +1201,40 @@ def source_script(script_name):
     proc.communicate()
 
 
-def autobad(raw_path, p, stim_channel='STI101'):
-    raw = Raw(raw_path, p.proj_sfreq, None, None, p.n_jobs_fir,
-                     p.n_jobs_resample, list(), None, p.disp_files,
+def fixed_len_events(p, raw):
+    """Create fixed length trial events from raw object"""
+    dur = p.tmax - p.tmin
+    events = make_fixed_length_events(raw, 1, duration=dur)
+    return events
+
+
+def viz_raw_ssp_events(p, subj):
+    """
+
+    :param p:
+    :param subj:
+    :return: raw trace
+    """
+    pca_dir = op.join(p.work_dir, subj, p.raw_dir_tag)
+    fif_extra = ('_allclean_fil%d' % p.lp_cut) + p.fif_tag
+    raw_names = [op.join(pca_dir, safe_inserter(r, subj) + fif_extra)
+                 for r in p.run_names]
+    pre_list = [r for ri, r in enumerate(raw_names)
+                if ri in p.get_projs_from]
+    all_proj = op.join(pca_dir, 'preproc_all-proj.fif')
+    projs = read_proj(all_proj)
+    ev_names = [op.join(pca_dir + '/' + ii) for ii in
+                ['preproc_ecg-eve.fif', 'preproc_blink-eve.fif']]
+    ev = [read_events(e) for e in ev_names]
+    assert len(ev) == 2
+    ev = np.concatenate((ev[0], ev[1]))
+    ev.sort(axis=0)
+    raw = _raw_LRFCP(pre_list, p.proj_sfreq, None, None, p.n_jobs_fir,
+                     p.n_jobs_resample, projs, None, p.disp_files,
                      method='fft', filter_length=p.filter_length)
-    events = find_events(raw, stim_channel=stim_channel)
-    epochs = Epochs(raw, events, event_id=None, tmin=p.tmin,
-                    tmax=p.tmax, baseline=(p.bmin, p.bmax),
-                    reject=p.reject, flat=p.flat, proj=True,
-                    preload=True, decim=p.decim)
-    # channel scores from drop log
-    scores = collections.Counter([ch for d in epochs.drop_log for ch in d])
-    ch_names = np.array(scores.keys())
-    # channel scores expressed as percentile and rank ordered
-    counts = 100 * np.array(scores.values(), dtype=float) / len(epochs.drop_log)
-    order = np.flipud(np.argsort(counts))
-    # boolean array masking out channels with less than 15% epochs dropped
-    mask = counts[order] > 15
-    badChs = ch_names[order[mask]]
-    print(counts[order[mask]])
-    print('Likely bad channels:')
-    print(ch_names[order[mask]])
-    print(bad_file)
-    with open(bad_file, 'w') as f:
-        f.write('\n'.join(i for i in badChs))
-    f.close()
+    fig = raw.plot(events=ev)
+    return fig
+
+
+
+
