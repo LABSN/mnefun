@@ -14,15 +14,15 @@ from mne import (compute_proj_raw, make_fixed_length_events, Epochs,
                  compute_raw_data_covariance, compute_covariance,
                  write_proj, read_proj, setup_source_space,
                  make_forward_solution, average_forward_solutions,
-                 write_forward_solution, get_config,
+                 write_forward_solution, get_config, write_evokeds,
                  add_source_space_distances, write_source_spaces)
 from mne.preprocessing.ssp import compute_proj_ecg, compute_proj_eog
 from mne.preprocessing.maxfilter import fit_sphere_to_headshape
 from mne.minimum_norm import make_inverse_operator
 from mne.label import read_label
 from mne.epochs import combine_event_ids
-from mne.fiff import Raw, concatenate_raws, pick_types_forward, write_evoked, \
-    pick_types, read_info
+from mne.io import Raw, concatenate_raws, read_info
+from mne.io.pick import pick_types_forward, pick_types
 from mne.cov import regularize
 from mne.minimum_norm import write_inverse_operator
 from mne.layouts import make_eeg_layout
@@ -46,7 +46,8 @@ class Params(object):
                  n_jobs=6, lp_cut=55, decim=5, proj_sfreq=None, n_jobs_mkl=1,
                  n_jobs_fir='cuda', n_jobs_resample='cuda',
                  filter_length=32768, drop_thresh=1, fname_style='new',
-                 epochs_type=('fif', 'mat'), fwd_mindist=2.0):
+                 epochs_type=('fif', 'mat'), fwd_mindist=2.0,
+                 bem_type='5120-5120-5120'):
         """Make a useful parameter structure
 
         This is technically a class, but it doesn't currently have any methods
@@ -101,6 +102,9 @@ class Params(object):
         fwd_mindist : float
             Minimum distance for sources in the brain from the skull in order
             for them to be included in the forward solution source space.
+        bem_type : str
+            Defaults to ``'5120-5120-5120'``, use ``'5120'`` for a
+            single-layer BEM.
 
         Returns
         -------
@@ -137,6 +141,7 @@ class Params(object):
         self.decim = decim
         self.drop_thresh = drop_thresh
         self.fname_style = fname_style
+        self.bem_type = bem_type
         if isinstance(epochs_type, string_types):
             epochs_type = (epochs_type,)
         if not all([t in ('mat', 'fif') for t in epochs_type]):
@@ -412,7 +417,7 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
                 evokeds.append(e[name].standard_error())
             fn = '%s_%d%s_%s_%s-ave.fif' % (analysis, p.lp_cut, p.inv_tag,
                                             p.eq_tag, subj)
-            write_evoked(op.join(evoked_dir, fn), evokeds)
+            write_evokeds(op.join(evoked_dir, fn), evokeds)
             if p.disp_files:
                 print('      Analysis "%s": %s epochs / condition'
                       % (analysis, evokeds[0].nave))
@@ -533,7 +538,7 @@ def gen_forwards(p, subjects, structurals):
             write_source_spaces(src_file, src)
             print('  Creating forward solution(s)...')
         bem_file = op.join(subjects_dir, structural, 'bem',
-                           structural + '-5120-5120-5120-bem-sol.fif')
+                           structural + '-' + p.bem_type + '-bem-sol.fif')
         if p.data_transformed:
             for ii, (inv_name, inv_run) in enumerate(zip(p.inv_names,
                                                          p.inv_runs)):
