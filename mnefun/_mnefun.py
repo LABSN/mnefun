@@ -46,7 +46,8 @@ class Params(object):
                  n_jobs=6, lp_cut=55, decim=5, proj_sfreq=None, n_jobs_mkl=1,
                  n_jobs_fir='cuda', n_jobs_resample='cuda',
                  filter_length=32768, drop_thresh=1, fname_style='new',
-                 epochs_type=('fif', 'mat'), fwd_mindist=2.0):
+                 epochs_type=('fif', 'mat'), fwd_mindist=2.0,
+                 bem_type='5120-5120-5120'):
         """Make a useful parameter structure
 
         This is technically a class, but it doesn't currently have any methods
@@ -101,6 +102,9 @@ class Params(object):
         fwd_mindist : float
             Minimum distance for sources in the brain from the skull in order
             for them to be included in the forward solution source space.
+        bem_type : str
+            Defaults to ``'5120-5120-5120'``, use ``'5120'`` for a
+            single-layer BEM.
 
         Returns
         -------
@@ -137,6 +141,7 @@ class Params(object):
         self.decim = decim
         self.drop_thresh = drop_thresh
         self.fname_style = fname_style
+        self.bem_type = bem_type
         if isinstance(epochs_type, string_types):
             epochs_type = (epochs_type,)
         if not all([t in ('mat', 'fif') for t in epochs_type]):
@@ -533,7 +538,7 @@ def gen_forwards(p, subjects, structurals):
             write_source_spaces(src_file, src)
             print('  Creating forward solution(s)...')
         bem_file = op.join(subjects_dir, structural, 'bem',
-                           structural + '-5120-5120-5120-bem-sol.fif')
+                           structural + '-' + p.bem_type + '-bem-sol.fif')
         if p.data_transformed:
             for ii, (inv_name, inv_run) in enumerate(zip(p.inv_names,
                                                          p.inv_runs)):
