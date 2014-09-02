@@ -48,8 +48,8 @@ class Params(object):
                  n_jobs_fir='cuda', n_jobs_resample='cuda',
                  filter_length=32768, drop_thresh=1, fname_style='new',
                  epochs_type=('fif', 'mat'), fwd_mindist=2.0,
-                 bem_type='5120-5120-5120', auto_bad=False, ecg_surrogate=None,
-                 plot_raw_proj_events=False):
+                 bem_type='5120-5120-5120', auto_bad=None, ecg_channel='ECG063',
+                 plot_raw=False):
         """Make a useful parameter structure
 
         This is technically a class, but it doesn't currently have any methods
@@ -152,8 +152,8 @@ class Params(object):
         self.epochs_type = epochs_type
         self.fwd_mindist = fwd_mindist
         self.auto_bad = auto_bad
-        self.ecg_surrogate = ecg_surrogate
-        self.plot_raw_proj_events = plot_raw_proj_events
+        self.ecg_channel = ecg_channel
+        self.plot_raw = plot_raw
 
 
 def fix_eeg_files(p, subjects, structurals=None, dates=None, verbose=True):
@@ -384,7 +384,6 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
                         tmax=p.tmax, baseline=(p.bmin, p.bmax),
                         reject=p.reject, flat=p.flat, proj=True,
                         preload=True, decim=p.decim)
-        print(epochs)
         del raw
         drop_logs.append(epochs.drop_log)
         ch_namess.append(epochs.ch_names)
@@ -664,6 +663,7 @@ def safe_inserter(string, inserter):
     return string
 
 
+# noinspection PyPep8Naming
 def _raw_LRFCP(raw_names, sfreq, l_freq, h_freq, n_jobs, n_jobs_resample,
                projs, bad_file, disp_files=False, method='fft',
                filter_length=32768, apply_proj=True, preload=True):
@@ -783,7 +783,6 @@ def do_preprocessing_combined(p, subjects):
         # Calculate and apply continuous projectors if requested
         projs = list()
         reject = dict(grad=np.inf, mag=np.inf, eeg=np.inf, eog=np.inf)
-        print(bad_file)
         raw_orig = _raw_LRFCP(pre_list, p.proj_sfreq, None, bad_file, p.n_jobs_fir,
                               p.n_jobs_resample, projs, bad_file, p.disp_files,
                               method='fft', filter_length=p.filter_length)
@@ -821,11 +820,6 @@ def do_preprocessing_combined(p, subjects):
                        method='fft', filter_length=p.filter_length)
             raw.add_proj(projs)
             raw.apply_proj()
-            # check for surrogate ecg channel
-            if not isinstance(p.ecg_surrogate, str):
-                ch_name = None
-            else:
-                ch_name = p.ecg_surrogate
             o = compute_proj_ecg(raw, n_grad=proj_nums[0][0],
                                  n_jobs=p.n_jobs_mkl,
                                  n_mag=proj_nums[0][1], n_eeg=proj_nums[0][2],
@@ -881,11 +875,6 @@ def do_preprocessing_combined(p, subjects):
         drop_logs.append(epochs.drop_log)
         del raw_orig
         del epochs
-        if p.plot_raw_proj_events:
-            import matplotlib.pyplot as mpl
-            mpl.ion()
-            viz_raw_ssp_events(p, subj)
-            mpl.ioff()
     return drop_logs
 
 
@@ -931,7 +920,9 @@ def apply_preprocessing_combined(p, subjects):
                              disp_files=False, method='fft', apply_proj=False,
                              filter_length=p.filter_length)
             raw.save(o, overwrite=True)
-
+        # look at raw_clean for ExG events
+        if p.plot_raw:
+            viz_raw_ssp_events(p, subj)
 
 def lst_read(raw_path, stim_channel='STI101'):
     """Wrapper for find_events that defaults to UW stim_channel STI101
@@ -1146,6 +1137,7 @@ def timestring(t):
                                                       60]))
 
 
+# noinspection PyPep8Naming,PyPep8Naming,PyPep8Naming
 def anova_time(X):
     """A mass-univariate two-way ANOVA (with time as a co-variate)
 
@@ -1214,13 +1206,8 @@ def fixed_len_events(p, raw):
     return events
 
 
-def viz_raw_ssp_events(p, subj):
-    """
-
-    :param p:
-    :param subj:
-    :return: raw trace
-    """
+def viz_raw_ssp_events(p, subj, show=True):
+    """Helper to plot filtered cleaned raw trace with ExG events"""
     pca_dir = op.join(p.work_dir, subj, p.raw_dir_tag)
     fif_extra = ('_allclean_fil%d' % p.lp_cut) + p.fif_tag
     raw_names = [op.join(pca_dir, safe_inserter(r, subj) + fif_extra)
@@ -1239,8 +1226,7 @@ def viz_raw_ssp_events(p, subj):
                      p.n_jobs_resample, projs, None, p.disp_files,
                      method='fft', filter_length=p.filter_length)
     fig = raw.plot(events=ev)
+    if show:
+        import matplotlib.pyplot as plt
+        plt.show()
     return fig
-
-
-
-
