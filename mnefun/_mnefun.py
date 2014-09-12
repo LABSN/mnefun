@@ -1,14 +1,22 @@
+# -*- coding: utf-8 -*-
+# Copyright (c) 2014, LABS^N
+# Distributed under the (new) BSD License. See LICENSE.txt for more info.
+
+from __future__ import print_function
+
 import os
 import os.path as op
 import numpy as np
 from scipy import io as spio
 import warnings
-from shutil import move
+from shutil import move, copy2
 import subprocess
 import re
 import glob
 import collections
 import matplotlib.pyplot as plt
+from time import time
+from numpy.testing import assert_allclose
 
 from mne import (compute_proj_raw, make_fixed_length_events, Epochs,
                  find_events, read_events, write_events, concatenate_events,
@@ -23,12 +31,14 @@ from mne.preprocessing.maxfilter import fit_sphere_to_headshape
 from mne.minimum_norm import make_inverse_operator
 from mne.label import read_label
 from mne.epochs import combine_event_ids
-from mne.io import Raw, concatenate_raws, read_info
+from mne.io import Raw, concatenate_raws, read_info, write_info
+from mne.io.base import _quart_to_rot
 from mne.io.pick import pick_types_forward, pick_types
 from mne.cov import regularize
 from mne.minimum_norm import write_inverse_operator
 from mne.layouts import make_eeg_layout
 from mne.viz import plot_drop_log
+from mne.utils import run_subprocess
 
 
 # python2/3 conversions
@@ -47,10 +57,10 @@ class Params(object):
     def __init__(self, tmin=None, tmax=None, t_adjust=0, bmin=-0.2, bmax=0.0,
                  n_jobs=6, lp_cut=55, decim=5, proj_sfreq=None, n_jobs_mkl=1,
                  n_jobs_fir='cuda', n_jobs_resample='cuda',
-                 filter_length=32768, drop_thresh=1, fname_style='new',
-                 epochs_type=('fif', 'mat'), fwd_mindist=2.0,
+                 filter_length=32768, drop_thresh=1,
+                 epochs_type='fif', fwd_mindist=2.0,
                  bem_type='5120-5120-5120', auto_bad=None, ecg_channel='ECG063',
-                 plot_raw=False, eeg=False):
+                 plot_raw=False, eeg=False, match_fun=None):
         """Make a useful parameter structure
 
         This is technically a class, but it doesn't currently have any methods
@@ -97,9 +107,6 @@ class Params(object):
         drop_thresh : float
             The percentage threshold to use when deciding whether or not to
             plot Epochs drop_log.
-        fname_style : str
-            Style of filenames. 'old' is SSS_FIF, RAW_FIF, etc.
-            'new' is sss_fif, raw_fif, etc.
         epochs_type : str | list
             Can be 'fif', 'mat', or a list containing both.
         fwd_mindist : float
@@ -108,6 +115,10 @@ class Params(object):
         bem_type : str
             Defaults to ``'5120-5120-5120'``, use ``'5120'`` for a
             single-layer BEM.
+        match_fun : function | None
+            If None, standard matching will be performed. If a function,
+            must_match will be ignored, and ``match_fun`` will be called
+            to equalize event counts.
 
         Returns
         -------
@@ -125,26 +136,21 @@ class Params(object):
         self.inv_names = None
         self.inv_runs = None
         self.work_dir = os.getcwd()
-        self.orig_dir_tag = None
-        self.raw_dir_tag = None
-        self.fif_tag = None
-        self.inv_tag = None
-        self.keep_orig = True
         self.n_jobs = n_jobs
         self.n_jobs_mkl = n_jobs_mkl
         self.n_jobs_fir = 'cuda'  # Jobs when using method='fft'
         self.n_jobs_resample = n_jobs_resample
         self.filter_length = filter_length
-        self.bad_tag = None
         self.cont_lp = 5
         self.lp_cut = lp_cut
         self.mne_root = os.getenv('MNE_ROOT')
         self.disp_files = True
+        self.plot_drop_logs = True  # plot drop logs after do_preprocessing_...
         self.proj_sfreq = proj_sfreq
         self.decim = decim
         self.drop_thresh = drop_thresh
-        self.fname_style = fname_style
         self.bem_type = bem_type
+        self.match_fun = match_fun
         if isinstance(epochs_type, string_types):
             epochs_type = (epochs_type,)
         if not all([t in ('mat', 'fif') for t in epochs_type]):
@@ -158,14 +164,359 @@ class Params(object):
         self.ecg_channel = ecg_channel
         self.plot_raw = plot_raw
         self.eeg = eeg
+        self.translate_positions = True
+
+        # add standard file tags
+
+        self.epochs_dir = 'epochs'
+        self.cov_dir = 'covariance'
+        self.inverse_dir = 'inverse'
+        self.forward_dir = 'forward'
+        self.list_dir = 'lists'
+        self.trans_dir = 'trans'
+        self.bad_dir = 'bads'
+        self.raw_dir = 'raw_fif'
+        self.sss_dir = 'sss_fif'
+        self.pca_dir = 'sss_pca_fif'
+
+        self.epochs_tag = '-epo'
+        self.inv_tag = '-sss'
+        self.inv_fixed_tag = '-fixed'
+        self.inv_erm_tag = '-erm'
+        self.eq_tag = 'eq'
+        self.sss_fif_tag = '_raw_sss.fif'
+        self.bad_tag = '_post-sss.txt'
+        self.keep_orig = False
+        # This is used by fix_eeg_channels to fix original files
+        self.raw_fif_tag = '_raw.fif'
+
+    @property
+    def pca_extra(self):
+        return '_allclean_fil%d' % self.lp_cut
+
+    @property
+    def pca_fif_tag(self):
+        return self.pca_extra + self.sss_fif_tag
+
+
+def do_processing(p, fetch_raw, push_raw, do_sss, fetch_sss, do_score,
+                  do_ch_fix, gen_ssp, apply_ssp, gen_covs, gen_fwd,
+                  gen_inv, write_epochs):
+    """Do M/EEG data processing
+
+    fetch_raw : bool
+        Fetch raw recording files from acquisition machine.
+    push_raw : bool
+        Push raw recording files to SSS workstation.
+    do_sss : bool
+        Run SSS remotely on SSS workstation.
+    fetch_sss : bool
+        Fetch SSS files from SSS workstation.
+    do_score : bool
+        Do scoring.
+    do_ch_fix : bool
+        Fix channel ordering.
+    gen_ssp : bool
+        Generate SSP vectors.
+    apply_ssp : bool
+        Apply SSP vectors and filtering.
+    gen_covs : bool
+        Generate covariances.
+    gen_fwd : bool
+        Generate forward solutions.
+    get_inv : bool
+        Generate inverses.
+    write_epochs : bool
+        Write epochs to disk.
+    """
+    # Generate requested things
+    bools = [fetch_raw, push_raw, do_sss, fetch_sss, do_score, do_ch_fix,
+             gen_ssp, apply_ssp, gen_covs, gen_fwd, gen_inv, write_epochs]
+    texts = ['Pulling raw files from acquisition machine',
+             'Pushing raw files to remote workstation',
+             'Running SSS on remote workstation',
+             'Pulling SSS files from remote workstation',
+             'Scoring subjects', 'Fixing EEG order', 'Preprocessing files',
+             'Applying preprocessing', 'Generating covariances',
+             'Generating forward models', 'Generating inverse solutions',
+             'Doing epoch EQ/DQ']
+    funcs = [fetch_raw_files, push_raw_files, run_sss_remotely,
+             fetch_sss_files,
+             p.score, fix_eeg_files, do_preprocessing_combined,
+             apply_preprocessing_combined, gen_covariances,
+             gen_forwards, gen_inverses, save_epochs]
+    assert len(bools) == len(texts) == len(funcs)
+
+    sinds = p.subject_indices
+    subjects = np.array(p.subjects)[sinds].tolist()
+    structurals = np.array(p.structurals)[sinds].tolist()
+    dates = [tuple([int(dd) for dd in d]) for d in np.array(p.dates)[sinds]]
+
+    outs = [None] * len(bools)
+    for ii, (b, text, func) in enumerate(zip(bools, texts, funcs)):
+        if b:
+            t0 = time()
+            print(text + '. ')
+            if func == fix_eeg_files:
+                outs[ii] = func(p, subjects, structurals, dates)
+            elif func == gen_forwards:
+                outs[ii] = func(p, subjects, structurals)
+            elif func == save_epochs:
+                outs[ii] = func(p, subjects, p.in_names, p.in_numbers,
+                                p.analyses, p.out_names, p.out_numbers,
+                                p.must_match)
+            else:
+                outs[ii] = func(p, p.subjects)
+            print('  (' + timestring(time() - t0) + ')')
+    print("Done")
+
+
+def fetch_raw_files(p, subjects):
+    """Fetch remote raw recording files (only designed for *nix platforms)"""
+    for subj in subjects:
+        print('  Checking for proper remote filenames for %s...' % subj)
+        subj_dir = op.join(p.work_dir, subj)
+        if not op.isdir(subj_dir):
+            os.mkdir(subj_dir)
+        raw_dir = op.join(subj_dir, p.raw_dir)
+        if not op.isdir(raw_dir):
+            os.mkdir(raw_dir)
+        finder = 'find %s ' % p.acq_dir
+        fnames = _get_raw_names(p, subj, 'raw', True)
+        assert len(fnames) > 0
+        finder = finder + ' -o '.join(["-name '%s'" % op.basename(fname)
+                                       for fname in fnames])
+        stdout_ = run_subprocess(['ssh', p.acq_ssh, finder])[0]
+        remote_fnames = [x.strip() for x in stdout_.splitlines()]
+        assert all(fname.startswith(p.acq_dir) for fname in remote_fnames)
+        remote_fnames = [fname[len(p.acq_dir)+1:] for fname in remote_fnames]
+        want = set(op.basename(fname) for fname in fnames)
+        got = set([op.basename(fname) for fname in remote_fnames])
+        if want != got or len(remote_fnames) != len(fnames):
+            raise RuntimeError('Could not find all files.\n'
+                               'Wanted: %s\nGot: %s' % (want, got))
+
+        print('  Pulling %s files for %s...' % (len(fnames), subj))
+        cmd = ['rsync', '-ave', 'ssh', '--prune-empty-dirs', '--partial',
+               '--include', '*/']
+        for fname in remote_fnames:
+            cmd += ['--include', op.basename(fname)]
+        remote_loc = '%s:%s' % (p.acq_ssh, op.join(p.acq_dir, ''))
+        cmd += ['--exclude', '*', remote_loc, op.join(raw_dir, '')]
+        run_subprocess(cmd)
+        # move files to root raw_dir
+        for fname in remote_fnames:
+            move(op.join(raw_dir, fname), op.join(raw_dir, op.basename(fname)))
+        # prune the extra directories we made
+        for fname in remote_fnames:
+            next_ = op.split(fname)[0]
+            while(len(next_) > 0):
+                if op.isdir(op.join(raw_dir, next_)):
+                    os.rmdir(op.join(raw_dir, next_))  # safe; goes if empty
+                next_ = op.split(next_)[0]
+
+
+def calc_median_hp(p, subj, out_file):
+    """Calculate median head position"""
+    print('    Estimating median head position for %s... ' % subj)
+    raw_files = _get_raw_names(p, subj, 'raw', False)
+    ts = []
+    qs = []
+    out_info = None
+    for fname in raw_files:
+        info = read_info(fname)
+        trans = info['dev_head_t']['trans']
+        ts.append(trans[:3, 3])
+        m = trans[:3, :3]
+        qw = np.sqrt(1. + m[0, 0] + m[1, 1] + m[2, 2]) / 2.
+        # make sure we are orthogonal and special
+        assert_allclose(np.dot(m, m.T), np.eye(3), atol=1e-5)
+        assert_allclose([qw], [1.], atol=1e-2)
+        qs.append([(m[2, 1] - m[1, 2]) / (4 * qw),
+                   (m[0, 2] - m[2, 0]) / (4 * qw),
+                   (m[1, 0] - m[0, 1]) / (4 * qw)])
+        assert_allclose(_quart_to_rot(np.array([qs[-1]]))[0],
+                        m, rtol=1e-5, atol=1e-5)
+        if out_info is None:
+            out_info = info
+    assert out_info is not None  # at least one raw file
+    if len(raw_files) == 1:  # only one head position
+        t = ts[0]
+        rot = m
+    else:
+        t = np.median(np.array(ts), axis=0)
+        rot = np.median(_quart_to_rot(np.array(qs)), axis=0)
+    trans = np.r_[np.c_[rot, t[:, np.newaxis]],
+                  np.array([0, 0, 0, 1], t.dtype)[np.newaxis, :]]
+    dev_head_t = {'to': 4, 'from': 1, 'trans': trans}
+    info = dict(dev_head_t=dev_head_t)
+    for key in ('dig', 'chs', 'nchan', 'sfreq', 'lowpass', 'highpass',
+                'projs', 'comps', 'bads', 'acq_pars', 'acq_stim',
+                'ctf_head_t'):
+        info[key] = out_info[key]
+    write_info(out_file, info)
+
+
+def push_raw_files(p, subjects):
+    """Push raw files to SSS workstation"""
+    print('  Pushing raw files to SSS workstation...')
+    # do all copies at once to avoid multiple logins
+    copy2(op.join(op.dirname(__file__), 'run_sss.sh'), p.work_dir)
+    includes = ['--include', '/run_sss.sh']
+    for subj in subjects:
+        subj_dir = op.join(p.work_dir, subj)
+        raw_dir = op.join(subj_dir, p.raw_dir)
+
+        out_pos = op.join(raw_dir, subj + '_center.txt')
+        if not op.isfile(out_pos):
+            print('    Determining head center for %s... ' % subj, end='')
+            in_fif = op.join(raw_dir,
+                             safe_inserter(p.run_names[0], subj)
+                             + p.raw_fif_tag)
+            origin_head = fit_sphere_to_headshape(read_info(in_fif))[1]
+            out_string = ' '.join(['%0.0f' % np.round(number)
+                                  for number in origin_head])
+            with open(out_pos, 'w') as fid:
+                fid.write(out_string)
+            print('(%s)' % out_string)
+
+        med_pos = op.join(raw_dir, subj + '_median_pos.fif')
+        if not op.isfile(med_pos):
+            calc_median_hp(p, subj, med_pos)
+        root = op.sep + subj
+        raw_root = op.join(root, p.raw_dir)
+        includes += ['--include', root, '--include', raw_root,
+                     '--include', op.join(raw_root, op.basename(out_pos)),
+                     '--include', op.join(raw_root, op.basename(med_pos))]
+        prebad_file = op.join(raw_dir, subj + '_prebad.txt')
+        if op.isfile(prebad_file):  # SSS prebad file
+            includes += ['--include',
+                         op.join(raw_root, op.basename(prebad_file))]
+        fnames = _get_raw_names(p, subj, 'raw', True)
+        for fname in fnames:
+            assert op.isfile(op.join(fname)), fname
+            includes += ['--include', op.join(raw_root, op.basename(fname))]
+    assert ' ' not in p.sws_dir
+    assert ' ' not in p.sws_ssh
+    cmd = ['rsync', '-ave', 'ssh', '--partial'] + includes + ['--exclude', '*']
+    cmd += ['.', '%s:%s' % (p.sws_ssh, op.join(p.sws_dir, ''))]
+    run_subprocess(cmd, cwd=p.work_dir)
+
+
+def run_sss_remotely(p, subjects):
+    """Run SSS preprocessing remotely (only designed for *nix platforms)"""
+    for subj in subjects:
+        s = 'Remote output for %s:' % subj
+        print('-' * len(s))
+        print(s)
+        print('-' * len(s))
+        files = ';'.join([op.basename(f)
+                          for f in _get_raw_names(p, subj, 'raw', False)])
+        erm = ';'.join([op.basename(f)
+                        for f in _get_raw_names(p, subj, 'raw', 'only')])
+        erm = ' --erm ' + erm if len(erm) > 0 else ''
+        run_sss = (op.join(p.sws_dir, 'run_sss.sh') +
+                   ' --subject ' + subj + ' --files ' + files + erm)
+        cmd = ['ssh', p.sws_ssh, run_sss]
+        run_subprocess(cmd, stdout=None, stderr=None)
+        print('-' * 70, end='\n\n')
+
+
+def fetch_sss_files(p, subjects):
+    """Pull SSS files (only designed for *nix platforms)"""
+    includes = []
+    for subj in subjects:
+        includes += ['--include', subj,
+                     '--include', op.join(subj, 'sss_fif'),
+                     '--include', op.join(subj, 'sss_fif', '*'),
+                     '--include', op.join(subj, 'sss_log'),
+                     '--include', op.join(subj, 'sss_log', '*')]
+    assert ' ' not in p.sws_dir
+    assert ' ' not in p.sws_ssh
+    cmd = ['rsync', '-ave', 'ssh', '--partial'] + includes + ['--exclude', '*']
+    cmd += ['%s:%s' % (p.sws_ssh, op.join(p.sws_dir, '*')), '.']
+    run_subprocess(cmd, cwd=p.work_dir)
+
+
+def extract_expyfun_events(fname):
+    """Extract expyfun-style serial-coded events from file
+
+    Parameters
+    ----------
+    fname : str
+        Filename to use.
+
+    Returns
+    -------
+    events : array
+        Array of events of shape (N, 3), re-coded such that 1 triggers
+        are renamed according to their binary expyfun representation.
+    presses : list of arrays
+        List of all press events that occurred between each one
+        trigger. Each array has shape (N_presses, 2).
+    orig_events : array
+        Original events array.
+    """
+    # Read events
+    raw = Raw(fname, allow_maxshield=True)
+    orig_events = find_events(raw, stim_channel='STI101')
+    events = list()
+    for ch in range(1, 9):
+        ev = find_events(raw, stim_channel='STI00%d' % ch)
+        ev[:, 2] = 2 ** (ch - 1)
+        events.append(ev)
+    events = np.concatenate(events)
+    events = events[np.argsort(events[:, 0])]
+
+    # check for the correct number of trials
+    aud_idx = np.where(events[:, 2] == 1)[0]
+    breaks = np.concatenate(([0], aud_idx, [len(events)]))
+    resps = []
+    event_nums = []
+    for ti in range(len(aud_idx)):
+        # pull out responses (they come *after* 1 trig)
+        these = events[breaks[ti + 1]:breaks[ti + 2], 2]
+        resp = these[these > 8]
+        resp = np.log2(resp) - 3
+        resps.append(resp)
+
+        # look at trial coding, double-check trial type (pre-1 trig)
+        these = events[breaks[ti + 0]:breaks[ti + 1], 2]
+        serials = these[np.logical_and(these >= 4, these <= 8)]
+        en = np.sum(2 ** np.arange(len(serials))[::-1] * (serials == 8)) + 1
+        event_nums.append(en)
+
+    these_events = events[aud_idx]
+    these_events[:, 2] = event_nums
+    return these_events, resps, orig_events
+
+
+def _get_raw_names(p, subj, which, erm):
+    """Helper to get raw names"""
+    assert which in ('sss', 'raw', 'pca')
+    if which == 'sss':
+        raw_dir = op.join(p.work_dir, subj, p.sss_dir)
+        tag = p.sss_fif_tag
+    elif which == 'raw':
+        raw_dir = op.join(p.work_dir, subj, p.raw_dir)
+        tag = p.raw_fif_tag
+    elif which == 'pca':
+        raw_dir = op.join(p.work_dir, subj, p.pca_dir)
+        tag = p.pca_extra + p.sss_fif_tag
+    if erm == 'only':
+        use = p.runs_empty
+    elif erm:
+        use = p.run_names + p.runs_empty
+    else:
+        use = p.run_names
+    return [op.join(raw_dir, safe_inserter(r, subj) + tag) for r in use]
 
 
 def fix_eeg_files(p, subjects, structurals=None, dates=None, verbose=True):
     """Reorder EEG channels based on UW cap setup and params
 
-    Reorders any SSS and non-SSS files it can find based on params.
-    It will try to fix both types of files by using p.orig_dir_tag
-    and p.
+    Reorders only the SSS files based on params, to leave the raw files
+    in an unmodified state.
 
     Parameters
     ----------
@@ -181,24 +532,9 @@ def fix_eeg_files(p, subjects, structurals=None, dates=None, verbose=True):
     for si, subj in enumerate(subjects):
         if p.disp_files:
             print('  Fixing subject %g/%g.' % (si + 1, len(subjects)))
-        raw_dir = op.join(p.work_dir, subj, p.orig_dir_tag)
-
-        # Create SSP projection vectors after marking bad channels
-        raw_names = [op.join(raw_dir, safe_inserter(r, subj) + p.fif_tag)
-                     for r in p.run_names]
-        raw_names += [op.join(raw_dir, safe_inserter(r, subj) + p.fif_tag)
-                      for r in p.runs_empty]
-        if p.extra_dir_tag is not None:
-            raw_dir = op.join(p.work_dir, subj, p.extra_dir_tag)
-            raw_names += [op.join(raw_dir, safe_inserter(r, subj) +
-                                  p.extra_fif_tag) for r in p.run_names]
-            raw_names += [op.join(raw_dir, safe_inserter(r, subj) +
-                                  p.extra_fif_tag) for r in p.runs_empty]
+        raw_names = _get_raw_names(p, subj, 'sss', True)
         # Now let's make sure we only run files that actually exist
-        names = []
-        for name in raw_names:
-            if op.isfile(name):
-                names += [name]
+        names = [name for name in raw_names if op.isfile(name)]
         if structurals is not None and dates is not None:
             assert isinstance(structurals[si], str)
             assert isinstance(dates[si], tuple) and len(dates[si]) == 3
@@ -309,7 +645,7 @@ def get_fsaverage_medial_vertices(concatenate=True):
 
 
 def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
-                out_numbers, must_match, match_fun=None):
+                out_numbers, must_match):
     """Generate epochs from raw data based on events
 
     Can only complete after preprocessing is complete.
@@ -336,24 +672,18 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
         Indices from the original in_names that must match in event counts
         before collapsing. Should eventually be expanded to allow for
         ratio-based collapsing.
-    match_fun : function | None
-        If None, standard matching will be performed. If a function,
-        must_match will be ignored, and ``match_fun`` will be called
-        to equalize event counts.
     """
     in_names = np.asanyarray(in_names)
     old_dict = dict()
     for n, e in zip(in_names, in_numbers):
         old_dict[n] = e
 
-    fif_extra = ('_allclean_fil%d' % p.lp_cut) + p.fif_tag
     n_runs = len(p.run_names)
     ch_namess = list()
     drop_logs = list()
     for subj in subjects:
         if p.disp_files:
             print('  Loading raw files for subject %s.' % subj)
-        pca_dir = op.join(p.work_dir, subj, p.raw_dir_tag)
         lst_dir = op.join(p.work_dir, subj, p.list_dir)
         epochs_dir = op.join(p.work_dir, subj, p.epochs_dir)
         if not op.isdir(epochs_dir):
@@ -363,8 +693,7 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
             os.mkdir(evoked_dir)
 
         # read in raw files
-        raw_names = [op.join(pca_dir, safe_inserter(r, subj) + fif_extra)
-                     for r in p.run_names]
+        raw_names = _get_raw_names(p, subj, 'pca', False)
         # read in events
         first_samps = []
         last_samps = []
@@ -374,8 +703,11 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
             last_samps.append(raw._last_samps[-1])
         # read in raw files
         raw = Raw(raw_names, preload=False)
+
+        # read in events
         events = [read_events(op.join(lst_dir, 'ALL_' +
-                                      safe_inserter(p.run_names[ri], subj) + '.lst'))
+                                      safe_inserter(p.run_names[ri], subj) +
+                                      '-eve.lst'))
                   for ri in range(n_runs)]
         events = concatenate_events(events, first_samps, last_samps)
         # do time adjustment
@@ -410,7 +742,7 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
             if not len(new_numbers) == len(names):
                 raise ValueError('out_numbers length must match out_names '
                                  'length for analysis %s' % analysis)
-            if match_fun is None:
+            if p.match_fun is None:
                 # first, equalize trial counts (this will make a copy)
                 if len(in_names_match) > 1:
                     e = epochs.equalize_event_counts(in_names_match)[0]
@@ -422,8 +754,8 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
                     combine_event_ids(e, in_names[num == numbers], {name: num},
                                       copy=False)
             else:  # custom matching
-                e = match_fun(epochs.copy(), analysis, nn,
-                              in_names_match, names)
+                e = p.match_fun(epochs.copy(), analysis, nn,
+                                in_names_match, names)
 
             # now make evoked for each out type
             evokeds = list()
@@ -447,8 +779,9 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
         if 'fif' in p.epochs_type:
             epochs.save(fif_file)
 
-    for subj, drop_log in zip(subjects, drop_logs):
-        plot_drop_log(drop_log, threshold=p.drop_thresh, subject=subj)
+    if p.plot_drop_logs:
+        for subj, drop_log in zip(subjects, drop_logs):
+            plot_drop_log(drop_log, threshold=p.drop_thresh, subject=subj)
 
 
 def gen_inverses(p, subjects, use_old_rank=False):
@@ -468,21 +801,19 @@ def gen_inverses(p, subjects, use_old_rank=False):
     meg_bools = [True, True, False]
     eeg_bools = [False, True, True]
 
-    fif_extra = ('_allclean_fil%d' % p.lp_cut)
     for subj in subjects:
         if p.disp_files:
             print('  Subject %s. ' % subj)
         inv_dir = op.join(p.work_dir, subj, p.inverse_dir)
         fwd_dir = op.join(p.work_dir, subj, p.forward_dir)
         cov_dir = op.join(p.work_dir, subj, p.cov_dir)
-        pca_dir = op.join(p.work_dir, subj, p.raw_dir_tag)
+        pca_dir = op.join(p.work_dir, subj, p.pca_dir)
         if not op.isdir(inv_dir):
             os.mkdir(inv_dir)
         make_erm_inv = len(p.runs_empty) > 0
         if make_erm_inv:
             cov_name = op.join(cov_dir, safe_inserter(p.runs_empty[0], subj)
-                               + ('_allclean_fil%d' % p.lp_cut)
-                               + p.inv_tag + '-cov.fif')
+                               + p.pca_extra + p.inv_tag + '-cov.fif')
             empty_cov = read_cov(cov_name)
         else:
             cov_name = op.join(cov_dir, safe_inserter(subj, subj)
@@ -494,7 +825,7 @@ def gen_inverses(p, subjects, use_old_rank=False):
             fwd = read_forward_solution(fwd_name, surf_ori=True)
             # Shouldn't matter which raw file we use
             raw_fname = op.join(pca_dir, safe_inserter(p.run_names[0], subj)
-                                + fif_extra + p.fif_tag)
+                                + p.pca_fif_tag)
             raw = Raw(raw_fname)
 
             cov = read_cov(cov_name)
@@ -536,7 +867,7 @@ def gen_forwards(p, subjects, structurals):
         The structural data names for each subject (e.g., ['AKCLEE_101', ...]).
     """
     for subj, structural in zip(subjects, structurals):
-        raw_dir = op.join(p.work_dir, subj, p.orig_dir_tag)
+        raw_dir = op.join(p.work_dir, subj, p.sss_dir)
         fwd_dir = op.join(p.work_dir, subj, p.forward_dir)
         if not op.isdir(fwd_dir):
             os.mkdir(fwd_dir)
@@ -554,11 +885,11 @@ def gen_forwards(p, subjects, structurals):
             print('  Creating forward solution(s)...')
         bem_file = op.join(subjects_dir, structural, 'bem',
                            structural + '-' + p.bem_type + '-bem-sol.fif')
-        if p.data_transformed:
+        if p.translate_positions:
             for ii, (inv_name, inv_run) in enumerate(zip(p.inv_names,
                                                          p.inv_runs)):
                 s_name = safe_inserter(p.run_names[inv_run[0]], subj)
-                raw_name = op.join(raw_dir, s_name + p.fif_tag)
+                raw_name = op.join(raw_dir, s_name + p.sss_fif_tag)
                 info = read_info(raw_name)
                 fwd_name = op.join(fwd_dir, safe_inserter(inv_name, subj)
                                    + p.inv_tag + '-fwd.fif')
@@ -570,7 +901,7 @@ def gen_forwards(p, subjects, structurals):
             fwds = list()
             for ri, run_name in enumerate(p.run_names):
                 s_name = safe_inserter(run_name, subj)
-                raw_name = op.join(raw_dir, s_name + p.fif_tag)
+                raw_name = op.join(raw_dir, s_name + p.sss_fif_tag)
                 info = read_info(raw_name)
                 fwd_name = op.join(fwd_dir, s_name + p.inv_tag + '-fwd.fif')
                 fwd = make_forward_solution(info, mri_file, src_file, bem_file,
@@ -599,9 +930,8 @@ def gen_covariances(p, subjects):
     subjects : list of str
         Subject names to analyze (e.g., ['Eric_SoP_001', ...]).
     """
-    fif_extra = ('_allclean_fil%d' % p.lp_cut)
     for subj in subjects:
-        pca_dir = op.join(p.work_dir, subj, p.raw_dir_tag)
+        pca_dir = op.join(p.work_dir, subj, p.pca_dir)
         cov_dir = op.join(p.work_dir, subj, p.cov_dir)
         lst_dir = op.join(p.work_dir, subj, p.list_dir)
         if not op.isdir(cov_dir):
@@ -612,9 +942,9 @@ def gen_covariances(p, subjects):
             if len(p.runs_empty) > 1:
                 raise ValueError('Too many empty rooms; undefined output!')
             new_run = safe_inserter(p.runs_empty[0], subj)
-            empty_cov_name = op.join(cov_dir, new_run + fif_extra
+            empty_cov_name = op.join(cov_dir, new_run + p.pca_extra
                                      + p.inv_tag + '-cov.fif')
-            empty_fif = op.join(pca_dir, new_run + fif_extra + p.fif_tag)
+            empty_fif = op.join(pca_dir, new_run + p.pca_fif_tag)
             raw = Raw(empty_fif, preload=True)
             cov = compute_raw_data_covariance(raw, reject=p.reject,
                                               flat=p.flat)
@@ -624,7 +954,7 @@ def gen_covariances(p, subjects):
         rn = p.run_names
         for inv_name, inv_run in zip(p.inv_names, p.inv_runs):
             raw_fnames = [op.join(pca_dir, safe_inserter(rn[ir], subj)
-                                  + fif_extra + p.fif_tag)
+                                  + p.pca_fif_tag)
                           for ir in inv_run]
             first_samps = []
             last_samps = []
@@ -634,7 +964,7 @@ def gen_covariances(p, subjects):
                 last_samps.append(raw._last_samps[-1])
             raw = Raw(raw_fnames, preload=False)
             e_names = [op.join(lst_dir, 'ALL_' + safe_inserter(rn[ir], subj)
-                               + '.lst') for ir in inv_run]
+                               + '-eve.lst') for ir in inv_run]
             events = [read_events(e) for e in e_names]
             events = concatenate_events(events, first_samps,
                                         last_samps)
@@ -716,15 +1046,12 @@ def do_preprocessing_combined(p, subjects):
     for si, subj in enumerate(subjects):
         if p.disp_files:
             print('  Preprocessing subject %g/%g.' % (si + 1, len(subjects)))
-        raw_dir = op.join(p.work_dir, subj, p.orig_dir_tag)
-        pca_dir = op.join(p.work_dir, subj, p.raw_dir_tag)
-        bad_dir = op.join(p.work_dir, subj, p.bad_dir_tag)
+        pca_dir = op.join(p.work_dir, subj, p.pca_dir)
+        bad_dir = op.join(p.work_dir, subj, p.bad_dir)
 
         # Create SSP projection vectors after marking bad channels
-        raw_names = [op.join(raw_dir, safe_inserter(r, subj) + p.fif_tag)
-                     for r in p.run_names]
-        empty_names = [op.join(raw_dir, safe_inserter(r, subj) + p.fif_tag)
-                       for r in p.runs_empty]
+        raw_names = _get_raw_names(p, subj, 'sss', False)
+        empty_names = _get_raw_names(p, subj, 'sss', 'only')
         for r in raw_names + empty_names:
             if not op.isfile(r):
                 raise NameError('File not found (' + r + ')')
@@ -883,7 +1210,9 @@ def do_preprocessing_combined(p, subjects):
         drop_logs.append(epochs.drop_log)
         del raw_orig
         del epochs
-    return drop_logs
+    if p.plot_drop_logs:
+        for subj, drop_log in zip(subjects, drop_logs):
+            plot_drop_log(drop_log, p.drop_thresh, subject=subj)
 
 
 def apply_preprocessing_combined(p, subjects):
@@ -905,24 +1234,18 @@ def apply_preprocessing_combined(p, subjects):
         if p.disp_files:
             print('  Applying processing to subject %g/%g.'
                   % (si + 1, len(subjects)))
-        raw_dir = op.join(p.work_dir, subj, p.orig_dir_tag)
-        pca_dir = op.join(p.work_dir, subj, p.raw_dir_tag)
-        raw_names = [op.join(raw_dir, safe_inserter(r, subj) + p.fif_tag)
-                     for r in p.run_names]
-        emp_names = [op.join(raw_dir, safe_inserter(r, subj) + p.fif_tag)
-                     for r in p.runs_empty]
-        names_out = [op.join(pca_dir, safe_inserter(r, subj)
-                             + '_allclean_fil%d' % p.lp_cut + p.fif_tag)
-                     for r in p.run_names + p.runs_empty]
-        bad_dir = op.join(p.work_dir, subj, p.bad_dir_tag)
+        pca_dir = op.join(p.work_dir, subj, p.pca_dir)
+        names_in = _get_raw_names(p, subj, 'sss', True)
+        names_out = _get_raw_names(p, subj, 'pca', True)
+        bad_dir = op.join(p.work_dir, subj, p.bad_dir)
         bad_file = op.join(bad_dir, 'bad_ch_' + subj + p.bad_tag)
         bad_file = None if not op.isfile(bad_file) else bad_file
         all_proj = op.join(pca_dir, 'preproc_all-proj.fif')
         projs = read_proj(all_proj)
-        for ii, (r, o) in enumerate(zip(raw_names + emp_names, names_out)):
+        for ii, (r, o) in enumerate(zip(names_in, names_out)):
             if p.disp_files:
                 print('    Processing file %d/%d.'
-                      % (ii + 1, len(raw_names) + len(emp_names)))
+                      % (ii + 1, len(names_in)))
             raw = _raw_LRFCP(r, None, None, p.lp_cut, p.n_jobs_fir,
                              p.n_jobs_resample, projs, bad_file,
                              disp_files=False, method='fft', apply_proj=False,
@@ -931,80 +1254,6 @@ def apply_preprocessing_combined(p, subjects):
         # look at raw_clean for ExG events
         if p.plot_raw:
             viz_raw_ssp_events(p, subj)
-
-
-def lst_read(raw_path, stim_channel='STI101'):
-    """Wrapper for find_events that defaults to UW stim_channel STI101
-
-    Parameters
-    ----------
-    raw_path : str
-        Path to raw file to extract events from.
-    stim_channel : str
-        Stim channel to use. Defaults to STI101.
-
-    Returns
-    -------
-    events : array
-        Nx4 array of events.
-    """
-    raw = Raw(raw_path, allow_maxshield=True)
-    lst_in = find_events(raw, stim_channel=stim_channel)
-    raw.close()
-    return lst_in
-
-
-def _mne_head_sphere(in_fif, out_pos):
-    """Calculate sphere from head digitization for SSS
-
-    Parameters
-    ----------
-    in_fif : str
-        FIF file to use.
-    out_pos : str
-        Filename to save the head position to.
-    """
-    raw = Raw(in_fif, allow_maxshield=True)
-    radius, origin_head, origin_device = fit_sphere_to_headshape(raw.info)
-    raw.close()
-    out_string = ''.join(['%0.0f ' % np.round(number)
-                          for number in origin_head])
-    if out_pos:
-        f = open(out_pos, 'w')
-        f.write(out_string)
-        f.close()
-
-
-def calc_head_centers(p, subjects):
-    """Calculate sphere locations from head digitizations for SSS
-
-    Saves head positions to a file.
-
-    Parameters
-    ----------
-    p : instance of Parameters
-        Analysis parameters.
-    subjects : list of str
-        Subject names to analyze (e.g., ['Eric_SoP_001', ...]).
-    """
-    if p.extra_dir_tag is None:
-        dir_tag = p.orig_dir_tag
-        fif_tag = p.fif_tag
-    else:
-        dir_tag = p.extra_dir_tag
-        fif_tag = p.extra_fif_tag
-    pout_dir = op.join(p.work_dir, 'SSSPrep')
-    if not op.isdir(pout_dir):
-        os.mkdir(pout_dir)
-    for si in range(len(subjects)):
-        for ri in range(len(p.run_names)):
-            new_run = safe_inserter(p.run_names[ri], subjects[si])
-            in_fif = op.join(p.work_dir, subjects[si], dir_tag,
-                             new_run + fif_tag)
-            out_pos = op.join(pout_dir, new_run + '_pos.txt')
-            if op.isfile(out_pos):
-                os.remove(out_pos)
-            _mne_head_sphere(in_fif, out_pos)
 
 
 def gen_layouts(p, subjects):
@@ -1021,8 +1270,8 @@ def gen_layouts(p, subjects):
     for si in range(len(subjects)):
         ri = 1
         new_run = safe_inserter(p.run_names[ri], subjects[si])
-        in_fif = op.join(p.work_dir, subjects[si], p.orig_dir_tag,
-                         new_run + p.fif_tag)
+        in_fif = op.join(p.work_dir, subjects[si], p.sss_dir,
+                         new_run + p.sss_fif_tag)
         out_lout = op.join(lout_dir, subjects[si] + '_eeg.lout')
         if op.isfile(out_lout):
             os.remove(out_lout)
@@ -1032,85 +1281,8 @@ def gen_layouts(p, subjects):
         raw.close()
 
 
-def make_standard_tags(p, use_sss=True, data_transformed=None):
-    """Make standard parameter tags
-
-    Parameters
-    ----------
-    p : instance of Parameters
-        Analysis parameters.
-    use_sss : bool
-        Sets parameters correctly based on whether or not SSS is used.
-    data_transformed : bool | None
-        Indicate whether or not data has been transformed to a common
-        coordinate frame. If None, will be True for SSS and False for non-SSS.
-
-    Returns
-    -------
-    p : instance of Parameters
-        The modified parameters (modified inplace).
-    """
-    if data_transformed is None:
-        data_transformed = True if use_sss else False
-    p.data_transformed = data_transformed
-    if use_sss:
-        if p.fname_style == 'new':
-            p.orig_dir_tag = 'sss_fif'
-            p.raw_dir_tag = 'sss_pca_fif'
-            p.inv_tag = '-sss'
-            p.extra_dir_tag = 'raw_fif'
-            p.epochs_dir = 'epochs'
-            p.epochs_tag = '-epo'
-            p.cov_dir = 'covariance'
-            p.inverse_dir = 'inverse'
-            p.forward_dir = 'forward'
-            p.list_dir = 'lists'
-            p.trans_dir = 'trans'
-            p.bad_dir_tag = 'bads'
-            p.inv_fixed_tag = '-fixed'
-            p.inv_erm_tag = '-erm'
-            p.eq_tag = 'eq'
-        else:
-            p.orig_dir_tag = 'SSS_FIF'
-            p.raw_dir_tag = 'SSS_PCA_FIF'
-            p.inv_tag = '-SSS'
-            p.extra_dir_tag = 'RAW_FIF'
-            p.epochs_dir = 'Epochs'
-            p.epochs_tag = '_Epochs'
-            p.cov_dir = 'Cov'
-            p.inverse_dir = 'Inverse'
-            p.forward_dir = 'Forward'
-            p.list_dir = 'LST'
-            p.trans_dir = 'TRANS'
-            p.bad_dir_tag = 'BAD_CH'
-            p.inv_fixed_tag = '-Fixed'
-            p.inv_erm_tag = '-ERM'
-            p.eq_tag = 'EQ'
-        p.fif_tag = '_raw_sss.fif'
-        p.bad_tag = '_post-sss.txt'
-        p.keep_orig = False
-        # This is used by fix_eeg_channels to fix original files
-        p.extra_fif_tag = '_raw.fif'
-    else:
-        if p.fname_style == 'new':
-            p.orig_dir_tag = 'raw_fif'
-            p.raw_dir_tag = 'pca_fif'
-        else:
-            p.orig_dir_tag = 'RAW_FIF'
-            p.raw_dir_tag = 'PCA_FIF'
-        p.fif_tag = '_raw.fif'
-        p.inv_tag = ''
-        p.bad_tag = '_pre-sss.txt'
-        p.keep_orig = True
-        p.extra_dir_tag = None
-        p.extra_fif_tag = None
-    return p
-
-
-# noinspection PyClassicStyleClass
 class FakeEpochs():
     """Make iterable epoch-like class, convenient for MATLAB transition"""
-
     def __init__(self, data, ch_names, tmin=-0.2, sfreq=1000.0):
         self._data = data
         self.info = dict(ch_names=ch_names, sfreq=sfreq)
