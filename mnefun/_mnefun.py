@@ -8,6 +8,7 @@ import subprocess
 import re
 import glob
 import collections
+import matplotlib.pyplot as plt
 
 from mne import (compute_proj_raw, make_fixed_length_events, Epochs,
                  find_events, read_events, write_events, concatenate_events,
@@ -49,7 +50,7 @@ class Params(object):
                  filter_length=32768, drop_thresh=1, fname_style='new',
                  epochs_type=('fif', 'mat'), fwd_mindist=2.0,
                  bem_type='5120-5120-5120', auto_bad=None, ecg_channel='ECG063',
-                 plot_raw=False):
+                 plot_raw=False, eeg=False):
         """Make a useful parameter structure
 
         This is technically a class, but it doesn't currently have any methods
@@ -152,8 +153,11 @@ class Params(object):
         self.epochs_type = epochs_type
         self.fwd_mindist = fwd_mindist
         self.auto_bad = auto_bad
+        self.auto_bad_reject = None
+        self.auto_bad_flat = None
         self.ecg_channel = ecg_channel
         self.plot_raw = plot_raw
+        self.eeg = eeg
 
 
 def fix_eeg_files(p, subjects, structurals=None, dates=None, verbose=True):
@@ -729,19 +733,23 @@ def do_preprocessing_combined(p, subjects):
         if isinstance(p.auto_bad, float):
             print('    Creating bad channel file, marking bad channels:\n'
                   '        %s' % bad_file)
+            if not op.isdir(bad_dir):
+                os.mkdir(bad_dir)
             # do autobad
             raw = _raw_LRFCP(raw_names, p.proj_sfreq, None, None, p.n_jobs_fir,
                              p.n_jobs_resample, list(), None, p.disp_files,
-                             method='fft', filter_length=p.filter_length)
+                             method='fft', filter_length=p.filter_length, apply_proj=False)
             events = fixed_len_events(p, raw)
-            epochs = Epochs(raw, events, event_id=None, tmin=p.tmin,
-                            tmax=p.tmax, baseline=(p.bmin, p.bmax),
-                            reject=p.reject, flat=p.flat, proj=True,
-                            preload=True, decim=p.decim)
             # do not mark eog channels bad
-            picks = pick_types(epochs.info, eog=False, exclude=[])
-            picks = [epochs.info.get('ch_names')[i] for i in picks]
-            epochs.pick_channels(picks)
+            if p.eeg:
+                picks = pick_types(raw.info, eeg=True, eog=False, exclude=[])
+            else:
+                picks = pick_types(raw.info, eog=False, exclude=[])
+            assert type(p.auto_bad_reject) and type(p.auto_bad_flat) == dict
+            epochs = Epochs(raw, events, picks=picks, event_id=None, tmin=p.tmin,
+                            tmax=p.tmax, baseline=(p.bmin, p.bmax),
+                            reject=p.auto_bad_reject, flat=p.auto_bad_flat, proj=True,
+                            preload=True, decim=0)
             # channel scores from drop log
             scores = collections.Counter([ch for d in epochs.drop_log for ch in d])
             ch_names = np.array(scores.keys())
@@ -751,11 +759,11 @@ def do_preprocessing_combined(p, subjects):
             # boolean array masking out channels with less than % epochs dropped
             mask = counts[order] > p.auto_bad
             badchs = ch_names[order[mask]]
-            print('    The following channels resulted in greater than {0:.0f}% trials dropped:\n'.format(p.auto_bad))
-            print(badchs)
-            with open(bad_file, 'w') as f:
-                f.write('\n'.join(i for i in badchs))
-            f.close()
+            if len(badchs) >= 1:
+                print('    The following channels resulted in greater than {0:.0f}% trials dropped:\n'.format(p.auto_bad))
+                print(badchs)
+                with open(bad_file, 'w') as f:
+                    f.write('\n'.join(badchs))
         if not op.isfile(bad_file):
             print('    No bad channel file found, clearing bad channels:\n'
                   '        %s' % bad_file)
@@ -825,7 +833,7 @@ def do_preprocessing_combined(p, subjects):
                                  n_mag=proj_nums[0][1], n_eeg=proj_nums[0][2],
                                  tmin=ecg_t_lims[0], tmax=ecg_t_lims[1],
                                  l_freq=None, h_freq=None, no_proj=True,
-                                 qrs_threshold=0.9, ch_name=ch_name)
+                                 qrs_threshold='auto', ch_name=p.ecg_channel)
             pr, ecg_events = o
             if ecg_events.shape[0] >= 20:
                 write_events(ecg_eve, ecg_events)
@@ -923,6 +931,7 @@ def apply_preprocessing_combined(p, subjects):
         # look at raw_clean for ExG events
         if p.plot_raw:
             viz_raw_ssp_events(p, subj)
+
 
 def lst_read(raw_path, stim_channel='STI101'):
     """Wrapper for find_events that defaults to UW stim_channel STI101
@@ -1098,6 +1107,7 @@ def make_standard_tags(p, use_sss=True, data_transformed=None):
     return p
 
 
+# noinspection PyClassicStyleClass
 class FakeEpochs():
     """Make iterable epoch-like class, convenient for MATLAB transition"""
 
@@ -1209,8 +1219,8 @@ def fixed_len_events(p, raw):
 def viz_raw_ssp_events(p, subj, show=True):
     """Helper to plot filtered cleaned raw trace with ExG events"""
     pca_dir = op.join(p.work_dir, subj, p.raw_dir_tag)
-    fif_extra = ('_allclean_fil%d' % p.lp_cut) + p.fif_tag
-    raw_names = [op.join(pca_dir, safe_inserter(r, subj) + fif_extra)
+    sss_dir = op.join(p.work_dir, subj, p.orig_dir_tag)
+    raw_names = [op.join(sss_dir, safe_inserter(r, subj) + p.fif_tag)
                  for r in p.run_names]
     pre_list = [r for ri, r in enumerate(raw_names)
                 if ri in p.get_projs_from]
@@ -1225,8 +1235,7 @@ def viz_raw_ssp_events(p, subj, show=True):
     raw = _raw_LRFCP(pre_list, p.proj_sfreq, None, None, p.n_jobs_fir,
                      p.n_jobs_resample, projs, None, p.disp_files,
                      method='fft', filter_length=p.filter_length)
-    fig = raw.plot(events=ev)
     if show:
-        import matplotlib.pyplot as plt
+        raw.plot(events=ev)
+        plt.draw()
         plt.show()
-    return fig
