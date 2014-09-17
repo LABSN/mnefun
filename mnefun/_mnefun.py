@@ -812,12 +812,9 @@ def gen_inverses(p, subjects, use_old_rank=False):
             os.mkdir(inv_dir)
         make_erm_inv = len(p.runs_empty) > 0
         if make_erm_inv:
-            cov_name = op.join(cov_dir, safe_inserter(p.runs_empty[0], subj)
+            erm_name = op.join(cov_dir, safe_inserter(p.runs_empty[0], subj)
                                + p.pca_extra + p.inv_tag + '-cov.fif')
-            empty_cov = read_cov(cov_name)
-        else:
-            cov_name = op.join(cov_dir, safe_inserter(subj, subj)
-                               + ('-%d' % p.lp_cut) + p.inv_tag + '-cov.fif')
+            empty_cov = read_cov(erm_name)
         for name in p.inv_names:
             s_name = safe_inserter(name, subj)
             temp_name = s_name + ('-%d' % p.lp_cut) + p.inv_tag
@@ -828,6 +825,8 @@ def gen_inverses(p, subjects, use_old_rank=False):
                                 + p.pca_fif_tag)
             raw = Raw(raw_fname)
 
+            cov_name = op.join(cov_dir, safe_inserter(name, subj)
+                               + ('-%d' % p.lp_cut) + p.inv_tag + '-cov.fif')
             cov = read_cov(cov_name)
             cov_reg = regularize(cov, raw.info)
             if make_erm_inv:
