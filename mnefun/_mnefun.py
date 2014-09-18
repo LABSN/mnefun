@@ -59,8 +59,9 @@ class Params(object):
                  n_jobs_fir='cuda', n_jobs_resample='cuda',
                  filter_length=32768, drop_thresh=1,
                  epochs_type='fif', fwd_mindist=2.0,
-                 bem_type='5120-5120-5120', auto_bad=None, ecg_channel='ECG063',
-                 plot_raw=False, eeg=False, match_fun=None):
+                 bem_type='5120-5120-5120', auto_bad=None,
+                 ecg_channel='ECG063', plot_raw=False, eeg=False,
+                 match_fun=None):
         """Make a useful parameter structure
 
         This is technically a class, but it doesn't currently have any methods
@@ -115,6 +116,13 @@ class Params(object):
         bem_type : str
             Defaults to ``'5120-5120-5120'``, use ``'5120'`` for a
             single-layer BEM.
+        auto_bad : float | None
+            If not None, bad channels will be automatically excluded if
+            they disqualify a proportion of events exceeding ``autobad``.
+        ecg_channel : str
+            The channel to use to detect ECG events.
+        plot_raw : bool
+            If True, plot the raw files with the ECG/EOG events overlaid.
         match_fun : function | None
             If None, standard matching will be performed. If a function,
             must_match will be ignored, and ``match_fun`` will be called
