@@ -10,9 +10,15 @@ potential purpose would be e.g. functional localization of auditory and
 visual cortices.
 
 Note that you will need to change the "acq_ssh" and "sss_ssh" parameters
-to reflect your username/password on the relevant machines.
+to reflect your username/password on the relevant machines. You will also
+need to set up public key authentication between your machine and the
+two remote machines (acquisition/minea and SSS/kasga). Tutorial here:
 
-The deidentified structural directories for the two subjects are here:
+    * https://help.ubuntu.com/community/SSH/OpenSSH/Keys
+
+The deidentified structural directories for the two subjects are needed
+to do the forward and inverse solutions, extract them into your
+SUBJECTS_DIR directory:
 
     * http://lester.ilabs.uw.edu/files/AKCLEE_107_slim.tar.gz
     * http://lester.ilabs.uw.edu/files/AKCLEE_110_slim.tar.gz

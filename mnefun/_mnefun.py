@@ -207,9 +207,10 @@ class Params(object):
         return self.pca_extra + self.sss_fif_tag
 
 
-def do_processing(p, fetch_raw, push_raw, do_sss, fetch_sss, do_score,
-                  do_ch_fix, gen_ssp, apply_ssp, gen_covs, gen_fwd,
-                  gen_inv, write_epochs):
+def do_processing(p, fetch_raw=False, push_raw=False, do_sss=False,
+                  fetch_sss=False, do_score=False, do_ch_fix=False,
+                  gen_ssp=False, apply_ssp=False, gen_covs=False,
+                  gen_fwd=False, gen_inv=False, write_epochs=False):
     """Do M/EEG data processing
 
     fetch_raw : bool
