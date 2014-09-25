@@ -810,9 +810,14 @@ def gen_inverses(p, subjects, use_old_rank=False):
     subjects : list of str
         Subject names to analyze (e.g., ['Eric_SoP_001', ...]).
     """
-    meg_out_flags = ['-meg', '-meg-eeg', '-eeg']
-    meg_bools = [True, True, False]
-    eeg_bools = [False, True, True]
+    if p.eeg:
+        meg_out_flags = ['-meg', '-meg-eeg', '-eeg']
+        meg_bools = [True, True, False]
+        eeg_bools = [False, True, True]
+    else:
+        meg_out_flags = ['-meg']
+        meg_bools = [True]
+        eeg_bools = [False]
 
     for subj in subjects:
         if p.disp_files:
