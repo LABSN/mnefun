@@ -886,6 +886,10 @@ def gen_forwards(p, subjects, structurals):
 
         subjects_dir = get_config('SUBJECTS_DIR')
         mri_file = op.join(p.work_dir, subj, p.trans_dir, subj + '-trans.fif')
+        if not op.isfile(mri_file):
+            mri_file = op.join(p.work_dir, subj, p.trans_dir, subj + '-trans_head2mri.txt')
+        else:
+            raise RuntimeError('Unable to find coordinate transformation file')
         src_file = op.join(subjects_dir, structural, 'bem',
                            structural + '-oct-6-src.fif')
         if not op.isfile(src_file):
