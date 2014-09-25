@@ -275,7 +275,7 @@ def do_processing(p, fetch_raw=False, push_raw=False, do_sss=False,
                                 p.analyses, p.out_names, p.out_numbers,
                                 p.must_match)
             else:
-                outs[ii] = func(p, p.subjects)
+                outs[ii] = func(p, subjects)
             print('  (' + timestring(time() - t0) + ')')
     print("Done")
 
@@ -368,6 +368,8 @@ def calc_median_hp(p, subj, out_file):
 
 def push_raw_files(p, subjects):
     """Push raw files to SSS workstation"""
+    if len(subjects) == 0:
+        return
     print('  Pushing raw files to SSS workstation...')
     # do all copies at once to avoid multiple logins
     copy2(op.join(op.dirname(__file__), 'run_sss.sh'), p.work_dir)
@@ -433,6 +435,8 @@ def run_sss_remotely(p, subjects):
 
 def fetch_sss_files(p, subjects):
     """Pull SSS files (only designed for *nix platforms)"""
+    if len(subjects) == 0:
+        return
     includes = []
     for subj in subjects:
         includes += ['--include', subj,
