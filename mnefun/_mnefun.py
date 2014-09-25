@@ -810,16 +810,20 @@ def gen_inverses(p, subjects, use_old_rank=False):
     subjects : list of str
         Subject names to analyze (e.g., ['Eric_SoP_001', ...]).
     """
-    if p.eeg:
-        meg_out_flags = ['-meg', '-meg-eeg', '-eeg']
-        meg_bools = [True, True, False]
-        eeg_bools = [False, True, True]
-    else:
-        meg_out_flags = ['-meg']
-        meg_bools = [True]
-        eeg_bools = [False]
-
     for subj in subjects:
+        meg, eeg, meeg = _channels_types(p, subj)
+        if meeg:
+            out_flags = ['-meg', '-meg-eeg', '-eeg']
+            meg_bools = [True, True, False]
+            eeg_bools = [False, True, True]
+        elif meg:
+            out_flags = ['-meg']
+            meg_bools = [True]
+            eeg_bools = [False]
+        elif eeg:
+            out_flags = ['-eeg']
+            meg_bools = [False]
+            eeg_bools = [True]
         if p.disp_files:
             print('  Subject %s. ' % subj)
         inv_dir = op.join(p.work_dir, subj, p.inverse_dir)
@@ -849,7 +853,7 @@ def gen_inverses(p, subjects, use_old_rank=False):
             cov_reg = regularize(cov, raw.info)
             if make_erm_inv:
                 empty_cov_reg = regularize(empty_cov, raw.info)
-            for f, m, e in zip(meg_out_flags, meg_bools, eeg_bools):
+            for f, m, e in zip(out_flags, meg_bools, eeg_bools):
                 fwd_restricted = pick_types_forward(fwd, meg=m, eeg=e)
                 for l, s, x in zip([None, 0.2], [p.inv_fixed_tag, ''],
                                    [True, False]):
@@ -1108,7 +1112,8 @@ def do_preprocessing_combined(p, subjects):
             mask = counts[order] > p.auto_bad
             badchs = ch_names[order[mask]]
             if len(badchs) >= 1:
-                print('    The following channels resulted in greater than {0:.0f}% trials dropped:\n'.format(p.auto_bad))
+                print('    The following channels resulted in greater than '
+                      '{0:.0f}% trials dropped:\n'.format(p.auto_bad))
                 print(badchs)
                 with open(bad_file, 'w') as f:
                     f.write('\n'.join(badchs))
@@ -1432,3 +1437,11 @@ def viz_raw_ssp_events(p, subj, show=True):
         raw.plot(events=ev)
         plt.draw()
         plt.show()
+
+
+def _channels_types(p, subj):
+    """Returns bools for MEG, EEG, M/EEG channel types in data info"""
+    info = read_info(_get_raw_names(p, subj, 'sss', False)[0])
+    meg = len(pick_types(info, meg=True, eeg=False)) > 0
+    eeg = len(pick_types(info, meg=False, eeg=True)) > 0
+    return meg, eeg, (meg and eeg)
