@@ -42,3 +42,5 @@ nosetests.xml
 examples/funloc/subj*
 examples/funloc/run_sss.sh
 
+
+*.orig

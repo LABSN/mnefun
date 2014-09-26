@@ -60,8 +60,7 @@ class Params(object):
                  filter_length=32768, drop_thresh=1,
                  epochs_type='fif', fwd_mindist=2.0,
                  bem_type='5120-5120-5120', auto_bad=None,
-                 ecg_channel='ECG063', plot_raw=False, eeg=False,
-                 match_fun=None):
+                 ecg_channel='ECG063', plot_raw=False, match_fun=None):
         """Make a useful parameter structure
 
         This is technically a class, but it doesn't currently have any methods
@@ -171,7 +170,6 @@ class Params(object):
         self.auto_bad_flat = None
         self.ecg_channel = ecg_channel
         self.plot_raw = plot_raw
-        self.eeg = eeg
         self.translate_positions = True
 
         # add standard file tags
@@ -897,7 +895,7 @@ def gen_forwards(p, subjects, structurals):
         mri_file = op.join(p.work_dir, subj, p.trans_dir, subj + '-trans.fif')
         if not op.isfile(mri_file):
             mri_file = op.join(p.work_dir, subj, p.trans_dir, subj + '-trans_head2mri.txt')
-        else:
+        elif not op.isfile(mri_file):
             raise IOError('Unable to find coordinate transformation file')
         src_file = op.join(subjects_dir, structural, 'bem',
                            structural + '-oct-6-src.fif')
@@ -1093,7 +1091,8 @@ def do_preprocessing_combined(p, subjects):
                              method='fft', filter_length=p.filter_length, apply_proj=False)
             events = fixed_len_events(p, raw)
             # do not mark eog channels bad
-            if p.eeg:
+            _, eeg, _ = _channels_types(p, subj)
+            if eeg:
                 picks = pick_types(raw.info, eeg=True, eog=False, exclude=[])
             else:
                 picks = pick_types(raw.info, eog=False, exclude=[])
