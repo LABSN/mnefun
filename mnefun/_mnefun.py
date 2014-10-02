@@ -60,8 +60,7 @@ class Params(object):
                  filter_length=32768, drop_thresh=1,
                  epochs_type='fif', fwd_mindist=2.0,
                  bem_type='5120-5120-5120', auto_bad=None,
-                 ecg_channel='ECG063', plot_raw=False, eeg=False,
-                 match_fun=None):
+                 ecg_channel='ECG063', plot_raw=False, match_fun=None):
         """Make a useful parameter structure
 
         This is technically a class, but it doesn't currently have any methods
@@ -171,7 +170,6 @@ class Params(object):
         self.auto_bad_flat = None
         self.ecg_channel = ecg_channel
         self.plot_raw = plot_raw
-        self.eeg = eeg
         self.translate_positions = True
 
         # add standard file tags
@@ -810,11 +808,20 @@ def gen_inverses(p, subjects, use_old_rank=False):
     subjects : list of str
         Subject names to analyze (e.g., ['Eric_SoP_001', ...]).
     """
-    meg_out_flags = ['-meg', '-meg-eeg', '-eeg']
-    meg_bools = [True, True, False]
-    eeg_bools = [False, True, True]
-
     for subj in subjects:
+        meg, eeg, meeg = _channels_types(p, subj)
+        if meeg:
+            out_flags = ['-meg', '-meg-eeg', '-eeg']
+            meg_bools = [True, True, False]
+            eeg_bools = [False, True, True]
+        elif meg:
+            out_flags = ['-meg']
+            meg_bools = [True]
+            eeg_bools = [False]
+        elif eeg:
+            out_flags = ['-eeg']
+            meg_bools = [False]
+            eeg_bools = [True]
         if p.disp_files:
             print('  Subject %s. ' % subj)
         inv_dir = op.join(p.work_dir, subj, p.inverse_dir)
@@ -844,7 +851,7 @@ def gen_inverses(p, subjects, use_old_rank=False):
             cov_reg = regularize(cov, raw.info)
             if make_erm_inv:
                 empty_cov_reg = regularize(empty_cov, raw.info)
-            for f, m, e in zip(meg_out_flags, meg_bools, eeg_bools):
+            for f, m, e in zip(out_flags, meg_bools, eeg_bools):
                 fwd_restricted = pick_types_forward(fwd, meg=m, eeg=e)
                 for l, s, x in zip([None, 0.2], [p.inv_fixed_tag, ''],
                                    [True, False]):
@@ -888,8 +895,8 @@ def gen_forwards(p, subjects, structurals):
         mri_file = op.join(p.work_dir, subj, p.trans_dir, subj + '-trans.fif')
         if not op.isfile(mri_file):
             mri_file = op.join(p.work_dir, subj, p.trans_dir, subj + '-trans_head2mri.txt')
-        else:
-            raise RuntimeError('Unable to find coordinate transformation file')
+        elif not op.isfile(mri_file):
+            raise IOError('Unable to find coordinate transformation file')
         src_file = op.join(subjects_dir, structural, 'bem',
                            structural + '-oct-6-src.fif')
         if not op.isfile(src_file):
@@ -1084,10 +1091,8 @@ def do_preprocessing_combined(p, subjects):
                              method='fft', filter_length=p.filter_length, apply_proj=False)
             events = fixed_len_events(p, raw)
             # do not mark eog channels bad
-            if p.eeg:
-                picks = pick_types(raw.info, eeg=True, eog=False, exclude=[])
-            else:
-                picks = pick_types(raw.info, eog=False, exclude=[])
+            meg, eeg = _channels_types(p, subj)[:2]
+            picks = pick_types(raw.info, meg=meg, eeg=eeg, eog=False, exclude=[])
             assert type(p.auto_bad_reject) and type(p.auto_bad_flat) == dict
             epochs = Epochs(raw, events, picks=picks, event_id=None, tmin=p.tmin,
                             tmax=p.tmax, baseline=(p.bmin, p.bmax),
@@ -1103,7 +1108,8 @@ def do_preprocessing_combined(p, subjects):
             mask = counts[order] > p.auto_bad
             badchs = ch_names[order[mask]]
             if len(badchs) >= 1:
-                print('    The following channels resulted in greater than {0:.0f}% trials dropped:\n'.format(p.auto_bad))
+                print('    The following channels resulted in greater than '
+                      '{0:.0f}% trials dropped:\n'.format(p.auto_bad))
                 print(badchs)
                 with open(bad_file, 'w') as f:
                     f.write('\n'.join(badchs))
@@ -1427,3 +1433,11 @@ def viz_raw_ssp_events(p, subj, show=True):
         raw.plot(events=ev)
         plt.draw()
         plt.show()
+
+
+def _channels_types(p, subj):
+    """Returns bools for MEG, EEG, M/EEG channel types in data info"""
+    info = read_info(_get_raw_names(p, subj, 'sss', False)[0])
+    meg = len(pick_types(info, meg=True, eeg=False)) > 0
+    eeg = len(pick_types(info, meg=False, eeg=True)) > 0
+    return meg, eeg, (meg and eeg)
