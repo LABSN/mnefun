@@ -1091,11 +1091,8 @@ def do_preprocessing_combined(p, subjects):
                              method='fft', filter_length=p.filter_length, apply_proj=False)
             events = fixed_len_events(p, raw)
             # do not mark eog channels bad
-            _, eeg, _ = _channels_types(p, subj)
-            if eeg:
-                picks = pick_types(raw.info, eeg=True, eog=False, exclude=[])
-            else:
-                picks = pick_types(raw.info, eog=False, exclude=[])
+            meg, eeg = _channels_types(p, subj)[:2]
+            picks = pick_types(raw.info, meg=meg, eeg=eeg, eog=False, exclude=[])
             assert type(p.auto_bad_reject) and type(p.auto_bad_flat) == dict
             epochs = Epochs(raw, events, picks=picks, event_id=None, tmin=p.tmin,
                             tmax=p.tmax, baseline=(p.bmin, p.bmax),
