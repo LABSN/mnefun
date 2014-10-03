@@ -338,7 +338,7 @@ def calc_median_hp(p, subj, out_file):
         qw = np.sqrt(1. + m[0, 0] + m[1, 1] + m[2, 2]) / 2.
         # make sure we are orthogonal and special
         assert_allclose(np.dot(m, m.T), np.eye(3), atol=1e-5)
-        assert_allclose([qw], [1.], atol=1e-2)
+        assert_allclose([qw], [1.], atol=5e-2)
         qs.append([(m[2, 1] - m[1, 2]) / (4 * qw),
                    (m[0, 2] - m[2, 0]) / (4 * qw),
                    (m[1, 0] - m[0, 1]) / (4 * qw)])
