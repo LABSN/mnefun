@@ -86,7 +86,7 @@ else
 fi
 
 # Head position translation
-IFS=';' read -ra ADDR <<< "$FILES"
+IFS=':' read -ra ADDR <<< "$FILES"
 case "${HEAD_TRANS}" in 
     "first")
         HEAD_TRANS="${RAW_DIR}${ADDR[0]}"
@@ -165,7 +165,7 @@ for FILE in "${ADDR[@]}"; do
 done
 
 # ERM processing
-IFS=';' read -ra ADDR <<< "$ERM_FILES"
+IFS=':' read -ra ADDR <<< "$ERM_FILES"
 for FILE in "${ADDR[@]}"; do
     echo ""
     echo "Processing empty room: ${FILE}"
