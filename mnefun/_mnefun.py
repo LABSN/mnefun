@@ -419,9 +419,9 @@ def run_sss_remotely(p, subjects):
         print('-' * len(s))
         print(s)
         print('-' * len(s))
-        files = ';'.join([op.basename(f)
+        files = ':'.join([op.basename(f)
                           for f in _get_raw_names(p, subj, 'raw', False)])
-        erm = ';'.join([op.basename(f)
+        erm = ':'.join([op.basename(f)
                         for f in _get_raw_names(p, subj, 'raw', 'only')])
         erm = ' --erm ' + erm if len(erm) > 0 else ''
         run_sss = (op.join(p.sws_dir, 'run_sss.sh') +
