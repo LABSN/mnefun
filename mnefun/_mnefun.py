@@ -289,7 +289,7 @@ def fetch_raw_files(p, subjects):
         if not op.isdir(raw_dir):
             os.mkdir(raw_dir)
         finder = 'find %s ' % p.acq_dir
-        fnames = _get_raw_names(p, subj, 'raw', True)
+        fnames = get_raw_fnames(p, subj, 'raw', True)
         assert len(fnames) > 0
         finder = finder + ' -o '.join(["-name '%s'" % op.basename(fname)
                                        for fname in fnames])
@@ -326,7 +326,7 @@ def fetch_raw_files(p, subjects):
 def calc_median_hp(p, subj, out_file):
     """Calculate median head position"""
     print('    Estimating median head position for %s... ' % subj)
-    raw_files = _get_raw_names(p, subj, 'raw', False)
+    raw_files = get_raw_fnames(p, subj, 'raw', False)
     ts = []
     qs = []
     out_info = None
@@ -401,7 +401,7 @@ def push_raw_files(p, subjects):
         if op.isfile(prebad_file):  # SSS prebad file
             includes += ['--include',
                          op.join(raw_root, op.basename(prebad_file))]
-        fnames = _get_raw_names(p, subj, 'raw', True)
+        fnames = get_raw_fnames(p, subj, 'raw', True)
         for fname in fnames:
             assert op.isfile(op.join(fname)), fname
             includes += ['--include', op.join(raw_root, op.basename(fname))]
@@ -420,9 +420,9 @@ def run_sss_remotely(p, subjects):
         print(s)
         print('-' * len(s))
         files = ':'.join([op.basename(f)
-                          for f in _get_raw_names(p, subj, 'raw', False)])
+                          for f in get_raw_fnames(p, subj, 'raw', False)])
         erm = ':'.join([op.basename(f)
-                        for f in _get_raw_names(p, subj, 'raw', 'only')])
+                        for f in get_raw_fnames(p, subj, 'raw', 'only')])
         erm = ' --erm ' + erm if len(erm) > 0 else ''
         run_sss = (op.join(p.sws_dir, 'run_sss.sh') +
                    ' --subject ' + subj + ' --files ' + files + erm)
@@ -502,8 +502,26 @@ def extract_expyfun_events(fname):
     return these_events, resps, orig_events
 
 
-def _get_raw_names(p, subj, which, erm):
-    """Helper to get raw names"""
+def get_raw_fnames(p, subj, which='raw', erm=True):
+    """Get raw filenames
+
+    Parameters
+    ----------
+    p : instance of Params
+        Parameters structure.
+    subj : str
+        Subject name.
+    which : str
+        Type of raw filenames. Must be 'sss', 'raw', or 'pca'.
+    erm : bool | str
+        If True, include empty-room files (appended to end). If 'only', then
+        only return empty-room files.
+
+    Returns
+    -------
+    fnames : list
+        List of filenames.
+    """
     assert which in ('sss', 'raw', 'pca')
     if which == 'sss':
         raw_dir = op.join(p.work_dir, subj, p.sss_dir)
@@ -543,7 +561,7 @@ def fix_eeg_files(p, subjects, structurals=None, dates=None, verbose=True):
     for si, subj in enumerate(subjects):
         if p.disp_files:
             print('  Fixing subject %g/%g.' % (si + 1, len(subjects)))
-        raw_names = _get_raw_names(p, subj, 'sss', True)
+        raw_names = get_raw_fnames(p, subj, 'sss', True)
         # Now let's make sure we only run files that actually exist
         names = [name for name in raw_names if op.isfile(name)]
         if structurals is not None and dates is not None:
@@ -704,7 +722,7 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
             os.mkdir(evoked_dir)
 
         # read in raw files
-        raw_names = _get_raw_names(p, subj, 'pca', False)
+        raw_names = get_raw_fnames(p, subj, 'pca', False)
         # read in events
         first_samps = []
         last_samps = []
@@ -894,7 +912,8 @@ def gen_forwards(p, subjects, structurals):
         subjects_dir = get_config('SUBJECTS_DIR')
         mri_file = op.join(p.work_dir, subj, p.trans_dir, subj + '-trans.fif')
         if not op.isfile(mri_file):
-            mri_file = op.join(p.work_dir, subj, p.trans_dir, subj + '-trans_head2mri.txt')
+            mri_file = op.join(p.work_dir, subj, p.trans_dir,
+                               subj + '-trans_head2mri.txt')
         elif not op.isfile(mri_file):
             raise IOError('Unable to find coordinate transformation file')
         src_file = op.join(subjects_dir, structural, 'bem',
@@ -1073,8 +1092,8 @@ def do_preprocessing_combined(p, subjects):
         bad_dir = op.join(p.work_dir, subj, p.bad_dir)
 
         # Create SSP projection vectors after marking bad channels
-        raw_names = _get_raw_names(p, subj, 'sss', False)
-        empty_names = _get_raw_names(p, subj, 'sss', 'only')
+        raw_names = get_raw_fnames(p, subj, 'sss', False)
+        empty_names = get_raw_fnames(p, subj, 'sss', 'only')
         for r in raw_names + empty_names:
             if not op.isfile(r):
                 raise NameError('File not found (' + r + ')')
@@ -1088,23 +1107,28 @@ def do_preprocessing_combined(p, subjects):
             # do autobad
             raw = _raw_LRFCP(raw_names, p.proj_sfreq, None, None, p.n_jobs_fir,
                              p.n_jobs_resample, list(), None, p.disp_files,
-                             method='fft', filter_length=p.filter_length, apply_proj=False)
+                             method='fft', filter_length=p.filter_length,
+                             apply_proj=False)
             events = fixed_len_events(p, raw)
             # do not mark eog channels bad
             meg, eeg = _channels_types(p, subj)[:2]
-            picks = pick_types(raw.info, meg=meg, eeg=eeg, eog=False, exclude=[])
+            picks = pick_types(raw.info, meg=meg, eeg=eeg, eog=False,
+                               exclude=[])
             assert type(p.auto_bad_reject) and type(p.auto_bad_flat) == dict
-            epochs = Epochs(raw, events, picks=picks, event_id=None, tmin=p.tmin,
-                            tmax=p.tmax, baseline=(p.bmin, p.bmax),
-                            reject=p.auto_bad_reject, flat=p.auto_bad_flat, proj=True,
-                            preload=True, decim=0)
+            epochs = Epochs(raw, events, picks=picks, event_id=None,
+                            tmin=p.tmin, tmax=p.tmax,
+                            baseline=(p.bmin, p.bmax),
+                            reject=p.auto_bad_reject, flat=p.auto_bad_flat,
+                            proj=True, preload=True, decim=0)
             # channel scores from drop log
-            scores = collections.Counter([ch for d in epochs.drop_log for ch in d])
+            scores = collections.Counter([ch for d in epochs.drop_log
+                                          for ch in d])
             ch_names = np.array(scores.keys())
             # channel scores expressed as percentile and rank ordered
-            counts = 100 * np.array(scores.values(), dtype=float) / len(epochs.drop_log)
+            counts = (100 * np.array(scores.values(), dtype=float)
+                      / len(epochs.drop_log))
             order = np.flipud(np.argsort(counts))
-            # boolean array masking out channels with less than % epochs dropped
+            # boolean array masking out channels with < % epochs dropped
             mask = counts[order] > p.auto_bad
             badchs = ch_names[order[mask]]
             if len(badchs) >= 1:
@@ -1140,9 +1164,10 @@ def do_preprocessing_combined(p, subjects):
         # Calculate and apply continuous projectors if requested
         projs = list()
         reject = dict(grad=np.inf, mag=np.inf, eeg=np.inf, eog=np.inf)
-        raw_orig = _raw_LRFCP(pre_list, p.proj_sfreq, None, bad_file, p.n_jobs_fir,
-                              p.n_jobs_resample, projs, bad_file, p.disp_files,
-                              method='fft', filter_length=p.filter_length)
+        raw_orig = _raw_LRFCP(pre_list, p.proj_sfreq, None, bad_file,
+                              p.n_jobs_fir, p.n_jobs_resample, projs, bad_file,
+                              p.disp_files, method='fft',
+                              filter_length=p.filter_length)
 
         if any(proj_nums[2]):
             if len(empty_names) >= 1:
@@ -1257,8 +1282,8 @@ def apply_preprocessing_combined(p, subjects):
             print('  Applying processing to subject %g/%g.'
                   % (si + 1, len(subjects)))
         pca_dir = op.join(p.work_dir, subj, p.pca_dir)
-        names_in = _get_raw_names(p, subj, 'sss', True)
-        names_out = _get_raw_names(p, subj, 'pca', True)
+        names_in = get_raw_fnames(p, subj, 'sss', True)
+        names_out = get_raw_fnames(p, subj, 'pca', True)
         bad_dir = op.join(p.work_dir, subj, p.bad_dir)
         bad_file = op.join(bad_dir, 'bad_ch_' + subj + p.bad_tag)
         bad_file = None if not op.isfile(bad_file) else bad_file
@@ -1437,7 +1462,7 @@ def viz_raw_ssp_events(p, subj, show=True):
 
 def _channels_types(p, subj):
     """Returns bools for MEG, EEG, M/EEG channel types in data info"""
-    info = read_info(_get_raw_names(p, subj, 'sss', False)[0])
+    info = read_info(get_raw_fnames(p, subj, 'sss', False)[0])
     meg = len(pick_types(info, meg=True, eeg=False)) > 0
     eeg = len(pick_types(info, meg=False, eeg=True)) > 0
     return meg, eeg, (meg and eeg)
