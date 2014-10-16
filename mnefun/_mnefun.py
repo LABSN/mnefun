@@ -291,19 +291,20 @@ def fetch_raw_files(p, subjects):
         finder = 'find %s ' % p.acq_dir
         fnames = _get_raw_names(p, subj, 'raw', True)
         assert len(fnames) > 0
-        finder = finder + ' -o '.join(["-name '%s'" % op.basename(fname)
+        finder = finder + ' -o '.join(["-name '%s*fif'" % op.basename(fname)[:-4]
                                        for fname in fnames])
         stdout_ = run_subprocess(['ssh', p.acq_ssh, finder])[0]
         remote_fnames = [x.strip() for x in stdout_.splitlines()]
         assert all(fname.startswith(p.acq_dir) for fname in remote_fnames)
-        remote_fnames = [fname[len(p.acq_dir)+1:] for fname in remote_fnames]
+        remote_fnames = [fname[len(p.acq_dir) + 1:] for fname in remote_fnames]
         want = set(op.basename(fname) for fname in fnames)
         got = set([op.basename(fname) for fname in remote_fnames])
-        if want != got or len(remote_fnames) != len(fnames):
+        if want.intersection(got) != want:
             raise RuntimeError('Could not find all files.\n'
-                               'Wanted: %s\nGot: %s' % (want, got))
-
-        print('  Pulling %s files for %s...' % (len(fnames), subj))
+                               'Wanted: %s\nGot: %s' % (want, got.intersection(want)))
+        if len(remote_fnames) != len(fnames):
+            warnings.warn('Number of files found on remote server greater than number of files wanted.\n')
+        print('  Pulling %s files for %s...' % (len(remote_fnames), subj))
         cmd = ['rsync', '-ave', 'ssh', '--prune-empty-dirs', '--partial',
                '--include', '*/']
         for fname in remote_fnames:
@@ -317,7 +318,7 @@ def fetch_raw_files(p, subjects):
         # prune the extra directories we made
         for fname in remote_fnames:
             next_ = op.split(fname)[0]
-            while(len(next_) > 0):
+            while len(next_) > 0:
                 if op.isdir(op.join(raw_dir, next_)):
                     os.rmdir(op.join(raw_dir, next_))  # safe; goes if empty
                 next_ = op.split(next_)[0]
@@ -384,7 +385,7 @@ def push_raw_files(p, subjects):
                              + p.raw_fif_tag)
             origin_head = fit_sphere_to_headshape(read_info(in_fif))[1]
             out_string = ' '.join(['%0.0f' % np.round(number)
-                                  for number in origin_head])
+                                   for number in origin_head])
             with open(out_pos, 'w') as fid:
                 fid.write(out_string)
             print('(%s)' % out_string)
@@ -402,6 +403,11 @@ def push_raw_files(p, subjects):
             includes += ['--include',
                          op.join(raw_root, op.basename(prebad_file))]
         fnames = _get_raw_names(p, subj, 'raw', True)
+        finder = 'find %s ' % raw_dir
+        finder = finder + ' -o '.join(["-name %s*fif" % op.basename(fname)[:-4]
+                                       for fname in fnames])
+        stdout_ = run_subprocess(finder.split())[0]
+        fnames = [x.strip() for x in stdout_.splitlines()]
         for fname in fnames:
             assert op.isfile(op.join(fname)), fname
             includes += ['--include', op.join(raw_root, op.basename(fname))]
@@ -1366,6 +1372,7 @@ def anova_time(X):
     """
     import patsy
     from scipy import linalg, stats
+
     n_subjects, n_nested, n_sources = X.shape
     n_time = n_nested / 2
     # Turn Y into (2 x n_time x n_subjects) x n_sources
