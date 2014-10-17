@@ -288,22 +288,46 @@ def fetch_raw_files(p, subjects):
         raw_dir = op.join(subj_dir, p.raw_dir)
         if not op.isdir(raw_dir):
             os.mkdir(raw_dir)
+<<<<<<< HEAD
         finder = 'find %s ' % p.acq_dir
         fnames = get_raw_fnames(p, subj, 'raw', True)
         assert len(fnames) > 0
         finder = finder + ' -o '.join(["-name '%s'" % op.basename(fname)
+=======
+        finder_stem = 'find %s ' % p.acq_dir
+        fnames = _get_raw_names(p, subj, 'raw', True)
+        assert len(fnames) > 0
+        raw_files = _get_raw_names(p, subj, 'raw', False)
+        finder = finder_stem + ' -o '.join(["-name '%s'" % op.basename(fname)
+>>>>>>> FIX:fetching-split-fifs
                                        for fname in fnames])
+        split_finder = finder_stem + ' -o '.join(["-name '%s-1.fif'" % op.basename(fname)[:-4]
+                                             for fname in raw_files])
         stdout_ = run_subprocess(['ssh', p.acq_ssh, finder])[0]
+        stdout_splitfifs = run_subprocess(['ssh', p.acq_ssh, split_finder])[0]
         remote_fnames = [x.strip() for x in stdout_.splitlines()]
         assert all(fname.startswith(p.acq_dir) for fname in remote_fnames)
+<<<<<<< HEAD
         remote_fnames = [fname[len(p.acq_dir)+1:] for fname in remote_fnames]
+=======
+        remote_fnames = [fname[len(p.acq_dir) + 1:] for fname in remote_fnames]
+        remote_splitfifs = [x.strip() for x in stdout_splitfifs.splitlines()]
+>>>>>>> FIX:fetching-split-fifs
         want = set(op.basename(fname) for fname in fnames)
         got = set([op.basename(fname) for fname in remote_fnames])
         if want != got or len(remote_fnames) != len(fnames):
             raise RuntimeError('Could not find all files.\n'
+<<<<<<< HEAD
                                'Wanted: %s\nGot: %s' % (want, got))
 
         print('  Pulling %s files for %s...' % (len(fnames), subj))
+=======
+                               'Wanted: %s\nGot: %s' % (want, got.intersection(want)))
+        if len(remote_splitfifs) >= 1:
+            remote_fnames = remote_fnames + remote_splitfifs
+            print('  Split files found on remote')
+        print('  Pulling %s files for %s...' % (len(remote_fnames), subj))
+>>>>>>> FIX:fetching-split-fifs
         cmd = ['rsync', '-ave', 'ssh', '--prune-empty-dirs', '--partial',
                '--include', '*/']
         for fname in remote_fnames:
