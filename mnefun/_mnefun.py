@@ -288,22 +288,28 @@ def fetch_raw_files(p, subjects):
         raw_dir = op.join(subj_dir, p.raw_dir)
         if not op.isdir(raw_dir):
             os.mkdir(raw_dir)
-        finder = 'find %s ' % p.acq_dir
+        finder_stem = 'find %s ' % p.acq_dir
         fnames = get_raw_fnames(p, subj, 'raw', True)
         assert len(fnames) > 0
-        finder = finder + ' -o '.join(["-name '%s*fif'" % op.basename(fname)[:-4]
+        raw_files = get_raw_fnames(p, subj, 'raw', False)
+        finder = finder_stem + ' -o '.join(["-name '%s'" % op.basename(fname)
                                        for fname in fnames])
+        split_finder = finder_stem + ' -o '.join(["-name '%s-1.fif'" % op.basename(fname)[:-4]
+                                             for fname in raw_files])
         stdout_ = run_subprocess(['ssh', p.acq_ssh, finder])[0]
+        stdout_splitfifs = run_subprocess(['ssh', p.acq_ssh, split_finder])[0]
         remote_fnames = [x.strip() for x in stdout_.splitlines()]
         assert all(fname.startswith(p.acq_dir) for fname in remote_fnames)
         remote_fnames = [fname[len(p.acq_dir) + 1:] for fname in remote_fnames]
+        remote_splitfifs = [x.strip() for x in stdout_splitfifs.splitlines()]
         want = set(op.basename(fname) for fname in fnames)
         got = set([op.basename(fname) for fname in remote_fnames])
-        if want.intersection(got) != want:
+        if want != got or len(remote_fnames) != len(fnames):
             raise RuntimeError('Could not find all files.\n'
                                'Wanted: %s\nGot: %s' % (want, got.intersection(want)))
-        if len(remote_fnames) != len(fnames):
-            warnings.warn('Number of files found on remote server greater than number of files wanted.\n')
+        if len(remote_splitfifs) >= 1:
+            remote_fnames = remote_fnames + remote_splitfifs
+            print('  Split files found on remote')
         print('  Pulling %s files for %s...' % (len(remote_fnames), subj))
         cmd = ['rsync', '-ave', 'ssh', '--prune-empty-dirs', '--partial',
                '--include', '*/']
