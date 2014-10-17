@@ -288,12 +288,10 @@ def fetch_raw_files(p, subjects):
         raw_dir = op.join(subj_dir, p.raw_dir)
         if not op.isdir(raw_dir):
             os.mkdir(raw_dir)
-        finder = 'find %s ' % p.acq_dir
         fnames = _get_raw_names(p, subj, 'raw', True)
         assert len(fnames) > 0
-        finder = finder + ' -o '.join(["-name '%s*fif'" % op.basename(fname)[:-4]
-                                       for fname in fnames])
-        stdout_ = run_subprocess(['ssh', p.acq_ssh, finder])[0]
+        finder = ['find %s/' % p.acq_dir + subj + " -type f -regex .*[raw[0-9].fif"]
+        stdout_ = run_subprocess(['ssh', p.acq_ssh, finder[0]])[0]
         remote_fnames = [x.strip() for x in stdout_.splitlines()]
         assert all(fname.startswith(p.acq_dir) for fname in remote_fnames)
         remote_fnames = [fname[len(p.acq_dir) + 1:] for fname in remote_fnames]
@@ -402,11 +400,8 @@ def push_raw_files(p, subjects):
         if op.isfile(prebad_file):  # SSS prebad file
             includes += ['--include',
                          op.join(raw_root, op.basename(prebad_file))]
-        fnames = _get_raw_names(p, subj, 'raw', True)
-        finder = 'find %s ' % raw_dir
-        finder = finder + ' -o '.join(["-name %s*fif" % op.basename(fname)[:-4]
-                                       for fname in fnames])
-        stdout_ = run_subprocess(finder.split())[0]
+        finder = ['find %s/' % raw_dir + " -type f -regex .*[raw[0-9].fif"]
+        stdout_ = run_subprocess(finder[0].split())[0]
         fnames = [x.strip() for x in stdout_.splitlines()]
         for fname in fnames:
             assert op.isfile(op.join(fname)), fname
