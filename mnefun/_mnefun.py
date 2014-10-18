@@ -292,28 +292,24 @@ def fetch_raw_files(p, subjects):
         # build remote raw file finder
         fnames = get_raw_fnames(p, subj, 'raw', True)
         assert len(fnames) > 0
-        finder = finder_stem + ' -o '.join(["-name '%s'" % op.basename(fname)
-                                            for fname in fnames])
+        fetch = list()
+        regex = re.compile(r"-?[0-9]*.fif")
+        for f in fnames:
+            fetch.append('.*' + op.basename(f[:-4] + regex.pattern))
+        finder = finder_stem + ' -o '.join(["-type f -regex %s" % fname
+                                            for fname in fetch])
         stdout_ = run_subprocess(['ssh', p.acq_ssh, finder])[0]
         remote_fnames = [x.strip() for x in stdout_.splitlines()]
         assert all(fname.startswith(p.acq_dir) for fname in remote_fnames)
         remote_fnames = [fname[len(p.acq_dir) + 1:] for fname in remote_fnames]
         want = set(op.basename(fname) for fname in fnames)
         got = set([op.basename(fname) for fname in remote_fnames])
-        if want != got or len(remote_fnames) != len(fnames):
+        if want != got.intersection(want):
             raise RuntimeError('Could not find all files.\n'
                                'Wanted: %s\nGot: %s' % (want, got.intersection(want)))
-        # build remote raw-1 finder
-        raw_files = _get_raw_names(p, subj, 'raw', False)
-        split_finder = finder_stem + ' -o '.join(["-name '%s-1.fif'" % op.basename(fname)[:-4]
-                                                  for fname in raw_files])
-        stdout_splitfifs = run_subprocess(['ssh', p.acq_ssh, split_finder])[0]
-        remote_splitfifs = [x.strip() for x in stdout_splitfifs.splitlines()]
-        assert all(fname.startswith(p.acq_dir) for fname in remote_splitfifs)
-        remote_splitfifs = [fname[len(p.acq_dir) + 1:] for fname in remote_splitfifs]
-        if len(remote_splitfifs) >= 1:
-            remote_fnames = remote_fnames + remote_splitfifs
-            print('  Split files found on remote')
+        if len(remote_fnames) != len(fnames):
+            warnings.warn('Found more files than expected on remote server')
+            print('\nLikely split files were found. Please confirm results.')
         print('  Pulling %s files for %s...' % (len(remote_fnames), subj))
         cmd = ['rsync', '-ave', 'ssh', '--prune-empty-dirs', '--partial',
                '--include', '*/']
@@ -412,18 +408,18 @@ def push_raw_files(p, subjects):
         if op.isfile(prebad_file):  # SSS prebad file
             includes += ['--include',
                          op.join(raw_root, op.basename(prebad_file))]
+        # build local raw file finder
+        finder_stem = 'find %s ' % raw_dir
         fnames = get_raw_fnames(p, subj, 'raw', True)
-        # find local raw-1 files
-        finder = 'find %s ' % raw_dir
-        raw_files = get_raw_fnames(p, subj, 'raw', False)
-        split_finder = finder + ' -o '.join(["-name %s-1.fif" % op.basename(fname)[:-4]
-                                             for fname in raw_files])
-        stdout_ = run_subprocess(split_finder.split())[0]
-        splitfifs = [x.strip() for x in stdout_.splitlines()]
-        # splitfifs = [fname[len(raw_dir) + 1:] for fname in splitfifs]
-        if len(splitfifs) >= 1:
-            fnames = fnames + splitfifs
-            print('  Split files found on remote')
+        assert len(fnames) > 0
+        fetch = list()
+        regex = re.compile(r"-?[0-9]*.fif")
+        for f in fnames:
+            fetch.append('.*' + op.basename(f[:-4] + regex.pattern))
+        finder = finder_stem + ' -o '.join(["-type f -regex %s" % fname
+                                            for fname in fetch])
+        stdout_ = run_subprocess(finder.split())[0]
+        fnames = [x.strip() for x in stdout_.splitlines()]
         for fname in fnames:
             assert op.isfile(op.join(fname)), fname
             includes += ['--include', op.join(raw_root, op.basename(fname))]
