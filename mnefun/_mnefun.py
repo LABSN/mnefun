@@ -470,7 +470,7 @@ def extract_expyfun_events(fname):
     """
     # Read events
     raw = Raw(fname, allow_maxshield=True)
-    orig_events = find_events(raw, stim_channel='STI101')
+    orig_events = find_events(raw, stim_channel='STI101', shortest_event=0)
     events = list()
     for ch in range(1, 9):
         ev = find_events(raw, stim_channel='STI00%d' % ch)
