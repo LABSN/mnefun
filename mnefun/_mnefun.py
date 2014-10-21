@@ -289,42 +289,27 @@ def fetch_raw_files(p, subjects):
         if not op.isdir(raw_dir):
             os.mkdir(raw_dir)
         finder_stem = 'find %s ' % p.acq_dir
+        # build remote raw file finder
         fnames = _get_raw_names(p, subj, 'raw', True)
         assert len(fnames) > 0
-<<<<<<< HEAD
-        raw_files = _get_raw_names(p, subj, 'raw', False)
-        finder = finder_stem + ' -o '.join(["-name '%s'" % op.basename(fname)
-                                       for fname in fnames])
-        split_finder = finder_stem + ' -o '.join(["-name '%s-1.fif'" % op.basename(fname)[:-4]
-                                             for fname in raw_files])
-=======
         fetch = list()
         regex = re.compile(r"-?[0-9]*.fif")
         for f in fnames:
             fetch.append('.*' + op.basename(f[:-4] + regex.pattern))
         finder = finder_stem + ' -o '.join(["-type f -regex %s" % fname
                                             for fname in fetch])
->>>>>>> ENH:pull-push-fifs
         stdout_ = run_subprocess(['ssh', p.acq_ssh, finder])[0]
-        stdout_splitfifs = run_subprocess(['ssh', p.acq_ssh, split_finder])[0]
         remote_fnames = [x.strip() for x in stdout_.splitlines()]
         assert all(fname.startswith(p.acq_dir) for fname in remote_fnames)
         remote_fnames = [fname[len(p.acq_dir) + 1:] for fname in remote_fnames]
-        remote_splitfifs = [x.strip() for x in stdout_splitfifs.splitlines()]
         want = set(op.basename(fname) for fname in fnames)
         got = set([op.basename(fname) for fname in remote_fnames])
         if want != got.intersection(want):
             raise RuntimeError('Could not find all files.\n'
                                'Wanted: %s\nGot: %s' % (want, got.intersection(want)))
-<<<<<<< HEAD
-        if len(remote_splitfifs) >= 1:
-            remote_fnames = remote_fnames + remote_splitfifs
-            print('  Split files found on remote')
-=======
         if len(remote_fnames) != len(fnames):
             warnings.warn('Found more files than expected on remote server')
             print('\nLikely split files were found. Please confirm results.')
->>>>>>> ENH:pull-push-fifs
         print('  Pulling %s files for %s...' % (len(remote_fnames), subj))
         cmd = ['rsync', '-ave', 'ssh', '--prune-empty-dirs', '--partial',
                '--include', '*/']
@@ -426,11 +411,6 @@ def push_raw_files(p, subjects):
         # build local raw file finder
         finder_stem = 'find %s ' % raw_dir
         fnames = _get_raw_names(p, subj, 'raw', True)
-<<<<<<< HEAD
-        finder = 'find %s ' % raw_dir
-        finder = finder + ' -o '.join(["-name %s*fif" % op.basename(fname)[:-4]
-                                       for fname in fnames])
-=======
         assert len(fnames) > 0
         fetch = list()
         regex = re.compile(r"-?[0-9]*.fif")
@@ -438,7 +418,6 @@ def push_raw_files(p, subjects):
             fetch.append('.*' + op.basename(f[:-4] + regex.pattern))
         finder = finder_stem + ' -o '.join(["-type f -regex %s" % fname
                                             for fname in fetch])
->>>>>>> ENH:pull-push-fifs
         stdout_ = run_subprocess(finder.split())[0]
         fnames = [x.strip() for x in stdout_.splitlines()]
         for fname in fnames:
@@ -1369,6 +1348,7 @@ def gen_layouts(p, subjects):
 
 class FakeEpochs():
     """Make iterable epoch-like class, convenient for MATLAB transition"""
+
     def __init__(self, data, ch_names, tmin=-0.2, sfreq=1000.0):
         self._data = data
         self.info = dict(ch_names=ch_names, sfreq=sfreq)
