@@ -292,12 +292,7 @@ def fetch_raw_files(p, subjects):
         # build remote raw file finder
         fnames = _get_raw_names(p, subj, 'raw', True)
         assert len(fnames) > 0
-        fetch = list()
-        regex = re.compile(r"-?[0-9]*.fif")
-        for f in fnames:
-            fetch.append('.*' + op.basename(f[:-4] + regex.pattern))
-        finder = finder_stem + ' -o '.join(["-type f -regex %s" % fname
-                                            for fname in fetch])
+        finder = _get_finder_cmd(fnames, finder_stem)
         stdout_ = run_subprocess(['ssh', p.acq_ssh, finder])[0]
         remote_fnames = [x.strip() for x in stdout_.splitlines()]
         assert all(fname.startswith(p.acq_dir) for fname in remote_fnames)
@@ -308,8 +303,8 @@ def fetch_raw_files(p, subjects):
             raise RuntimeError('Could not find all files.\n'
                                'Wanted: %s\nGot: %s' % (want, got.intersection(want)))
         if len(remote_fnames) != len(fnames):
-            warnings.warn('Found more files than expected on remote server')
-            print('\nLikely split files were found. Please confirm results.')
+            warnings.warn('Found more files than expected on remote server.\n'
+                          'Likely split files were found. Please confirm results.')
         print('  Pulling %s files for %s...' % (len(remote_fnames), subj))
         cmd = ['rsync', '-ave', 'ssh', '--prune-empty-dirs', '--partial',
                '--include', '*/']
@@ -412,12 +407,7 @@ def push_raw_files(p, subjects):
         finder_stem = 'find %s ' % raw_dir
         fnames = _get_raw_names(p, subj, 'raw', True)
         assert len(fnames) > 0
-        fetch = list()
-        regex = re.compile(r"-?[0-9]*.fif")
-        for f in fnames:
-            fetch.append('.*' + op.basename(f[:-4] + regex.pattern))
-        finder = finder_stem + ' -o '.join(["-type f -regex %s" % fname
-                                            for fname in fetch])
+        finder = _get_finder_cmd(fnames, finder_stem)
         stdout_ = run_subprocess(finder.split())[0]
         fnames = [x.strip() for x in stdout_.splitlines()]
         for fname in fnames:
@@ -1486,3 +1476,11 @@ def _channels_types(p, subj):
     meg = len(pick_types(info, meg=True, eeg=False)) > 0
     eeg = len(pick_types(info, meg=False, eeg=True)) > 0
     return meg, eeg, (meg and eeg)
+
+
+def _get_finder_cmd(fnames, finder):
+    """Returns string for *nix find command to search for potential split raw files"""
+    regex = re.compile(r"-?[0-9]*.fif")
+    cmd = finder + ' -o '.join(["-type f -regex %s" % f for f in
+                                ['.*' + op.basename(f[:-4] + regex.pattern) for f in fnames]])
+    return cmd
