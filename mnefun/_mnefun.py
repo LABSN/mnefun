@@ -1455,7 +1455,5 @@ def _channels_types(p, subj):
 
 def _get_finder_cmd(fnames, finder):
     """Returns string for *nix find command to search for potential split raw files"""
-    regex = re.compile(r"-?[0-9]*.fif")
-    cmd = finder + ' -o '.join(["-type f -regex %s" % f for f in
-                                ['.*' + op.basename(f[:-4] + regex.pattern) for f in fnames]])
+    cmd = finder + ' -o '.join(['-type f -regex .*%s-?[0-9]*.fif' % op.basename(f)[:-4] for f in fnames])
     return cmd
