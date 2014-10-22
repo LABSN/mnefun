@@ -319,7 +319,7 @@ def fetch_raw_files(p, subjects):
         # prune the extra directories we made
         for fname in remote_fnames:
             next_ = op.split(fname)[0]
-            while(len(next_) > 0):
+            while len(next_) > 0:
                 if op.isdir(op.join(raw_dir, next_)):
                     os.rmdir(op.join(raw_dir, next_))  # safe; goes if empty
                 next_ = op.split(next_)[0]
@@ -386,7 +386,7 @@ def push_raw_files(p, subjects):
                              + p.raw_fif_tag)
             origin_head = fit_sphere_to_headshape(read_info(in_fif))[1]
             out_string = ' '.join(['%0.0f' % np.round(number)
-                                  for number in origin_head])
+                                   for number in origin_head])
             with open(out_pos, 'w') as fid:
                 fid.write(out_string)
             print('(%s)' % out_string)
