@@ -835,19 +835,20 @@ def gen_inverses(p, subjects, use_old_rank=False):
         Subject names to analyze (e.g., ['Eric_SoP_001', ...]).
     """
     for subj in subjects:
-        meg, eeg, meeg = _channels_types(p, subj)
-        if meeg:
-            out_flags = ['-meg', '-meg-eeg', '-eeg']
-            meg_bools = [True, True, False]
-            eeg_bools = [False, True, True]
-        elif meg:
-            out_flags = ['-meg']
-            meg_bools = [True]
-            eeg_bools = [False]
-        elif eeg:
-            out_flags = ['-eeg']
-            meg_bools = [False]
-            eeg_bools = [True]
+        meg, eeg = _channels_types(p, subj)
+        out_flags, meg_bools, eeg_bools = [], [], []
+        if meg:
+            out_flags += ['-meg']
+            meg_bools += [True]
+            eeg_bools += [False]
+        if eeg:
+            out_flags += ['-eeg']
+            meg_bools += [False]
+            eeg_bools += [True]
+        if meg and eeg:
+            out_flags += ['-meg-eeg']
+            meg_bools += [True]
+            eeg_bools += [True]
         if p.disp_files:
             print('  Subject %s. ' % subj)
         inv_dir = op.join(p.work_dir, subj, p.inverse_dir)
@@ -887,7 +888,7 @@ def gen_inverses(p, subjects, use_old_rank=False):
                                                 cov_reg, loose=l, depth=0.8,
                                                 fixed=x)
                     write_inverse_operator(inv_name, inv)
-                    if (not e) and p.runs_empty:
+                    if (not e) and make_erm_inv:
                         inv_name = op.join(inv_dir, temp_name + f
                                            + p.inv_erm_tag + s + '-inv.fif')
                         inv = make_inverse_operator(raw.info, fwd_restricted,
@@ -1119,7 +1120,7 @@ def do_preprocessing_combined(p, subjects):
                              apply_proj=False)
             events = fixed_len_events(p, raw)
             # do not mark eog channels bad
-            meg, eeg = _channels_types(p, subj)[:2]
+            meg, eeg = _channels_types(p, subj)
             picks = pick_types(raw.info, meg=meg, eeg=eeg, eog=False,
                                exclude=[])
             assert type(p.auto_bad_reject) and type(p.auto_bad_flat) == dict
@@ -1475,10 +1476,11 @@ def _channels_types(p, subj):
     info = read_info(get_raw_fnames(p, subj, 'sss', False)[0])
     meg = len(pick_types(info, meg=True, eeg=False)) > 0
     eeg = len(pick_types(info, meg=False, eeg=True)) > 0
-    return meg, eeg, (meg and eeg)
+    return meg, eeg
 
 
 def _get_finder_cmd(fnames, finder):
-    """Returns string for *nix find command to search for potential split raw files"""
-    cmd = finder + ' -o '.join(['-type f -regex .*%s-?[0-9]*.fif' % op.basename(f)[:-4] for f in fnames])
+    """Returns string for find command to search for split raw files"""
+    cmd = finder + ' -o '.join(['-type f -regex .*%s-?[0-9]*.fif'
+                                % op.basename(f)[:-4] for f in fnames])
     return cmd
