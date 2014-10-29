@@ -288,22 +288,24 @@ def fetch_raw_files(p, subjects):
         raw_dir = op.join(subj_dir, p.raw_dir)
         if not op.isdir(raw_dir):
             os.mkdir(raw_dir)
-        finder = 'find %s ' % p.acq_dir
+        finder_stem = 'find %s ' % p.acq_dir
+        # build remote raw file finder
         fnames = get_raw_fnames(p, subj, 'raw', True)
         assert len(fnames) > 0
-        finder = finder + ' -o '.join(["-name '%s'" % op.basename(fname)
-                                       for fname in fnames])
+        finder = _get_finder_cmd(fnames, finder_stem)
         stdout_ = run_subprocess(['ssh', p.acq_ssh, finder])[0]
         remote_fnames = [x.strip() for x in stdout_.splitlines()]
         assert all(fname.startswith(p.acq_dir) for fname in remote_fnames)
-        remote_fnames = [fname[len(p.acq_dir)+1:] for fname in remote_fnames]
+        remote_fnames = [fname[len(p.acq_dir) + 1:] for fname in remote_fnames]
         want = set(op.basename(fname) for fname in fnames)
         got = set([op.basename(fname) for fname in remote_fnames])
-        if want != got or len(remote_fnames) != len(fnames):
+        if want != got.intersection(want):
             raise RuntimeError('Could not find all files.\n'
-                               'Wanted: %s\nGot: %s' % (want, got))
-
-        print('  Pulling %s files for %s...' % (len(fnames), subj))
+                               'Wanted: %s\nGot: %s' % (want, got.intersection(want)))
+        if len(remote_fnames) != len(fnames):
+            warnings.warn('Found more files than expected on remote server.\n'
+                          'Likely split files were found. Please confirm results.')
+        print('  Pulling %s files for %s...' % (len(remote_fnames), subj))
         cmd = ['rsync', '-ave', 'ssh', '--prune-empty-dirs', '--partial',
                '--include', '*/']
         for fname in remote_fnames:
@@ -317,7 +319,7 @@ def fetch_raw_files(p, subjects):
         # prune the extra directories we made
         for fname in remote_fnames:
             next_ = op.split(fname)[0]
-            while(len(next_) > 0):
+            while len(next_) > 0:
                 if op.isdir(op.join(raw_dir, next_)):
                     os.rmdir(op.join(raw_dir, next_))  # safe; goes if empty
                 next_ = op.split(next_)[0]
@@ -384,7 +386,7 @@ def push_raw_files(p, subjects):
                              + p.raw_fif_tag)
             origin_head = fit_sphere_to_headshape(read_info(in_fif))[1]
             out_string = ' '.join(['%0.0f' % np.round(number)
-                                  for number in origin_head])
+                                   for number in origin_head])
             with open(out_pos, 'w') as fid:
                 fid.write(out_string)
             print('(%s)' % out_string)
@@ -401,7 +403,13 @@ def push_raw_files(p, subjects):
         if op.isfile(prebad_file):  # SSS prebad file
             includes += ['--include',
                          op.join(raw_root, op.basename(prebad_file))]
+        # build local raw file finder
+        finder_stem = 'find %s ' % raw_dir
         fnames = get_raw_fnames(p, subj, 'raw', True)
+        assert len(fnames) > 0
+        finder = _get_finder_cmd(fnames, finder_stem)
+        stdout_ = run_subprocess(finder.split())[0]
+        fnames = [x.strip() for x in stdout_.splitlines()]
         for fname in fnames:
             assert op.isfile(op.join(fname)), fname
             includes += ['--include', op.join(raw_root, op.basename(fname))]
@@ -827,19 +835,20 @@ def gen_inverses(p, subjects, use_old_rank=False):
         Subject names to analyze (e.g., ['Eric_SoP_001', ...]).
     """
     for subj in subjects:
-        meg, eeg, meeg = _channels_types(p, subj)
-        if meeg:
-            out_flags = ['-meg', '-meg-eeg', '-eeg']
-            meg_bools = [True, True, False]
-            eeg_bools = [False, True, True]
-        elif meg:
-            out_flags = ['-meg']
-            meg_bools = [True]
-            eeg_bools = [False]
-        elif eeg:
-            out_flags = ['-eeg']
-            meg_bools = [False]
-            eeg_bools = [True]
+        meg, eeg = _channels_types(p, subj)
+        out_flags, meg_bools, eeg_bools = [], [], []
+        if meg:
+            out_flags += ['-meg']
+            meg_bools += [True]
+            eeg_bools += [False]
+        if eeg:
+            out_flags += ['-eeg']
+            meg_bools += [False]
+            eeg_bools += [True]
+        if meg and eeg:
+            out_flags += ['-meg-eeg']
+            meg_bools += [True]
+            eeg_bools += [True]
         if p.disp_files:
             print('  Subject %s. ' % subj)
         inv_dir = op.join(p.work_dir, subj, p.inverse_dir)
@@ -879,7 +888,7 @@ def gen_inverses(p, subjects, use_old_rank=False):
                                                 cov_reg, loose=l, depth=0.8,
                                                 fixed=x)
                     write_inverse_operator(inv_name, inv)
-                    if (not e) and p.runs_empty:
+                    if (not e) and make_erm_inv:
                         inv_name = op.join(inv_dir, temp_name + f
                                            + p.inv_erm_tag + s + '-inv.fif')
                         inv = make_inverse_operator(raw.info, fwd_restricted,
@@ -1111,7 +1120,7 @@ def do_preprocessing_combined(p, subjects):
                              apply_proj=False)
             events = fixed_len_events(p, raw)
             # do not mark eog channels bad
-            meg, eeg = _channels_types(p, subj)[:2]
+            meg, eeg = _channels_types(p, subj)
             picks = pick_types(raw.info, meg=meg, eeg=eeg, eog=False,
                                exclude=[])
             assert type(p.auto_bad_reject) and type(p.auto_bad_flat) == dict
@@ -1330,6 +1339,7 @@ def gen_layouts(p, subjects):
 
 class FakeEpochs():
     """Make iterable epoch-like class, convenient for MATLAB transition"""
+
     def __init__(self, data, ch_names, tmin=-0.2, sfreq=1000.0):
         self._data = data
         self.info = dict(ch_names=ch_names, sfreq=sfreq)
@@ -1391,6 +1401,7 @@ def anova_time(X):
     """
     import patsy
     from scipy import linalg, stats
+
     n_subjects, n_nested, n_sources = X.shape
     n_time = n_nested / 2
     # Turn Y into (2 x n_time x n_subjects) x n_sources
@@ -1465,4 +1476,11 @@ def _channels_types(p, subj):
     info = read_info(get_raw_fnames(p, subj, 'sss', False)[0])
     meg = len(pick_types(info, meg=True, eeg=False)) > 0
     eeg = len(pick_types(info, meg=False, eeg=True)) > 0
-    return meg, eeg, (meg and eeg)
+    return meg, eeg
+
+
+def _get_finder_cmd(fnames, finder):
+    """Returns string for find command to search for split raw files"""
+    cmd = finder + ' -o '.join(['-type f -regex .*%s-?[0-9]*.fif'
+                                % op.basename(f)[:-4] for f in fnames])
+    return cmd
