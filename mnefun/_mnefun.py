@@ -13,7 +13,7 @@ from shutil import move, copy2
 import subprocess
 import re
 import glob
-import collections
+from collections import Counter
 import matplotlib.pyplot as plt
 from time import time
 from numpy.testing import assert_allclose
@@ -43,7 +43,7 @@ from mne.utils import run_subprocess
 
 # python2/3 conversions
 try:
-    string_types = basestring  # noqa
+    string_types = basestring  # noqa, analysis:ignore
 except Exception:
     string_types = str
 
@@ -168,6 +168,8 @@ class Params(object):
         self.auto_bad = auto_bad
         self.auto_bad_reject = None
         self.auto_bad_flat = None
+        self.auto_bad_meg_thresh = 10
+        self.auto_bad_eeg_thresh = 10
         self.ecg_channel = ecg_channel
         self.plot_raw = plot_raw
         self.translate_positions = True
@@ -307,11 +309,12 @@ def fetch_raw_files(p, subjects):
         want = set(op.basename(fname) for fname in fnames)
         got = set([op.basename(fname) for fname in remote_fnames])
         if want != got.intersection(want):
-            raise RuntimeError('Could not find all files.\n'
-                               'Wanted: %s\nGot: %s' % (want, got.intersection(want)))
+            raise RuntimeError('Could not find all files.\nWanted: %s\nGot: %s'
+                               % (want, got.intersection(want)))
         if len(remote_fnames) != len(fnames):
             warnings.warn('Found more files than expected on remote server.\n'
-                          'Likely split files were found. Please confirm results.')
+                          'Likely split files were found. Please confirm '
+                          'results.')
         print('  Pulling %s files for %s...' % (len(remote_fnames), subj))
         cmd = ['rsync', '-ave', 'ssh', '--prune-empty-dirs', '--partial',
                '--include', '*/']
@@ -1142,23 +1145,35 @@ def do_preprocessing_combined(p, subjects):
             picks = pick_types(raw.info, meg=meg, eeg=eeg, eog=False,
                                exclude=[])
             assert type(p.auto_bad_reject) and type(p.auto_bad_flat) == dict
-            epochs = Epochs(raw, events, picks=picks, event_id=None,
-                            tmin=p.tmin, tmax=p.tmax,
-                            baseline=(p.bmin, p.bmax),
+            epochs = Epochs(raw, events, None, p.tmin, p.tmax,
+                            baseline=(p.bmin, p.bmax), picks=picks,
                             reject=p.auto_bad_reject, flat=p.auto_bad_flat,
                             proj=True, preload=True, decim=0)
             # channel scores from drop log
-            scores = collections.Counter([ch for d in epochs.drop_log
-                                          for ch in d])
-            ch_names = np.array(scores.keys())
+            scores = Counter([ch for d in epochs.drop_log for ch in d])
+            ch_names = np.array(list(scores.keys()))
             # channel scores expressed as percentile and rank ordered
-            counts = (100 * np.array(scores.values(), dtype=float)
+            counts = (100 * np.array([scores[ch] for ch in ch_names], float)
                       / len(epochs.drop_log))
-            order = np.flipud(np.argsort(counts))
-            # boolean array masking out channels with < % epochs dropped
+            order = np.argsort(counts)[::-1]
+            # boolean array masking out channels with <= % epochs dropped
             mask = counts[order] > p.auto_bad
             badchs = ch_names[order[mask]]
-            if len(badchs) >= 1:
+            if len(badchs) > 0:
+                # Make sure we didn't get too many bad MEG or EEG channels
+                for m, e, thresh in zip([True, False], [False, True],
+                                        [p.auto_bad_meg_thresh,
+                                         p.auto_bad_eeg_thresh]):
+                    picks = pick_types(epochs.info, meg=m, eeg=e, exclude=[])
+                    if len(picks) > 0:
+                        ch_names = [epochs.ch_names[pp] for pp in picks]
+                        n_bad_type = sum(ch in ch_names for ch in badchs)
+                        if n_bad_type > thresh:
+                            stype = 'meg' if m else 'eeg'
+                            raise RuntimeError('Too many bad %s channels '
+                                               'found: %s > %s'
+                                               % (stype, n_bad_type, thresh))
+
                 print('    The following channels resulted in greater than '
                       '{0:.0f}% trials dropped:\n'.format(p.auto_bad))
                 print(badchs)
