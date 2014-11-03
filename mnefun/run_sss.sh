@@ -115,7 +115,8 @@ RUN_FRAME="-frame head -origin ${RUN_CENTER}"
 
 BAD_PARAMS="-autobad 20 -force -v"
 TRN_PARAMS="-trans ${HEAD_TRANS}"
-ST_PARAMS="-st 10 -force"
+ST_PARAMS="-st 60 -corr 0.98"
+MC_PARAMS="-hpie 20 -hpig 0.8 -hpisubt amp -hpistep 200 -hpicons -movecomp inter"
 
 # Run processing
 for FILE in "${ADDR[@]}"; do
@@ -141,27 +142,16 @@ for FILE in "${ADDR[@]}"; do
     fi
     BADCH="-autobad off ${BADCH}"
 
-    # Three-step SSS procedure (work around Maxfilter bugs)
     MC_LOG="-hp ${LOG_DIR}${PREFIX}_hp.txt"
     INTERM_1="${SSS_DIR}${PREFIX}_raw_sss1.fif"
-    INTERM_2="${SSS_DIR}${PREFIX}_raw_sss2.fif"
     SSS_FILE="${SSS_DIR}${PREFIX}_raw_sss.fif"
-    BASE_PARAMS="${RUN_FRAME} ${BADCH} ${EXTRA_PARAMS} -movecomp inter -force -v"
+    BASE_PARAMS="${RUN_FRAME} ${BADCH}${EXTRA_PARAMS} ${TRN_PARAMS}"
 
+    # Singleshot SSS (+st +mc +cs transform +hpi file) procedure
     # Show user arguments, minus logging / file args
-    ARGS="${BASE_PARAMS}"
+    ARGS="${BASE_PARAMS} ${ST_PARAMS} ${MC_PARAMS} -force -v"
     echo "• Running maxfilter ${ARGS}"
-    maxfilter -f ${RAW_FILE} -o ${INTERM_1} ${ARGS} ${MC_LOG} > ${LOG_DIR}${PREFIX}_2_mc.txt
-
-    ARGS="${BASE_PARAMS} ${TRN_PARAMS}"
-    echo "• Running maxfilter ${ARGS}"
-    maxfilter -f ${INTERM_1} -o ${INTERM_2} ${ARGS} > ${LOG_DIR}${PREFIX}_3_trans.txt
-    rm -f "${INTERM_1}"
-
-    ARGS="${BASE_PARAMS} ${ST_PARAMS}"
-    echo "• Running maxfilter ${ARGS}"
-    maxfilter -f ${INTERM_2} -o ${SSS_FILE} ${ARGS} > ${LOG_DIR}${PREFIX}_4_st.txt
-    rm -f "${INTERM_2}"
+    maxfilter -f ${RAW_FILE} -o ${SSS_FILE} ${MC_LOG} ${ARGS} &> ${LOG_DIR}${PREFIX}_sss.txt
 done
 
 # ERM processing
@@ -187,20 +177,12 @@ for FILE in "${ADDR[@]}"; do
         BADCH="-bad ${BADCH}${EXTRABADS}"
     fi
     BADCH="-autobad off ${BADCH}"
-
-    # Two-step SSS procedure (no MC)
-    INTERM_1="${SSS_DIR}${PREFIX}_raw_sss1.fif"
     SSS_FILE="${SSS_DIR}${PREFIX}_raw_sss.fif"
-    BASE_PARAMS="${ERM_FRAME} ${BADCH} ${EXTRA_PARAMS} -force -v"
 
-    ARGS="${BASE_PARAMS}"
+    # singleshot SSS procedure (no MC)
+    ARGS="${ERM_FRAME} ${BADCH} ${EXTRA_PARAMS} ${ST_PARAMS}"
     echo "• Running maxfilter ${ARGS}"
-    maxfilter -f ${RAW_FILE} -o ${INTERM_1} ${ARGS} > ${LOG_DIR}${PREFIX}_2_sss.txt
-
-    ARGS="${BASE_PARAMS} ${ST_PARAMS}"
-    echo "• Running maxfilter ${ARGS}"
-    maxfilter -f ${INTERM_1} -o ${SSS_FILE} ${ARGS} > ${LOG_DIR}${PREFIX}_3_st.txt
-    rm -f ${INTERM_1}
+    maxfilter -f ${RAW_FILE} -o ${SSS_FILE} ${ARGS} -force -v &> ${LOG_DIR}${PREFIX}_sss.txt
 done
 
 echo ""
