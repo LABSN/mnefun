@@ -457,7 +457,8 @@ def fetch_sss_files(p, subjects):
                      '--include', op.join(subj, 'sss_log', '*')]
     assert ' ' not in p.sws_dir
     assert ' ' not in p.sws_ssh
-    cmd = ['rsync', '-ave', 'ssh', '--partial'] + includes + ['--exclude', '*']
+    cmd = (['rsync', '-ave', 'ssh', '--partial', '-K'] + includes +
+           ['--exclude', '*'])
     cmd += ['%s:%s' % (p.sws_ssh, op.join(p.sws_dir, '*')), '.']
     run_subprocess(cmd, cwd=p.work_dir)
 
