@@ -278,12 +278,17 @@ def do_processing(p, fetch_raw=False, push_raw=False, do_sss=False,
     print("Done")
 
 
+def _is_dir(d):
+    """Safely check for a directory (allowing symlinks)"""
+    return op.isdir(op.abspath(d))
+
+
 def fetch_raw_files(p, subjects):
     """Fetch remote raw recording files (only designed for *nix platforms)"""
     for subj in subjects:
         print('  Checking for proper remote filenames for %s...' % subj)
         subj_dir = op.join(p.work_dir, subj)
-        if not op.isdir(subj_dir):
+        if not _is_dir(subj_dir):
             os.mkdir(subj_dir)
         raw_dir = op.join(subj_dir, p.raw_dir)
         if not op.isdir(raw_dir):
