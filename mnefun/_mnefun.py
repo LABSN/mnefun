@@ -278,12 +278,17 @@ def do_processing(p, fetch_raw=False, push_raw=False, do_sss=False,
     print("Done")
 
 
+def _is_dir(d):
+    """Safely check for a directory (allowing symlinks)"""
+    return op.isdir(op.abspath(d))
+
+
 def fetch_raw_files(p, subjects):
     """Fetch remote raw recording files (only designed for *nix platforms)"""
     for subj in subjects:
         print('  Checking for proper remote filenames for %s...' % subj)
         subj_dir = op.join(p.work_dir, subj)
-        if not op.isdir(subj_dir):
+        if not _is_dir(subj_dir):
             os.mkdir(subj_dir)
         raw_dir = op.join(subj_dir, p.raw_dir)
         if not op.isdir(raw_dir):
@@ -452,7 +457,8 @@ def fetch_sss_files(p, subjects):
                      '--include', op.join(subj, 'sss_log', '*')]
     assert ' ' not in p.sws_dir
     assert ' ' not in p.sws_ssh
-    cmd = ['rsync', '-ave', 'ssh', '--partial'] + includes + ['--exclude', '*']
+    cmd = (['rsync', '-ave', 'ssh', '--partial', '-K'] + includes +
+           ['--exclude', '*'])
     cmd += ['%s:%s' % (p.sws_ssh, op.join(p.sws_dir, '*')), '.']
     run_subprocess(cmd, cwd=p.work_dir)
 
