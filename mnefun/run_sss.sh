@@ -119,8 +119,8 @@ ERM_FRAME="-frame device -origin 0 13 -6"
 RUN_FRAME="-frame head -origin ${RUN_CENTER}"
 
 BAD_PARAMS="-autobad 20 -force -v"
-ST_PARAMS="-in 8 -out 3 -regularize in -st ${ST_DUR} -corr 0.98"
-MC_PARAMS="-trans ${HEAD_TRANS} -hpie 20 -hpig 0.8 -hpisubt amp -hpistep 200 -hpicons -movecomp inter"
+ST_PARAMS="-in 8 -out 3 -regularize in -st ${ST_DUR}"
+MC_PARAMS="-trans ${HEAD_TRANS} -hpicons -movecomp inter"
 
 # Run processing
 for FILE in "${ADDR[@]}"; do
