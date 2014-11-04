@@ -195,6 +195,8 @@ class Params(object):
         self.keep_orig = False
         # This is used by fix_eeg_channels to fix original files
         self.raw_fif_tag = '_raw.fif'
+        # Maxfilter params
+        self.tsss_dur = 60.
 
     @property
     def pca_extra(self):
@@ -420,7 +422,8 @@ def push_raw_files(p, subjects):
             includes += ['--include', op.join(raw_root, op.basename(fname))]
     assert ' ' not in p.sws_dir
     assert ' ' not in p.sws_ssh
-    cmd = ['rsync', '-ave', 'ssh', '--partial'] + includes + ['--exclude', '*']
+    cmd = (['rsync', '-aLve', 'ssh', '--partial'] + includes +
+           ['--exclude', '*'])
     cmd += ['.', '%s:%s' % (p.sws_ssh, op.join(p.sws_dir, ''))]
     run_subprocess(cmd, cwd=p.work_dir)
 
@@ -437,7 +440,9 @@ def run_sss_remotely(p, subjects):
         erm = ':'.join([op.basename(f)
                         for f in get_raw_fnames(p, subj, 'raw', 'only')])
         erm = ' --erm ' + erm if len(erm) > 0 else ''
-        run_sss = (op.join(p.sws_dir, 'run_sss.sh') +
+        assert isinstance(p.tsss_dur, float) and p.tsss_dur > 0
+        st = ' --st %s' % p.tsss_dur
+        run_sss = (op.join(p.sws_dir, 'run_sss.sh') + st +
                    ' --subject ' + subj + ' --files ' + files + erm)
         cmd = ['ssh', p.sws_ssh, run_sss]
         run_subprocess(cmd, stdout=None, stderr=None)
