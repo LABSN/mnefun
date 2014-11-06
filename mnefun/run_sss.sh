@@ -15,6 +15,7 @@ ROOT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 ERM_RUNS=""
 HEAD_TRANS="median"
+ST_DUR="60"
 
 ASSERT_ISFILE () {
     if [ ! -f "$1" ] ; then
@@ -36,7 +37,7 @@ GET_PREFIX () {
 }
 
 #################################################### Read the options ##
-TEMP=`getopt -o s:f:e:t: --long subject:,files:,erm:,trans: -n 'run_sss.sh' -- "$@"`
+TEMP=`getopt -o s:f:e:t: --long subject:,files:,erm:,trans:,st: -n 'run_sss.sh' -- "$@"`
 eval set -- "$TEMP"
 
 while true ; do
@@ -60,6 +61,11 @@ while true ; do
             case "$2" in
                 "") shift 2 ;;
                 *) HEAD_TRANS=$2 ; shift 2 ;;
+            esac ;;
+        --st)
+            case "$2" in
+                "") shift 2 ;;
+                *) ST_DUR=$2 ; shift 2 ;;
             esac ;;
         --) shift ; break ;;
         *) echo "ERROR: Internal error!" ; exit 1 ;;
@@ -109,13 +115,12 @@ RUN_CENTER=`cat ${CENTER_FILE}`
 echo "• Using head center ${RUN_CENTER}"
 
 # Standard SSS parameters
-EXTRA_PARAMS="-in 8 -out 3 -regularize in"
 ERM_FRAME="-frame device -origin 0 13 -6"
 RUN_FRAME="-frame head -origin ${RUN_CENTER}"
 
 BAD_PARAMS="-autobad 20 -force -v"
-TRN_PARAMS="-trans ${HEAD_TRANS}"
-ST_PARAMS="-st 10 -force"
+ST_PARAMS="-in 8 -out 3 -regularize in -st ${ST_DUR}"
+MC_PARAMS="-trans ${HEAD_TRANS} -hpicons -movecomp inter"
 
 # Run processing
 for FILE in "${ADDR[@]}"; do
@@ -141,27 +146,14 @@ for FILE in "${ADDR[@]}"; do
     fi
     BADCH="-autobad off ${BADCH}"
 
-    # Three-step SSS procedure (work around Maxfilter bugs)
     MC_LOG="-hp ${LOG_DIR}${PREFIX}_hp.txt"
-    INTERM_1="${SSS_DIR}${PREFIX}_raw_sss1.fif"
-    INTERM_2="${SSS_DIR}${PREFIX}_raw_sss2.fif"
     SSS_FILE="${SSS_DIR}${PREFIX}_raw_sss.fif"
-    BASE_PARAMS="${RUN_FRAME} ${BADCH} ${EXTRA_PARAMS} -movecomp inter -force -v"
 
+    # Singleshot SSS (+st +mc +cs transform +hpi file) procedure
     # Show user arguments, minus logging / file args
-    ARGS="${BASE_PARAMS}"
+    ARGS="${RUN_FRAME} ${BADCH} ${ST_PARAMS} ${MC_PARAMS} -force -v"
     echo "• Running maxfilter ${ARGS}"
-    maxfilter -f ${RAW_FILE} -o ${INTERM_1} ${ARGS} ${MC_LOG} > ${LOG_DIR}${PREFIX}_2_mc.txt
-
-    ARGS="${BASE_PARAMS} ${TRN_PARAMS}"
-    echo "• Running maxfilter ${ARGS}"
-    maxfilter -f ${INTERM_1} -o ${INTERM_2} ${ARGS} > ${LOG_DIR}${PREFIX}_3_trans.txt
-    rm -f "${INTERM_1}"
-
-    ARGS="${BASE_PARAMS} ${ST_PARAMS}"
-    echo "• Running maxfilter ${ARGS}"
-    maxfilter -f ${INTERM_2} -o ${SSS_FILE} ${ARGS} > ${LOG_DIR}${PREFIX}_4_st.txt
-    rm -f "${INTERM_2}"
+    maxfilter -f ${RAW_FILE} -o ${SSS_FILE} ${MC_LOG} ${ARGS} &> ${LOG_DIR}${PREFIX}_sss.txt
 done
 
 # ERM processing
@@ -187,20 +179,12 @@ for FILE in "${ADDR[@]}"; do
         BADCH="-bad ${BADCH}${EXTRABADS}"
     fi
     BADCH="-autobad off ${BADCH}"
-
-    # Two-step SSS procedure (no MC)
-    INTERM_1="${SSS_DIR}${PREFIX}_raw_sss1.fif"
     SSS_FILE="${SSS_DIR}${PREFIX}_raw_sss.fif"
-    BASE_PARAMS="${ERM_FRAME} ${BADCH} ${EXTRA_PARAMS} -force -v"
 
-    ARGS="${BASE_PARAMS}"
+    # singleshot SSS procedure (no MC)
+    ARGS="${ERM_FRAME} ${BADCH} ${ST_PARAMS}"
     echo "• Running maxfilter ${ARGS}"
-    maxfilter -f ${RAW_FILE} -o ${INTERM_1} ${ARGS} > ${LOG_DIR}${PREFIX}_2_sss.txt
-
-    ARGS="${BASE_PARAMS} ${ST_PARAMS}"
-    echo "• Running maxfilter ${ARGS}"
-    maxfilter -f ${INTERM_1} -o ${SSS_FILE} ${ARGS} > ${LOG_DIR}${PREFIX}_3_st.txt
-    rm -f ${INTERM_1}
+    maxfilter -f ${RAW_FILE} -o ${SSS_FILE} ${ARGS} -force -v &> ${LOG_DIR}${PREFIX}_sss.txt
 done
 
 echo ""
