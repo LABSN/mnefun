@@ -631,8 +631,8 @@ def fix_eeg_channels(raw_files, anon=None, verbose=True):
         raw = Raw(raw_file, preload=False, allow_maxshield=True)
         picks = pick_types(raw.info, meg=False, eeg=True, exclude=[])
         if not len(picks) == len(order):
-            raise RuntimeError('Incorrect number of EEG channels found (%i)'
-                               % len(picks))
+            raise RuntimeError('Incorrect number of EEG channels (%i) found in %s'
+                               % (len(picks), op.basename(raw_file)))
         need_reorder = (write_key not in raw.info['description'])
         need_anon = (anon is not None and
                      (anon_key not in raw.info['description']))
@@ -1008,8 +1008,12 @@ def gen_covariances(p, subjects):
                                      + p.inv_tag + '-cov.fif')
             empty_fif = op.join(pca_dir, new_run + p.pca_fif_tag)
             raw = Raw(empty_fif, preload=True)
+            if len(pick_types(raw.info, meg=True, eeg=True)) > 0:
+                picks = None
+            else:
+                picks = pick_types(raw.info, meg=True, eeg=False)
             cov = compute_raw_data_covariance(raw, reject=p.reject,
-                                              flat=p.flat)
+                                              flat=p.flat, picks=picks)
             write_cov(empty_cov_name, cov)
 
         # Make evoked covariances
@@ -1072,7 +1076,7 @@ def _raw_LRFCP(raw_names, sfreq, l_freq, h_freq, n_jobs, n_jobs_resample,
     raw = list()
     for rn in raw_names:
         r = Raw(rn, preload=True)
-        r.load_bad_channels(bad_file)
+        r.load_bad_channels(bad_file, force=True)
         if sfreq is not None:
             r.resample(sfreq, n_jobs=n_jobs_resample)
         if l_freq is not None or h_freq is not None:
@@ -1483,7 +1487,7 @@ def viz_raw_ssp_events(p, subj, show=True):
 
 
 def _channels_types(p, subj):
-    """Returns bools for MEG, EEG, M/EEG channel types in data info"""
+    """Returns bools for MEG, EEG, M/EEG channel types in maxfiltered data info structure"""
     info = read_info(get_raw_fnames(p, subj, 'sss', False)[0])
     meg = len(pick_types(info, meg=True, eeg=False)) > 0
     eeg = len(pick_types(info, meg=False, eeg=True)) > 0
