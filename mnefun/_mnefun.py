@@ -1309,13 +1309,25 @@ def apply_preprocessing_combined(p, subjects):
             print('  Applying processing to subject %g/%g.'
                   % (si + 1, len(subjects)))
         pca_dir = op.join(p.work_dir, subj, p.pca_dir)
-        names_in = get_raw_fnames(p, subj, 'sss', True)
-        names_out = get_raw_fnames(p, subj, 'pca', True)
+        names_in = get_raw_fnames(p, subj, 'sss', False)
+        names_out = get_raw_fnames(p, subj, 'pca', False)
+        erm_in = get_raw_fnames(p, subj, 'sss', 'only')
+        erm_out = get_raw_fnames(p, subj, 'pca', 'only')
         bad_dir = op.join(p.work_dir, subj, p.bad_dir)
         bad_file = op.join(bad_dir, 'bad_ch_' + subj + p.bad_tag)
         bad_file = None if not op.isfile(bad_file) else bad_file
         all_proj = op.join(pca_dir, 'preproc_all-proj.fif')
         projs = read_proj(all_proj)
+        if p.inv_erm_tag:
+            for ii, (r, o) in enumerate(zip(erm_in, erm_out)):
+                if p.disp_files:
+                    print('    Processing file %d/%d.'
+                          % (ii + 1, len(names_in)))
+            raw = _raw_LRFCP(r, None, None, p.lp_cut, p.n_jobs_fir,
+                             p.n_jobs_resample, projs, bad_file,
+                             disp_files=False, method='fft', apply_proj=False,
+                             filter_length=p.filter_length, force_bads=True)
+            raw.save(o, overwrite=True)
         for ii, (r, o) in enumerate(zip(names_in, names_out)):
             if p.disp_files:
                 print('    Processing file %d/%d.'
