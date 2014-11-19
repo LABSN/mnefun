@@ -630,6 +630,9 @@ def fix_eeg_channels(raw_files, anon=None, verbose=True):
     for ri, raw_file in enumerate(raw_files):
         raw = Raw(raw_file, preload=False, allow_maxshield=True)
         picks = pick_types(raw.info, meg=False, eeg=True, exclude=[])
+        if len(picks) == 0:
+            print('    Skipping %s no EEG channels found.' % (op.basename(raw_file)))
+            continue
         if not len(picks) == len(order):
             raise RuntimeError('Incorrect number of EEG channels (%i) found in %s'
                                % (len(picks), op.basename(raw_file)))
@@ -1008,7 +1011,7 @@ def gen_covariances(p, subjects):
                                      + p.inv_tag + '-cov.fif')
             empty_fif = op.join(pca_dir, new_run + p.pca_fif_tag)
             raw = Raw(empty_fif, preload=True)
-            if len(pick_types(raw.info, meg=True, eeg=True)) > 0:
+            if len(pick_types(raw.info, meg=False, eeg=True)) > 0:
                 picks = None
             else:
                 picks = pick_types(raw.info, meg=True, eeg=False)
