@@ -1069,7 +1069,7 @@ def safe_inserter(string, inserter):
 # noinspection PyPep8Naming
 def _raw_LRFCP(raw_names, sfreq, l_freq, h_freq, n_jobs, n_jobs_resample,
                projs, bad_file, disp_files=False, method='fft',
-               filter_length=32768, apply_proj=True, preload=True):
+               filter_length=32768, apply_proj=True, preload=True, force_bads=False):
     """Helper to load, filter, concatenate, then project raw files
     """
     if isinstance(raw_names, str):
@@ -1079,7 +1079,7 @@ def _raw_LRFCP(raw_names, sfreq, l_freq, h_freq, n_jobs, n_jobs_resample,
     raw = list()
     for rn in raw_names:
         r = Raw(rn, preload=True)
-        r.load_bad_channels(bad_file, force=True)
+        r.load_bad_channels(bad_file, force=force_bads)
         if sfreq is not None:
             r.resample(sfreq, n_jobs=n_jobs_resample)
         if l_freq is not None or h_freq is not None:
@@ -1135,7 +1135,7 @@ def do_preprocessing_combined(p, subjects):
             raw = _raw_LRFCP(raw_names, p.proj_sfreq, None, None, p.n_jobs_fir,
                              p.n_jobs_resample, list(), None, p.disp_files,
                              method='fft', filter_length=p.filter_length,
-                             apply_proj=False)
+                             apply_proj=False, force_bads=False)
             events = fixed_len_events(p, raw)
             # do not mark eog channels bad
             meg, eeg = _channels_types(p, subj)
@@ -1194,7 +1194,7 @@ def do_preprocessing_combined(p, subjects):
         raw_orig = _raw_LRFCP(pre_list, p.proj_sfreq, None, bad_file,
                               p.n_jobs_fir, p.n_jobs_resample, projs, bad_file,
                               p.disp_files, method='fft',
-                              filter_length=p.filter_length)
+                              filter_length=p.filter_length, force_bads=False)
 
         if any(proj_nums[2]):
             if len(empty_names) >= 1:
@@ -1204,7 +1204,7 @@ def do_preprocessing_combined(p, subjects):
                 raw = _raw_LRFCP(empty_names, p.proj_sfreq, None, None,
                                  p.n_jobs_fir, p.n_jobs_resample, projs,
                                  bad_file, p.disp_files, method='fft',
-                                 filter_length=p.filter_length)
+                                 filter_length=p.filter_length, force_bads=True)
             else:
                 if p.disp_files:
                     print('    Computing continuous projectors using data.')
@@ -1323,7 +1323,7 @@ def apply_preprocessing_combined(p, subjects):
             raw = _raw_LRFCP(r, None, None, p.lp_cut, p.n_jobs_fir,
                              p.n_jobs_resample, projs, bad_file,
                              disp_files=False, method='fft', apply_proj=False,
-                             filter_length=p.filter_length)
+                             filter_length=p.filter_length, force_bads=False)
             raw.save(o, overwrite=True)
         # look at raw_clean for ExG events
         if p.plot_raw:
@@ -1482,7 +1482,7 @@ def viz_raw_ssp_events(p, subj, show=True):
     ev.sort(axis=0)
     raw = _raw_LRFCP(pre_list, p.proj_sfreq, None, None, p.n_jobs_fir,
                      p.n_jobs_resample, projs, None, p.disp_files,
-                     method='fft', filter_length=p.filter_length)
+                     method='fft', filter_length=p.filter_length, force_bads=False)
     if show:
         raw.plot(events=ev)
         plt.draw()
