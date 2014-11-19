@@ -1318,7 +1318,7 @@ def apply_preprocessing_combined(p, subjects):
         bad_file = None if not op.isfile(bad_file) else bad_file
         all_proj = op.join(pca_dir, 'preproc_all-proj.fif')
         projs = read_proj(all_proj)
-        if p.inv_erm_tag:
+        if len(erm_in) > 0:
             for ii, (r, o) in enumerate(zip(erm_in, erm_out)):
                 if p.disp_files:
                     print('    Processing file %d/%d.'
