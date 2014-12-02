@@ -561,7 +561,7 @@ def get_raw_fnames(p, subj, which='raw', erm=True):
     return [op.join(raw_dir, safe_inserter(r, subj) + tag) for r in use]
 
 
-def fix_eeg_files(p, subjects, structurals=None, dates=None, verbose=True):
+def fix_eeg_files(p, subjects, structurals=[], dates=None, verbose=True):
     """Reorder EEG channels based on UW cap setup and params
 
     Reorders only the SSS files based on params, to leave the raw files
@@ -584,7 +584,7 @@ def fix_eeg_files(p, subjects, structurals=None, dates=None, verbose=True):
         raw_names = get_raw_fnames(p, subj, 'sss', True)
         # Now let's make sure we only run files that actually exist
         names = [name for name in raw_names if op.isfile(name)]
-        if structurals is not None and dates is not None:
+        if structurals[si] is not None and dates is not None:
             assert isinstance(structurals[si], str)
             assert isinstance(dates[si], tuple) and len(dates[si]) == 3
             assert all([isinstance(d, int) for d in dates[si]])
