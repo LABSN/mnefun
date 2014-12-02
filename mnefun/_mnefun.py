@@ -5,6 +5,7 @@
 from __future__ import print_function
 
 import os
+import subprocess
 import os.path as op
 import numpy as np
 from scipy import io as spio
@@ -445,7 +446,7 @@ def run_sss_remotely(p, subjects):
         run_sss = (op.join(p.sws_dir, 'run_sss.sh') + st +
                    ' --subject ' + subj + ' --files ' + files + erm)
         cmd = ['ssh', p.sws_ssh, run_sss]
-        run_subprocess(cmd, stdout=None, stderr=None)
+        subprocess.check_call(cmd)
         print('-' * 70, end='\n\n')
 
 
