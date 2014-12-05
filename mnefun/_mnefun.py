@@ -1342,8 +1342,8 @@ def apply_preprocessing_combined(p, subjects):
         if len(erm_in) > 0:
             for ii, (r, o) in enumerate(zip(erm_in, erm_out)):
                 if p.disp_files:
-                    print('    Processing file %d/%d.'
-                          % (ii + 1, len(names_in)))
+                    print('    Processing erm file %d/%d.'
+                          % (ii + 1, len(erm_in)))
             raw = _raw_LRFCP(r, None, None, p.lp_cut, p.n_jobs_fir,
                              p.n_jobs_resample, projs, bad_file,
                              disp_files=False, method='fft', apply_proj=False,
