@@ -1354,7 +1354,7 @@ def apply_preprocessing_combined(p, subjects):
             raw.save(o, overwrite=True)
         # look at raw_clean for ExG events
         if p.plot_raw:
-            viz_raw_ssp_events(p, subj)
+            _viz_raw_ssp_events(p, subj)
 
 
 def gen_layouts(p, subjects):
@@ -1491,7 +1491,7 @@ def fixed_len_events(p, raw):
     return events
 
 
-def viz_raw_ssp_events(p, subj, show=True):
+def _viz_raw_ssp_events(p, subj):
     """Helper to plot filtered cleaned raw trace with ExG events"""
     pca_dir = op.join(p.work_dir, subj, p.pca_dir)
     raw_names = get_raw_fnames(p, subj, 'sss', False)
@@ -1504,14 +1504,14 @@ def viz_raw_ssp_events(p, subj, show=True):
     ev = [read_events(e) for e in ev_names]
     assert len(ev) == 2
     ev = np.concatenate((ev[0], ev[1]))
-    ev.sort(axis=0)
+    ev = ev[np.argsort(ev[:, 0], axis=0)]
     raw = _raw_LRFCP(pre_list, p.proj_sfreq, None, None, p.n_jobs_fir,
                      p.n_jobs_resample, projs, None, p.disp_files,
-                     method='fft', filter_length=p.filter_length, force_bads=False)
-    if show:
-        raw.plot(events=ev)
-        plt.draw()
-        plt.show()
+                     method='fft', filter_length=p.filter_length,
+                     force_bads=False)
+    raw.plot(events=ev, event_color={999: 'r', 998: 'b'})
+    plt.draw()
+    plt.show()
 
 
 def _channels_types(p, subj):
