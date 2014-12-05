@@ -1478,10 +1478,8 @@ def fixed_len_events(p, raw):
 
 def viz_raw_ssp_events(p, subj, show=True):
     """Helper to plot filtered cleaned raw trace with ExG events"""
-    pca_dir = op.join(p.work_dir, subj, p.raw_dir_tag)
-    sss_dir = op.join(p.work_dir, subj, p.orig_dir_tag)
-    raw_names = [op.join(sss_dir, safe_inserter(r, subj) + p.fif_tag)
-                 for r in p.run_names]
+    pca_dir = op.join(p.work_dir, subj, p.pca_dir)
+    raw_names = get_raw_fnames(p, subj, 'sss', False)
     pre_list = [r for ri, r in enumerate(raw_names)
                 if ri in p.get_projs_from]
     all_proj = op.join(pca_dir, 'preproc_all-proj.fif')
