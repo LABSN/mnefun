@@ -60,7 +60,8 @@ class Params(object):
                  filter_length=32768, drop_thresh=1,
                  epochs_type='fif', fwd_mindist=2.0,
                  bem_type='5120-5120-5120', auto_bad=None,
-                 ecg_channel='ECG063', plot_raw=False, match_fun=None):
+                 ecg_channel=None, eog_channel=None,
+                 plot_raw=False, match_fun=None):
         """Make a useful parameter structure
 
         This is technically a class, but it doesn't currently have any methods
@@ -118,8 +119,12 @@ class Params(object):
         auto_bad : float | None
             If not None, bad channels will be automatically excluded if
             they disqualify a proportion of events exceeding ``autobad``.
-        ecg_channel : str
-            The channel to use to detect ECG events.
+        ecg_channel : str | None
+            The channel to use to detect ECG events. None will use ECG063.
+            In lieu of an ECG recording, MEG1531 may work.
+        eog_channel : str
+            The channel to use to detect EOG events. None will use EOG*.
+            In lieu of an EOG recording, MEG1411 may work.
         plot_raw : bool
             If True, plot the raw files with the ECG/EOG events overlaid.
         match_fun : function | None
@@ -171,6 +176,7 @@ class Params(object):
         self.auto_bad_meg_thresh = 10
         self.auto_bad_eeg_thresh = 10
         self.ecg_channel = ecg_channel
+        self.eog_channel = eog_channel
         self.plot_raw = plot_raw
         self.translate_positions = True
 
@@ -698,6 +704,16 @@ def get_fsaverage_medial_vertices(concatenate=True):
         return [lh.vertices, rh.vertices]
 
 
+def _restrict_reject_flat(reject, flat, raw):
+    """Restrict a reject and flat dict based on channel presence"""
+    use_reject, use_flat = dict(), dict()
+    for in_, out in zip([reject, flat], [use_reject, use_flat]):
+        use_keys = [key for key in in_.keys() if key in raw]
+        for key in use_keys:
+            out[key] = in_[key]
+    return use_reject, use_flat
+
+
 def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
                 out_numbers, must_match):
     """Generate epochs from raw data based on events
@@ -770,9 +786,10 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
         events = events.astype(int) + t_adj
         if p.disp_files:
             print('    Epoching data.')
+        use_reject, use_flat = _restrict_reject_flat(p.reject, p.flat, raw)
         epochs = Epochs(raw, events, event_id=old_dict, tmin=p.tmin,
                         tmax=p.tmax, baseline=(p.bmin, p.bmax),
-                        reject=p.reject, flat=p.flat, proj=True,
+                        reject=use_reject, flat=use_flat, proj=True,
                         preload=True, decim=p.decim)
         del raw
         drop_logs.append(epochs.drop_log)
@@ -852,8 +869,22 @@ def gen_inverses(p, subjects, use_old_rank=False):
         Subject names to analyze (e.g., ['Eric_SoP_001', ...]).
     """
     for subj in subjects:
-        meg, eeg = _channels_types(p, subj)
         out_flags, meg_bools, eeg_bools = [], [], []
+        if p.disp_files:
+            print('  Subject %s. ' % subj)
+        inv_dir = op.join(p.work_dir, subj, p.inverse_dir)
+        fwd_dir = op.join(p.work_dir, subj, p.forward_dir)
+        cov_dir = op.join(p.work_dir, subj, p.cov_dir)
+        pca_dir = op.join(p.work_dir, subj, p.pca_dir)
+        if not op.isdir(inv_dir):
+            os.mkdir(inv_dir)
+        make_erm_inv = len(p.runs_empty) > 0
+
+        raw_fname = op.join(pca_dir, safe_inserter(p.run_names[0], subj)
+                            + p.pca_fif_tag)
+        raw = Raw(raw_fname)
+        meg, eeg = 'meg' in raw, 'eeg' in raw
+
         if meg:
             out_flags += ['-meg']
             meg_bools += [True]
@@ -866,15 +897,6 @@ def gen_inverses(p, subjects, use_old_rank=False):
             out_flags += ['-meg-eeg']
             meg_bools += [True]
             eeg_bools += [True]
-        if p.disp_files:
-            print('  Subject %s. ' % subj)
-        inv_dir = op.join(p.work_dir, subj, p.inverse_dir)
-        fwd_dir = op.join(p.work_dir, subj, p.forward_dir)
-        cov_dir = op.join(p.work_dir, subj, p.cov_dir)
-        pca_dir = op.join(p.work_dir, subj, p.pca_dir)
-        if not op.isdir(inv_dir):
-            os.mkdir(inv_dir)
-        make_erm_inv = len(p.runs_empty) > 0
         if make_erm_inv:
             erm_name = op.join(cov_dir, safe_inserter(p.runs_empty[0], subj)
                                + p.pca_extra + p.inv_tag + '-cov.fif')
@@ -885,9 +907,6 @@ def gen_inverses(p, subjects, use_old_rank=False):
             fwd_name = op.join(fwd_dir, s_name + p.inv_tag + '-fwd.fif')
             fwd = read_forward_solution(fwd_name, surf_ori=True)
             # Shouldn't matter which raw file we use
-            raw_fname = op.join(pca_dir, safe_inserter(p.run_names[0], subj)
-                                + p.pca_fif_tag)
-            raw = Raw(raw_fname)
 
             cov_name = op.join(cov_dir, safe_inserter(name, subj)
                                + ('-%d' % p.lp_cut) + p.inv_tag + '-cov.fif')
@@ -1014,12 +1033,13 @@ def gen_covariances(p, subjects):
                                      + p.inv_tag + '-cov.fif')
             empty_fif = op.join(pca_dir, new_run + p.pca_fif_tag)
             raw = Raw(empty_fif, preload=True)
+            use_reject, use_flat = _restrict_reject_flat(p.reject, p.flat, raw)
             if len(pick_types(raw.info, meg=False, eeg=True)) > 0:
                 picks = None
             else:
                 picks = pick_types(raw.info, meg=True, eeg=False)
-            cov = compute_raw_data_covariance(raw, reject=p.reject,
-                                              flat=p.flat, picks=picks)
+            cov = compute_raw_data_covariance(raw, reject=use_reject,
+                                              flat=use_flat, picks=picks)
             write_cov(empty_cov_name, cov)
 
         # Make evoked covariances
@@ -1141,7 +1161,7 @@ def do_preprocessing_combined(p, subjects):
                              apply_proj=False, force_bads=False)
             events = fixed_len_events(p, raw)
             # do not mark eog channels bad
-            meg, eeg = _channels_types(p, subj)
+            meg, eeg = 'meg' in raw, 'eeg' in raw
             picks = pick_types(raw.info, meg=meg, eeg=eeg, eog=False,
                                exclude=[])
             assert type(p.auto_bad_reject) and type(p.auto_bad_flat) == dict
@@ -1205,7 +1225,6 @@ def do_preprocessing_combined(p, subjects):
 
         # Calculate and apply continuous projectors if requested
         projs = list()
-        reject = dict(grad=np.inf, mag=np.inf, eeg=np.inf, eog=np.inf)
         raw_orig = _raw_LRFCP(pre_list, p.proj_sfreq, None, bad_file,
                               p.n_jobs_fir, p.n_jobs_resample, projs, bad_file,
                               p.disp_files, method='fft',
@@ -1229,8 +1248,7 @@ def do_preprocessing_combined(p, subjects):
             raw.apply_proj()
             pr = compute_proj_raw(raw, duration=1, n_grad=proj_nums[2][0],
                                   n_mag=proj_nums[2][1], n_eeg=proj_nums[2][2],
-                                  reject=reject, flat=None,
-                                  n_jobs=p.n_jobs_mkl)
+                                  reject=None, flat=None, n_jobs=p.n_jobs_mkl)
             write_proj(cont_proj, pr)
             projs.extend(pr)
             del raw
@@ -1244,13 +1262,13 @@ def do_preprocessing_combined(p, subjects):
                        method='fft', filter_length=p.filter_length)
             raw.add_proj(projs)
             raw.apply_proj()
-            o = compute_proj_ecg(raw, n_grad=proj_nums[0][0],
+            pr, ecg_events = \
+                compute_proj_ecg(raw, n_grad=proj_nums[0][0],
                                  n_jobs=p.n_jobs_mkl,
                                  n_mag=proj_nums[0][1], n_eeg=proj_nums[0][2],
                                  tmin=ecg_t_lims[0], tmax=ecg_t_lims[1],
                                  l_freq=None, h_freq=None, no_proj=True,
                                  qrs_threshold='auto', ch_name=p.ecg_channel)
-            pr, ecg_events = o
             if ecg_events.shape[0] >= 20:
                 write_events(ecg_eve, ecg_events)
                 write_proj(ecg_proj, pr)
@@ -1268,12 +1286,13 @@ def do_preprocessing_combined(p, subjects):
                        method='fft', filter_length=p.filter_length)
             raw.add_proj(projs)
             raw.apply_proj()
-            o = compute_proj_eog(raw, n_grad=proj_nums[1][0],
+            pr, eog_events = \
+                compute_proj_eog(raw, n_grad=proj_nums[1][0],
                                  n_jobs=p.n_jobs_mkl,
                                  n_mag=proj_nums[1][1], n_eeg=proj_nums[1][2],
                                  tmin=eog_t_lims[0], tmax=eog_t_lims[1],
-                                 l_freq=None, h_freq=None, no_proj=True)
-            pr, eog_events = o
+                                 l_freq=None, h_freq=None, no_proj=True,
+                                 ch_name=p.eog_channel)
             if eog_events.shape[0] >= 5:
                 write_events(eog_eve, eog_events)
                 write_proj(eog_proj, pr)
@@ -1292,9 +1311,11 @@ def do_preprocessing_combined(p, subjects):
         raw_orig.apply_proj()
         # now let's epoch with 1-sec windows to look for DQs
         events = fixed_len_events(p, raw_orig)
+        use_reject, use_flat = _restrict_reject_flat(p.reject, p.flat,
+                                                     raw_orig)
         epochs = Epochs(raw_orig, events, None, p.tmin, p.tmax, preload=False,
-                        baseline=(p.bmin, p.bmax), reject=p.reject,
-                        flat=p.flat, proj=False)
+                        baseline=(p.bmin, p.bmax), reject=use_reject,
+                        flat=use_flat, proj=True)
         epochs.drop_bad_epochs()
         drop_logs.append(epochs.drop_log)
         del raw_orig
@@ -1336,8 +1357,8 @@ def apply_preprocessing_combined(p, subjects):
         if len(erm_in) > 0:
             for ii, (r, o) in enumerate(zip(erm_in, erm_out)):
                 if p.disp_files:
-                    print('    Processing file %d/%d.'
-                          % (ii + 1, len(names_in)))
+                    print('    Processing erm file %d/%d.'
+                          % (ii + 1, len(erm_in)))
             raw = _raw_LRFCP(r, None, None, p.lp_cut, p.n_jobs_fir,
                              p.n_jobs_resample, projs, bad_file,
                              disp_files=False, method='fft', apply_proj=False,
@@ -1512,14 +1533,6 @@ def viz_raw_ssp_events(p, subj, show=True):
         raw.plot(events=ev)
         plt.draw()
         plt.show()
-
-
-def _channels_types(p, subj):
-    """Returns bools for MEG, EEG, M/EEG channel types in maxfiltered data info structure"""
-    info = read_info(get_raw_fnames(p, subj, 'sss', False)[0])
-    meg = len(pick_types(info, meg=True, eeg=False)) > 0
-    eeg = len(pick_types(info, meg=False, eeg=True)) > 0
-    return meg, eeg
 
 
 def _get_finder_cmd(fnames, finder):

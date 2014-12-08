@@ -51,7 +51,6 @@ params.get_projs_from = np.arange(1)
 params.inv_names = ['%s']
 params.inv_runs = [np.arange(1)]
 params.runs_empty = ['%s_erm']
-params.extra_channels = ['EOG061', 'EOG062', 'ECG063']
 params.proj_nums = [[1, 1, 0],  # ECG: grad/mag/eeg
                     [1, 1, 2],  # EOG
                     [0, 0, 0]]  # Continuous (from ERM)
