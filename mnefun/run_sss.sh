@@ -11,6 +11,8 @@
 #    exit 1
 #fi
 
+PATH=$PATH:/neuro/bin/util
+
 ROOT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 ERM_RUNS=""
