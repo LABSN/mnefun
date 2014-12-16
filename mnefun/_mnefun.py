@@ -592,8 +592,8 @@ def fix_eeg_files(p, subjects, structurals=None, dates=None, verbose=True):
         raw_names = get_raw_fnames(p, subj, 'sss', True)
         # Now let's make sure we only run files that actually exist
         names = [name for name in raw_names if op.isfile(name)]
-        if structurals is not None and structurals[si] is not None and (dates
-            is not None):
+        if structurals is not None and structurals[si] is not None and \
+                dates is not None:
             assert isinstance(structurals[si], str)
             assert isinstance(dates[si], tuple) and len(dates[si]) == 3
             assert all([isinstance(d, int) for d in dates[si]])
@@ -641,11 +641,12 @@ def fix_eeg_channels(raw_files, anon=None, verbose=True):
         raw = Raw(raw_file, preload=False, allow_maxshield=True)
         picks = pick_types(raw.info, meg=False, eeg=True, exclude=[])
         if len(picks) == 0:
-            print('    Skipping %s no EEG channels found.' % (op.basename(raw_file)))
+            print('    Skipping %s no EEG channels found.'
+                  % (op.basename(raw_file)))
             continue
         if not len(picks) == len(order):
-            raise RuntimeError('Incorrect number of EEG channels (%i) found in %s'
-                               % (len(picks), op.basename(raw_file)))
+            raise RuntimeError('Incorrect number of EEG channels (%i) found '
+                               'in %s' % (len(picks), op.basename(raw_file)))
         need_reorder = (write_key not in raw.info['description'])
         need_anon = (anon is not None and
                      (anon_key not in raw.info['description']))
@@ -773,7 +774,9 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
             first_samps.append(raw._first_samps[0])
             last_samps.append(raw._last_samps[-1])
         # read in raw files
-        raw = Raw(raw_names, preload=False)
+        raw = [Raw(fname, preload=False) for fname in raw_names]
+        _fix_raw_eog_cals(raw, raw_names)  # EOG epoch scales might be bad!
+        raw = concatenate_raws(raw)
 
         # read in events
         events = [read_events(op.join(lst_dir, 'ALL_' +
@@ -881,6 +884,7 @@ def gen_inverses(p, subjects, use_old_rank=False):
             os.mkdir(inv_dir)
         make_erm_inv = len(p.runs_empty) > 0
 
+        # Shouldn't matter which raw file we use
         raw_fname = op.join(pca_dir, safe_inserter(p.run_names[0], subj)
                             + p.pca_fif_tag)
         raw = Raw(raw_fname)
@@ -907,7 +911,6 @@ def gen_inverses(p, subjects, use_old_rank=False):
             temp_name = s_name + ('-%d' % p.lp_cut) + p.inv_tag
             fwd_name = op.join(fwd_dir, s_name + p.inv_tag + '-fwd.fif')
             fwd = read_forward_solution(fwd_name, surf_ori=True)
-            # Shouldn't matter which raw file we use
 
             cov_name = op.join(cov_dir, safe_inserter(name, subj)
                                + ('-%d' % p.lp_cut) + p.inv_tag + '-cov.fif')
@@ -1055,14 +1058,18 @@ def gen_covariances(p, subjects):
                 raw = Raw(raw_fname, preload=False)
                 first_samps.append(raw._first_samps[0])
                 last_samps.append(raw._last_samps[-1])
-            raw = Raw(raw_fnames, preload=False)
+            raws = [Raw(fname, preload=False) for fname in raw_fnames]
+            _fix_raw_eog_cals(raws, raw_fnames)  # safe b/c cov only needs MEEG
+            raw = concatenate_raws(raws)
             e_names = [op.join(lst_dir, 'ALL_' + safe_inserter(rn[ir], subj)
                                + '-eve.lst') for ir in inv_run]
             events = [read_events(e) for e in e_names]
             events = concatenate_events(events, first_samps,
                                         last_samps)
+            picks = pick_types(raw.info, eeg=True, meg=True)
             epochs = Epochs(raw, events, event_id=None, tmin=p.bmin,
-                            tmax=p.bmax, baseline=(None, None), preload=True)
+                            tmax=p.bmax, baseline=(None, None),
+                            picks=picks, preload=True)
             cov_name = op.join(cov_dir, safe_inserter(inv_name, subj)
                                + ('-%d' % p.lp_cut) + p.inv_tag + '-cov.fif')
             cov = compute_covariance(epochs)
@@ -1090,10 +1097,26 @@ def safe_inserter(string, inserter):
     return string
 
 
+def _fix_raw_eog_cals(raws, raw_names):
+    """Fix for annoying issue where EOG cals don't match"""
+    # Warning: this will only produce correct EOG scalings with preloaded
+    # raw data!
+    picks = pick_types(raws[0].info, eeg=False, meg=False, eog=True)
+    first_cals = raws[0].cals[picks]
+    for ri, r in enumerate(raws[1:]):
+        picks_2 = pick_types(r.info, eeg=False, meg=False, eog=True)
+        assert np.array_equal(picks, picks_2)
+        these_cals = r.cals[picks]
+        if not np.array_equal(first_cals, these_cals):
+            warnings.warn('Adjusting EOG cals for %s' % raw_names[ri + 1])
+            r.cals[picks] = first_cals
+
+
 # noinspection PyPep8Naming
 def _raw_LRFCP(raw_names, sfreq, l_freq, h_freq, n_jobs, n_jobs_resample,
                projs, bad_file, disp_files=False, method='fft',
-               filter_length=32768, apply_proj=True, preload=True, force_bads=False):
+               filter_length=32768, apply_proj=True, preload=True,
+               force_bads=False):
     """Helper to load, filter, concatenate, then project raw files
     """
     if isinstance(raw_names, str):
@@ -1111,7 +1134,9 @@ def _raw_LRFCP(raw_names, sfreq, l_freq, h_freq, n_jobs, n_jobs_resample,
                      n_jobs=n_jobs, method=method,
                      filter_length=filter_length)
         raw.append(r)
+    _fix_raw_eog_cals(raw, raw_names)
     raws_del = raw[1:]
+
     raw = concatenate_raws(raw, preload=preload)
     for r in raws_del:
         del r
@@ -1239,7 +1264,8 @@ def do_preprocessing_combined(p, subjects):
                 raw = _raw_LRFCP(empty_names, p.proj_sfreq, None, None,
                                  p.n_jobs_fir, p.n_jobs_resample, projs,
                                  bad_file, p.disp_files, method='fft',
-                                 filter_length=p.filter_length, force_bads=True)
+                                 filter_length=p.filter_length,
+                                 force_bads=True)
             else:
                 if p.disp_files:
                     print('    Computing continuous projectors using data.')
