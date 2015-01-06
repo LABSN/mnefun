@@ -1588,11 +1588,13 @@ def gen_html_report(p, raw=False, evoked=False, cov=False, trans=False, epochs=F
     for subj, structural in zip(p.subjects, p.structurals):
         path = op.join(p.work_dir, subj)
         files = []
-        for ii, (b, text, type_) in enumerate(zip(bools, texts, types)):
+        for ii, (b, text) in enumerate(zip(bools, texts)):
             files.append(glob.glob(path + '/*/' + text))
-            if not files[ii]:
-                print('    No report for compatible %s file(s) found for %s' % (type_, subj))
-        bools = [True for f in files if f]
+        bools = [True if f else b for f, b in zip(files, bools)]
+        type_ = [t for t, b in zip(types, bools) if not b]
+        print('    For %s No report file found for:\n' % subj)
+        for t, k in enumerate(type_):
+            print('        %s' % k)
         patterns = [t for t, b in zip(texts, bools) if b]
         fnames = get_raw_fnames(p, subj, 'pca', False)
         if not fnames:
