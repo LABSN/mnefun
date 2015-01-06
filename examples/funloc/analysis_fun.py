@@ -28,9 +28,6 @@ SUBJECTS_DIR directory:
 import mnefun
 from score import score
 import numpy as np
-from mne import set_log_level as log
-
-log(verbose='WARNING')
 
 params = mnefun.Params(tmin=-0.2, tmax=0.5, t_adjust=-4e-3,
                        n_jobs=18, n_jobs_mkl=1,
@@ -82,22 +79,22 @@ params.must_match = [
 # Set what will run
 mnefun.do_processing(
     params,
-    fetch_raw=False,  # Fetch raw recording files from acq machine
+    fetch_raw=True,  # Fetch raw recording files from acq machine
     # Make SUBJ/raw_fif/SUBJ_prebad.txt file with space-separated
     # list of bad MEG channel numbers, needed for running SSS.
-    push_raw=False,  # Push raw files and SSS script to SSS workstation
-    do_sss=False,  # Run SSS remotely
-    fetch_sss=False,  # Fetch SSSed files
-    do_score=False,  # do scoring
-    do_ch_fix=False,  # Fix channel ordering
+    push_raw=True,  # Push raw files and SSS script to SSS workstation
+    do_sss=True,  # Run SSS remotely
+    fetch_sss=True,  # Fetch SSSed files
+    do_score=True,  # do scoring
+    do_ch_fix=True,  # Fix channel ordering
     # Examine SSS'ed files and make SUBJ/bads/bad_ch_SUBJ_post-sss.txt,
     # usually only contains EEG channels, needed for preprocessing.
-    gen_ssp=False,  # Generate SSP vectors
-    apply_ssp=False,  # Apply SSP vectors and filtering
-    gen_covs=False,  # Generate covariances
+    gen_ssp=True,  # Generate SSP vectors
+    apply_ssp=True,  # Apply SSP vectors and filtering
+    gen_covs=True,  # Generate covariances
     # Make SUBJ/trans/SUBJ-trans.fif file in mne_analyze, needed for fwd calc.
-    gen_fwd=False,  # Generate forward solutions (and source space if needed)
-    gen_inv=False,  # Generate inverses
+    gen_fwd=True,  # Generate forward solutions (and source space if needed)
+    gen_inv=True,  # Generate inverses
     write_epochs=False,  # Write epochs to disk
     gen_report=True,  # Write mne report html to disk
 )
