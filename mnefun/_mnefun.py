@@ -1592,9 +1592,10 @@ def gen_html_report(p, raw=False, evoked=False, cov=False, trans=False, epochs=F
             files.append(glob.glob(path + '/*/' + text))
         bools = [True if f else b for f, b in zip(files, bools)]
         type_ = [t for t, b in zip(types, bools) if not b]
-        print('    For %s No report file found for:\n' % subj)
-        for t, k in enumerate(type_):
-            print('        %s' % k)
+        if len(type_) > 0:
+            print('    For %s No report file found for:\n' % subj)
+            for t, k in enumerate(type_):
+                print('        %s' % k)
         patterns = [t for t, b in zip(texts, bools) if b]
         fnames = get_raw_fnames(p, subj, 'pca', False)
         if not fnames:
