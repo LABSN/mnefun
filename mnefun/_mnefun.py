@@ -600,6 +600,7 @@ def fix_eeg_files(p, subjects, structurals=None, dates=None, verbose=True):
         raw_names = get_raw_fnames(p, subj, 'sss', True)
         # Now let's make sure we only run files that actually exist
         names = [name for name in raw_names if op.isfile(name)]
+        # noinspection PyPep8
         if structurals is not None and structurals[si] is not None and \
                         dates is not None:
             assert isinstance(structurals[si], str)
@@ -1579,7 +1580,6 @@ def _get_finder_cmd(fnames, finder):
 
 def gen_html_report(p, raw=False, evoked=False, cov=False, trans=False, epochs=False):
     """Generates HTML reports using MNE-Python Report assuming SSP pre-processed files exist"""
-    subjects_dir = get_config('SUBJECTS_DIR')
     types = ['filtered raw', 'evoked', 'covariance', 'trans', 'epochs']
     texts = ['*fil%d*sss.fif' % p.lp_cut, '*ave.fif',
              '*cov.fif', '*trans.fif', '*epo.fif']
@@ -1590,20 +1590,16 @@ def gen_html_report(p, raw=False, evoked=False, cov=False, trans=False, epochs=F
         for ii, (b, text) in enumerate(zip(bools, texts)):
             files.append(glob.glob(path + '/*/' + text))
         bools = [True if f else b for f, b in zip(files, bools)]
-        type_ = [t for t, b in zip(types, bools) if not b]
-        if len(type_) > 0:
-            print('    For %s No report file found for:\n' % subj)
-            for t, k in enumerate(type_):
-                print('        %s' % k)
+        missing = ', '.join([t for t, b in zip(types, bools) if not b])
+        if len(missing) > 0:
+            print('    For %s no reports generated for:\n        %s' % (subj, missing))
         patterns = [t for t, b in zip(texts, bools) if b]
         fnames = get_raw_fnames(p, subj, 'pca', False)
         if not fnames:
             raise RuntimeError('Could not find any processed files for reporting.')
         info_fname = op.join(path, fnames[0])
-        if p.mri:
-            report = Report(info_fname=info_fname, subjects_dir=subjects_dir, subject=structural)
-        else:
-            report = Report(info_fname=info_fname, subjects_dir=None, subject=structural)
+        struc = structural if p.mri else None
+        report = Report(info_fname=info_fname, subject=struc)
         report.parse_folder(data_path=path, mri_decim=50, n_jobs=p.n_jobs,
                             pattern=patterns)
         report.save(op.join(path, '%s_%dfil_Report' % (subj, p.lp_cut)),
