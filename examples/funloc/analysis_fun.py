@@ -30,7 +30,7 @@ from score import score
 import numpy as np
 
 params = mnefun.Params(tmin=-0.2, tmax=0.5, t_adjust=-4e-3,
-                       n_jobs=18, n_jobs_mkl=1,
+                       n_jobs=6, n_jobs_mkl=1,
                        n_jobs_fir='cuda', n_jobs_resample='cuda',
                        decim=5, proj_sfreq=200, filter_length='5s')
 params.subjects = ['subj_01', 'subj_02']
@@ -95,6 +95,6 @@ mnefun.do_processing(
     # Make SUBJ/trans/SUBJ-trans.fif file in mne_analyze, needed for fwd calc.
     gen_fwd=True,  # Generate forward solutions (and source space if needed)
     gen_inv=True,  # Generate inverses
-    write_epochs=False,  # Write epochs to disk
+    write_epochs=True,  # Write epochs to disk
     gen_report=True,  # Write mne report html to disk
 )
