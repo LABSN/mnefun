@@ -4,10 +4,12 @@ import os
 from os import path as op
 import numpy as np
 import time
+import warnings
+from copy import deepcopy
 
-from mne import (pick_types, pick_info, SourceEstimate, read_labels_from_annot,
-                 Label, get_config, Epochs, compute_raw_data_covariance,
-                 convert_forward_solution)
+from mne import (pick_types, pick_info, SourceEstimate, pick_channels,
+                 compute_raw_data_covariance, convert_forward_solution,
+                 get_chpi_positions, EvokedArray)
 from mne.io import read_info, Raw
 from mne.io.pick import _has_kit_refs
 from mne.externals.six import string_types
@@ -19,7 +21,7 @@ from mne.transforms import (read_trans, _get_mri_head_t_from_trans_file,
 from mne.source_space import (SourceSpaces, read_source_spaces,
                               _filter_source_spaces)
 from mne.io.constants import FIFF
-from mne.utils import logger, verbose
+from mne.utils import logger, verbose, check_random_state
 from mne.surface import read_bem_solution
 from mne.simulation import generate_evoked
 
@@ -233,13 +235,11 @@ def _make_forward_solutions(info, mri, src, bem, dev_head_ts, mindist, n_jobs):
 
     megcoils, megcf, compcoils, compcf = None, None, None, None
     assert nmeg > 0  # otherwise this function is pointless!
-    durations = list()
     for ti, dev_head_t in enumerate(dev_head_ts):
         # could be *slightly* more efficient not to do this N times,
         # but the cost here is tiny compared to actual fwd calculation
         logger.info('Computing gain matrix for transform #%s/%s'
                     % (ti + 1, len(dev_head_ts)))
-        t0 = time.time()
         megcoils = _create_coils(megchs, FIFF.FWD_COIL_ACCURACY_ACCURATE,
                                  dev_head_t, coil_type='meg',
                                  coilset=templates)[0]
@@ -266,13 +266,29 @@ def _make_forward_solutions(info, mri, src, bem, dev_head_ts, mindist, n_jobs):
                         mri_head_t=mri_head_t))
         fwd['info']['mri_head_t'] = mri_head_t
         fwd['info']['dev_head_t'] = dev_head_t
-        durations.append(time.time() - t0)
-        yield fwd, durations
+        yield fwd
+
+
+def _restrict_source_space_to(src, vertices):
+    """Helper to trim down a source space"""
+    assert len(src) == len(vertices)
+    src = deepcopy(src)
+    for s, v in zip(src, vertices):
+        s['inuse'].fill(0)
+        s['nuse'] = len(v)
+        s['vertno'] = v
+        s['inuse'][s['vertno']] = 1
+        del s['pinfo']
+        del s['nuse_tri']
+        del s['use_tris']
+        del s['patch_inds']
+    return src
 
 
 @verbose
-def simulate_movement(raw, stc, trans, src, bem, snr=0., cov=None, eeg=True,
-                      add_stationary=False, n_jobs=1, verbose=True):
+def simulate_movement(raw, pos, stc, trans, src, bem, snr=0., cov=None,
+                      snr_tmin=None, snr_tmax=None, mindist=1.0,
+                      random_state=None, n_jobs=1, verbose=True):
     """Simulate raw data with head movements
 
     Parameters
@@ -280,8 +296,13 @@ def simulate_movement(raw, stc, trans, src, bem, snr=0., cov=None, eeg=True,
     raw : instance of Raw
         The raw instance to use. The measurement info, including the
         head positions, will be used to simulate data.
+    pos : str | None
+        Name of the position estimates file. Should be in the format of
+        the files produced by maxfilter-produced. If None, a fixed
+        head position (using ``raw.info['dev_head_t']``) will be used.
     stc : instance of SourceEstimate
-        The source estimate to use to simulate data.
+        The source estimate to use to simulate data. Must have the same
+        sample rate as the raw data.
     trans : dict | str
         Either a transformation filename (usually made using mne_analyze)
         or an info dict (usually opened using read_trans()).
@@ -296,14 +317,20 @@ def simulate_movement(raw, stc, trans, src, bem, snr=0., cov=None, eeg=True,
         Filename of the BEM (e.g., "sample-5120-5120-5120-bem-sol.fif").
     snr : float
         SNR of the simulated data.
-    cov : instance of Covariance
-        The sensor covariance matrix used to generate noise.
-    eeg : bool
-        Toggle EEG data simulation.
-    add_stationary : bool | str
-        If True, construct a second Raw instance that is stationary,
-        and uses either the first head position (True) or the mediean
-        head position ('median') for the duration of the raw file.
+    cov : instance of Covariance | None
+        The sensor covariance matrix used to generate noise. If None,
+        the covariance will be estimated from the raw data.
+    snr_tmin : float | None
+        Minimum time to use in SNR computations. None will use the starting
+        time.
+    snr_tmax : float
+        Maximum time to use in SNR computations. None will use the ending
+        time.
+    mindist : float
+        Minimum distance between sources and the inner skull boundary
+        to use during forward calculation.
+    random_state : None | int | np.random.RandomState
+        To specify the random generator state.
     n_jobs : int
         Number of jobs to use.
     verbose : bool, str, int, or None
@@ -313,103 +340,95 @@ def simulate_movement(raw, stc, trans, src, bem, snr=0., cov=None, eeg=True,
     -------
     raw : instance of Raw
         The simulated raw file.
-    raw_control : instance of Raw
-        The simulated raw file with no movement, only returned if
-        ``add_stationary`` is not False.
 
-    TODO:
-    - Add spatial jitter of HPI?
-    - Add on-the-fly plotting
-    - Add control condition (using median inputted head position)
+    Notes
+    -----
+    Events coded with number 1 will be placed in the raw files in the
+    trigger channel STI101 at the t=0 times of the SourceEstimates.
+
+    Remaining issues:
+
+        * Clean data a little bit?
+        * Should projections be disabled?
+        * How to add CHPI signals back in? Band-pass and add!?!
     """
     if isinstance(raw, string_types):
-        raw = Raw(raw, preload=True)
-    if not raw.preload:
-        raise RuntimeError('raw file must be preloaded')
-    info = raw.info
+        with warnings.catch_warnings(record=True):
+            raw = Raw(raw, allow_maxshield=True, verbose=False)
+    else:
+        raw = raw.copy()
 
-    dev_head_ts = [info['dev_head_t']] * 2
+    if not isinstance(stc, SourceEstimate):
+        raise TypeError('stc must be a SourceEstimate')
+    if not np.allclose(raw.info['sfreq'], 1. / stc.tstep):
+        raise ValueError('stc and raw must have same sample rate')
+    rng = check_random_state(random_state)
 
-    if not isinstance(info, (dict, string_types)):
-        raise TypeError('info should be a dict or string')
-    if isinstance(info, string_types):
-        info = read_info(info, verbose=False)
-    picks = pick_types(info, meg=True, eeg=eeg)  # for simulation
+    if pos is None:  # use pos from file
+        dev_head_ts = [raw.info['dev_head_t']]
+        offsets = np.array([0, raw.n_times])
+    else:
+        transs, rots, ts = get_chpi_positions(pos, verbose=False)
+        dev_head_ts = [np.r_[np.c_[r, t[:, np.newaxis]], [[0, 0, 0, 1]]]
+                       for r, t in zip(rots, transs)]
+        if not (ts >= 0).all():  # pathological if not
+            raise RuntimeError('Cannot have t < 0 in transform file')
+        t0 = raw.first_samp / raw.info['sfreq']
+        if t0 < ts[0]:
+            ts = np.r_[[t0], ts]
+            dev_head_ts.insert(0, raw.info['dev_head_t']['trans'])
+        dev_head_ts = [dict(trans=d, to=raw.info['dev_head_t']['to'])
+                       for d in dev_head_ts]
+        ts -= ts[0]  # re-reference
+        offsets = np.r_[raw.time_as_index(ts), raw.n_times]
+        del transs, rots, ts
+    assert np.array_equal(offsets, np.unique(offsets))
+    assert len(offsets) == len(dev_head_ts) + 1
+
+    picks = pick_types(raw.info, meg=True, eeg=True)  # for simulation
     fwd_info = pick_info(raw.info, picks)
-    assert not add_stationary  # XXX Not implemented yet
-
-    # Create a dummy evoked object
-    n_trans = len(dev_head_ts)
-    events = np.array([[raw.first_samp, 0, 1]])
-    epochs = Epochs(raw, events, 1, 0, stc.times[-1] - stc.times[0],
-                    picks=picks, preload=True, reject=None, flat=None,
-                    verbose=False)
-    assert len(epochs) == 1
-    evoked = epochs.average()
-    assert len(evoked.times) == len(stc.times)
+    logger.info('Setting up raw data simulation using %s head position%s'
+                % (len(dev_head_ts), 's' if len(dev_head_ts) != 1 else ''))
 
     # Create a covariance if none was supplied
+    raw.preload_data()
     if cov is None:
-        logger.info('Comuting raw data covariance for noise simulation')
+        logger.info('Computing raw data covariance for noise simulation')
         cov = compute_raw_data_covariance(raw, verbose=False)
+    src = _restrict_source_space_to(src, stc.vertices)
 
-    # Create our data buffer    
-    data_buffer = np.zeros((len(picks), 0))
-    raw_offset = 0
-    # XXX set up all time indices ahead of time
-    for fi, (fwd, durs) in enumerate(_make_forward_solutions(
-            fwd_info, trans, src, bem, dev_head_ts, 1.0, n_jobs)):
+    evoked = EvokedArray(np.zeros((len(picks), len(stc.times))), fwd_info,
+                         stc.tmin, verbose=False)
+    stc_event_idx = np.argmin(np.abs(stc.times))
+    event_ch = pick_channels(raw.info['ch_names'], ['STI101'])[0]
+    simulated = np.zeros(raw.n_times, bool)
+    stc_indices = np.arange(raw.n_times) % len(stc.times)
+    t0 = time.time()
+    raw._data[event_ch, ].fill(0)
+    for fi, fwd in enumerate(_make_forward_solutions(
+            fwd_info, trans, src, bem, dev_head_ts, mindist, n_jobs)):
         fwd = convert_forward_solution(fwd, surf_ori=True, force_fixed=True,
                                        verbose=False)
-        logger.info('  Simulating data using gain matrix')
+
+        time_slice = slice(offsets[fi], offsets[fi+1])
+        assert not simulated[time_slice].any()
+        stc_idxs = stc_indices[time_slice]
+        event_idxs = np.where(stc_idxs == stc_event_idx)[0] + offsets[fi]
+        simulated[time_slice] = True
+        logger.info('  Simulating data for %0.1f-%0.1f sec with %s events'
+                    % (tuple(offsets[fi:fi+2] / raw.info['sfreq'])
+                       + (len(event_idxs),)))
 
         # simulate data
-        out = generate_evoked(fwd, stc, evoked, cov, snr, verbose=False)
-        #use_len = 0
-        #while data_buffer.shape[1] < use_len:
-        #    data_buffer = np.concatenate((data_buffer, out.data), axis=1)
-        #raw._data[picks, raw_offset:raw_offset+use_len] = data_buffer[:, :use_len]
-        #data_buffer = data_buffer[:, use_len:]
-
-        # give a status update
-        n_trans - fi - 1
-        time_str = time.strftime('%H:%M:%S', time.gmtime(
-            np.median(durs) * (n_trans - fi - 1)))
-        if fi < n_trans - 1:
-            logger.info('  Estimated time remaining: %s' % time_str)
+        sim_stc = SourceEstimate(stc.data[:, stc_idxs], stc.vertices,
+                                 stc.tmin, stc.tstep)
+        out = generate_evoked(fwd, sim_stc, evoked, cov, snr,
+                              tmin=snr_tmin, tmax=snr_tmax,
+                              random_state=rng, verbose=False)
+        assert out.data.shape[0] == len(picks)
+        assert out.data.shape[1] == len(stc_idxs)
+        raw._data[picks, time_slice] = out.data
+        raw._data[event_ch, event_idxs] = 1.
+    assert simulated.all()
+    logger.info('Done')
     return raw
-
-
-if __name__ == '__main__':
-    print('Setting up data')
-    subjects_dir = get_config('SUBJECTS_DIR')
-    subj, subject = 'eric_voc_007', 'AKCLEE_107'
-    file_dir = '/home/larsoner/Documents/python/larsoner/voc_meg/%s/' % subj
-    fname_raw = op.join(file_dir, 'raw_fif', '%s_01_raw.fif' % subj)
-    trans = file_dir + 'trans/%s-trans.fif' % subj
-    bem = op.join(subjects_dir, subject, 'bem',
-                  '%s-5120-5120-5120-bem-sol.fif' % subject)
-    src = read_source_spaces(op.join(subjects_dir, subject, 'bem',
-                             '%s-oct-6-src.fif' % subject))
-    raw = Raw(fname_raw, allow_maxshield=True, preload=True)
-
-    # construct appropriate STC
-    dur = 1.
-    vertices = [s['vertno'] for s in src]
-    n_vertices = sum(s['nuse'] for s in src)
-    data = np.ones((n_vertices, int(dur * raw.info['sfreq'])))
-    stc = SourceEstimate(data, vertices, -0.2, 1. / raw.info['sfreq'], subject)
-
-    # limit activation to two vertices
-    labels = []
-    for hi, hemi in enumerate(('lh', 'rh')):
-        label = read_labels_from_annot(subject, 'aparc.a2009s', hemi,
-                                       regexp='G_temp_sup-G_T_transv')[0]
-        center = stc.in_label(label).center_of_mass(restrict_vertices=True)
-        assert center[1] == hi
-        labels.append(Label([center[0]], hemi=hemi))
-    stc = stc.in_label(labels[0] + labels[1])
-    stc.data.fill(0)
-    stc.data[:, np.where(stc.times > 0)[0][0]] = 1e-9
-
-    raw = simulate_movement(raw, stc, trans, src, bem, n_jobs=6)

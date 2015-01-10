@@ -5,3 +5,4 @@ from ._mnefun import (Params, get_fsaverage_medial_vertices, # noqa
                       source_script, safe_inserter,  # noqa
                       extract_expyfun_events, do_processing,  # noqa
                       get_raw_fnames)  # noqa
+from ._simulate import simulate_movement  # noqa
