@@ -29,7 +29,6 @@ import mnefun
 from score import score
 import numpy as np
 
-
 params = mnefun.Params(tmin=-0.2, tmax=0.5, t_adjust=-4e-3,
                        n_jobs=6, n_jobs_mkl=1,
                        n_jobs_fir='cuda', n_jobs_resample='cuda',
@@ -97,4 +96,5 @@ mnefun.do_processing(
     gen_fwd=True,  # Generate forward solutions (and source space if needed)
     gen_inv=True,  # Generate inverses
     write_epochs=True,  # Write epochs to disk
+    gen_report=True,  # Write mne report html to disk
 )

@@ -39,6 +39,7 @@ from mne.minimum_norm import write_inverse_operator
 from mne.layouts import make_eeg_layout
 from mne.viz import plot_drop_log
 from mne.utils import run_subprocess
+from mne.report import Report
 
 
 # python2/3 conversions
@@ -206,6 +207,8 @@ class Params(object):
         self.raw_fif_tag = '_raw.fif'
         # Maxfilter params
         self.tsss_dur = 60.
+        # boolean for whether data set(s) have an individual mri
+        self.mri = True
 
     @property
     def pca_extra(self):
@@ -219,7 +222,8 @@ class Params(object):
 def do_processing(p, fetch_raw=False, push_raw=False, do_sss=False,
                   fetch_sss=False, do_score=False, do_ch_fix=False,
                   gen_ssp=False, apply_ssp=False, gen_covs=False,
-                  gen_fwd=False, gen_inv=False, write_epochs=False):
+                  gen_fwd=False, gen_inv=False, write_epochs=False,
+                  gen_report=False):
     """Do M/EEG data processing
 
     fetch_raw : bool
@@ -246,10 +250,13 @@ def do_processing(p, fetch_raw=False, push_raw=False, do_sss=False,
         Generate inverses.
     write_epochs : bool
         Write epochs to disk.
+    gen_report : bool
+        Generate HTML reports.
     """
     # Generate requested things
     bools = [fetch_raw, push_raw, do_sss, fetch_sss, do_score, do_ch_fix,
-             gen_ssp, apply_ssp, gen_covs, gen_fwd, gen_inv, write_epochs]
+             gen_ssp, apply_ssp, gen_covs, gen_fwd, gen_inv, write_epochs,
+             gen_report]
     texts = ['Pulling raw files from acquisition machine',
              'Pushing raw files to remote workstation',
              'Running SSS on remote workstation',
@@ -257,12 +264,13 @@ def do_processing(p, fetch_raw=False, push_raw=False, do_sss=False,
              'Scoring subjects', 'Fixing EEG order', 'Preprocessing files',
              'Applying preprocessing', 'Generating covariances',
              'Generating forward models', 'Generating inverse solutions',
-             'Doing epoch EQ/DQ']
+             'Doing epoch EQ/DQ',
+             'Generating HTML Reports']
     funcs = [fetch_raw_files, push_raw_files, run_sss_remotely,
              fetch_sss_files,
              p.score, fix_eeg_files, do_preprocessing_combined,
              apply_preprocessing_combined, gen_covariances,
-             gen_forwards, gen_inverses, save_epochs]
+             gen_forwards, gen_inverses, save_epochs, gen_html_report]
     assert len(bools) == len(texts) == len(funcs)
 
     sinds = p.subject_indices
@@ -593,8 +601,9 @@ def fix_eeg_files(p, subjects, structurals=None, dates=None, verbose=True):
         raw_names = get_raw_fnames(p, subj, 'sss', True)
         # Now let's make sure we only run files that actually exist
         names = [name for name in raw_names if op.isfile(name)]
+        # noinspection PyPep8
         if structurals is not None and structurals[si] is not None and \
-                dates is not None:
+                        dates is not None:
             assert isinstance(structurals[si], str)
             assert isinstance(dates[si], tuple) and len(dates[si]) == 3
             assert all([isinstance(d, int) for d in dates[si]])
@@ -1568,3 +1577,32 @@ def _get_finder_cmd(fnames, finder):
     cmd = finder + ' -o '.join(['-type f -regex .*%s-?[0-9]*.fif'
                                 % op.basename(f)[:-4] for f in fnames])
     return cmd
+
+
+def gen_html_report(p, raw=False, evoked=False, cov=False, trans=False, epochs=False):
+    """Generates HTML reports using MNE-Python Report assuming SSP pre-processed files exist"""
+    types = ['filtered raw', 'evoked', 'covariance', 'trans', 'epochs']
+    texts = ['*fil%d*sss.fif' % p.lp_cut, '*ave.fif',
+             '*cov.fif', '*trans.fif', '*epo.fif']
+    bools = [raw, evoked, cov, trans, epochs]
+    for subj, structural in zip(p.subjects, p.structurals):
+        path = op.join(p.work_dir, subj)
+        files = []
+        for ii, (b, text) in enumerate(zip(bools, texts)):
+            files.append(glob.glob(path + '/*/' + text))
+        bools = [True if f else b for f, b in zip(files, bools)]
+        missing = ', '.join([t for t, b in zip(types, bools) if not b])
+        if len(missing) > 0:
+            print('    For %s no reports generated for:\n        %s' % (subj, missing))
+        patterns = [t for t, b in zip(texts, bools) if b]
+        fnames = get_raw_fnames(p, subj, 'pca', False)
+        if not fnames:
+            raise RuntimeError('Could not find any processed files for reporting.')
+        info_fname = op.join(path, fnames[0])
+        struc = structural if p.mri else None
+        report = Report(info_fname=info_fname, subject=struc)
+        report.parse_folder(data_path=path, mri_decim=50, n_jobs=p.n_jobs,
+                            pattern=patterns)
+        report.save(op.join(path, '%s_%dfil_report.html' % (subj, p.lp_cut)),
+                    open_browser=False, overwrite=True)
+
