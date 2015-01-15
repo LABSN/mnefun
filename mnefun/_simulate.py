@@ -132,6 +132,7 @@ def _make_forward_solutions(info, mri, src, bem, dev_head_ts, mindist, n_jobs):
 
     # make a new dict with the relevant information
     mri_id = dict(machid=np.zeros(2, np.int32), version=0, secs=0, usecs=0)
+    dig = info['dig']
     info = dict(nchan=info['nchan'], chs=info['chs'], comps=info['comps'],
                 ch_names=info['ch_names'],
                 mri_file='', mri_id=mri_id, meas_file='',
@@ -266,7 +267,15 @@ def _make_forward_solutions(info, mri, src, bem, dev_head_ts, mindist, n_jobs):
                         mri_head_t=mri_head_t))
         fwd['info']['mri_head_t'] = mri_head_t
         fwd['info']['dev_head_t'] = dev_head_t
-        yield fwd
+
+        # make forward for HPI coils
+        if ncomp > 0:
+            raise RuntimeError('compensation not supported')
+        assert all([d['coord_frame'] == FIFF.FIFFV_COORD_HEAD
+                    for d in dig if d['kind'] == FIFF.FIFFV_POINT_HPI])
+        rrs = [d['r'] for d in dig if d['kind'] == FIFF.FIFFV_POINT_HPI]
+        fwd_chpi = _mag_dipole_field_vec(rrs, megcoils)
+        yield fwd, fwd_chpi
 
 
 def _restrict_source_space_to(src, vertices):
@@ -283,6 +292,27 @@ def _restrict_source_space_to(src, vertices):
         del s['use_tris']
         del s['patch_inds']
     return src
+
+
+def _mag_dipole_field_vec(rrs, coils):
+    """Compute an MEG forward solution for a set of locations"""
+    fwd = np.zeros((3 * len(rrs), len(coils)))
+    for ri, rr in enumerate(rrs):
+        for k in range(len(coils)):
+            this_coil = coils[k]
+            sum_ = np.zeros(3)
+            # Go through all points
+            diff = this_coil['rmag'] - rr
+            dist2 = np.sum(diff * diff, axis=1)[:, np.newaxis]
+            dist = np.sqrt(dist2)
+            if (dist < 1e-5).any():
+                raise RuntimeError('Coil too close')
+            dist5 = dist2 * dist2 * dist
+            sum_ = (3 * diff * np.sum(diff * this_coil['cosmag'],
+                                      axis=1)[:, np.newaxis] -
+                    dist2 * this_coil['cosmag']) / dist5
+            fwd[3*ri:3*ri+3, k] = 1e-7 * np.dot(this_coil['w'], sum_)
+    return fwd
 
 
 @verbose
@@ -345,12 +375,6 @@ def simulate_movement(raw, pos, stc, trans, src, bem, snr=0., cov=None,
     -----
     Events coded with number 1 will be placed in the raw files in the
     trigger channel STI101 at the t=0 times of the SourceEstimates.
-
-    Remaining issues:
-
-        * Clean data a little bit?
-        * Should projections be disabled?
-        * How to add CHPI signals back in? Band-pass and add!?!
     """
     if isinstance(raw, string_types):
         with warnings.catch_warnings(record=True):
@@ -385,8 +409,22 @@ def simulate_movement(raw, pos, stc, trans, src, bem, snr=0., cov=None,
     assert np.array_equal(offsets, np.unique(offsets))
     assert len(offsets) == len(dev_head_ts) + 1
 
+    # get HPI freqs and reorder
+    hpi_freqs = np.array([x['custom_ref'][0]
+                          for x in raw.info['hpi_meas'][0]['hpi_coils']])
+    n_freqs = len(hpi_freqs)
+    order = [x['number'] - 1 for x in raw.info['hpi_meas'][0]['hpi_coils']]
+    assert np.array_equal(np.unique(order), np.arange(n_freqs))
+    hpi_freqs = hpi_freqs[order]
+    hpi_order = raw.info['hpi_results'][0]['order'] - 1
+    assert np.array_equal(np.unique(hpi_order), np.arange(n_freqs))
+    hpi_freqs = hpi_freqs[hpi_order]
+
+    # extract necessary info
     picks = pick_types(raw.info, meg=True, eeg=True)  # for simulation
+    hpi_picks = pick_types(raw.info, meg=True, eeg=False)  # for CHPI
     fwd_info = pick_info(raw.info, picks)
+    fwd_info['projs'] = []
     logger.info('Setting up raw data simulation using %s head position%s'
                 % (len(dev_head_ts), 's' if len(dev_head_ts) != 1 else ''))
 
@@ -401,20 +439,24 @@ def simulate_movement(raw, pos, stc, trans, src, bem, snr=0., cov=None,
                          stc.tmin, verbose=False)
     stc_event_idx = np.argmin(np.abs(stc.times))
     event_ch = pick_channels(raw.info['ch_names'], ['STI101'])[0]
-    simulated = np.zeros(raw.n_times, bool)
+    used = np.zeros(raw.n_times, bool)
     stc_indices = np.arange(raw.n_times) % len(stc.times)
     t0 = time.time()
     raw._data[event_ch, ].fill(0)
-    for fi, fwd in enumerate(_make_forward_solutions(
+    phases = np.zeros(n_freqs)
+    hpi_mag = np.sqrt(np.mean(stc.copy().crop(snr_tmin, snr_tmax).data ** 2))
+    hpi_mag *= max(1. / max(snr, 1.), 10.)
+    for fi, (fwd, fwd_chpi) in enumerate(_make_forward_solutions(
             fwd_info, trans, src, bem, dev_head_ts, mindist, n_jobs)):
         fwd = convert_forward_solution(fwd, surf_ori=True, force_fixed=True,
                                        verbose=False)
+        n_time = offsets[fi+1] - offsets[fi]
 
         time_slice = slice(offsets[fi], offsets[fi+1])
-        assert not simulated[time_slice].any()
+        assert not used[time_slice].any()
         stc_idxs = stc_indices[time_slice]
         event_idxs = np.where(stc_idxs == stc_event_idx)[0] + offsets[fi]
-        simulated[time_slice] = True
+        used[time_slice] = True
         logger.info('  Simulating data for %0.1f-%0.1f sec with %s events'
                     % (tuple(offsets[fi:fi+2] / raw.info['sfreq'])
                        + (len(event_idxs),)))
@@ -422,13 +464,25 @@ def simulate_movement(raw, pos, stc, trans, src, bem, snr=0., cov=None,
         # simulate data
         sim_stc = SourceEstimate(stc.data[:, stc_idxs], stc.vertices,
                                  stc.tmin, stc.tstep)
-        out = generate_evoked(fwd, sim_stc, evoked, cov, snr,
-                              tmin=snr_tmin, tmax=snr_tmax,
-                              random_state=rng, verbose=False)
-        assert out.data.shape[0] == len(picks)
-        assert out.data.shape[1] == len(stc_idxs)
-        raw._data[picks, time_slice] = out.data
+        simulated = generate_evoked(fwd, sim_stc, evoked, cov, snr,
+                                    tmin=snr_tmin, tmax=snr_tmax,
+                                    random_state=rng, verbose=False)
+        assert simulated.data.shape[0] == len(picks)
+        assert simulated.data.shape[1] == len(stc_idxs)
+
+        # add CHPI info
+        fwd_chpi = fwd_chpi[::3]  # just use one direction
+        assert fwd_chpi.shape[0] == n_freqs
+        this_t = np.arange(1, n_time + 1) / raw.info['sfreq']
+        sinusoids = np.zeros((n_freqs, n_time))
+        for fi, freq in enumerate(hpi_freqs):
+            sinusoids[fi] = 2 * np.pi * freq * this_t + phases[fi]
+            phases[fi] = sinusoids[fi, -1]
+            sinusoids[fi] = hpi_mag * np.sin(sinusoids[fi])
+        chpi_data = np.dot(fwd_chpi.T, sinusoids)
+        raw._data[picks, time_slice] = simulated.data
+        raw._data[hpi_picks, time_slice] += chpi_data
         raw._data[event_ch, event_idxs] = 1.
-    assert simulated.all()
+    assert used.all()
     logger.info('Done')
     return raw

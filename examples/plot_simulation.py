@@ -10,6 +10,11 @@ Note: you need to run the ``analysis_fun.py`` example to have the
 necessary raw data.
 """
 
+# Todo:
+# Are positions actually calculated correctly?
+# Source reconstructed?
+# Compare control to movement
+
 import os.path as op
 import warnings
 import numpy as np
