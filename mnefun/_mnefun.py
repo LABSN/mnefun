@@ -1604,7 +1604,7 @@ def gen_html_report(p, raw=False, evoked=False, cov=False, trans=False,
         info_fname = op.join(path, fnames[0])
         struc = structural if p.mri else None
         report = Report(info_fname=info_fname, subject=struc)
-        report.parse_folder(data_path=path, mri_decim=50, n_jobs=p.n_jobs,
+        report.parse_folder(data_path=path, mri_decim=10, n_jobs=p.n_jobs,
                             pattern=patterns)
         report.save(op.join(path, '%s_fil%d_report.html' % (subj, p.lp_cut)),
                     open_browser=False, overwrite=True)
