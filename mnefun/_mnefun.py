@@ -34,6 +34,7 @@ from mne.epochs import combine_event_ids
 from mne.io import Raw, concatenate_raws, read_info, write_info
 from mne.io.base import _quart_to_rot
 from mne.io.pick import pick_types_forward, pick_types
+from mne.io.meas_info import _empty_info
 from mne.cov import regularize
 from mne.minimum_norm import write_inverse_operator
 from mne.layouts import make_eeg_layout
@@ -348,7 +349,7 @@ def calc_median_hp(p, subj, out_file):
     raw_files = get_raw_fnames(p, subj, 'raw', False)
     ts = []
     qs = []
-    out_info = None
+    info = None
     for fname in raw_files:
         info = read_info(fname)
         trans = info['dev_head_t']['trans']
@@ -363,23 +364,17 @@ def calc_median_hp(p, subj, out_file):
                    (m[1, 0] - m[0, 1]) / (4 * qw)])
         assert_allclose(_quart_to_rot(np.array([qs[-1]]))[0],
                         m, rtol=1e-5, atol=1e-5)
-        if out_info is None:
-            out_info = info
-    assert out_info is not None  # at least one raw file
+    assert info is not None
     if len(raw_files) == 1:  # only one head position
-        t = ts[0]
-        rot = m
+        dev_head_t = info['dev_head_t']
     else:
         t = np.median(np.array(ts), axis=0)
         rot = np.median(_quart_to_rot(np.array(qs)), axis=0)
-    trans = np.r_[np.c_[rot, t[:, np.newaxis]],
-                  np.array([0, 0, 0, 1], t.dtype)[np.newaxis, :]]
-    dev_head_t = {'to': 4, 'from': 1, 'trans': trans}
-    info = dict(dev_head_t=dev_head_t)
-    for key in ('dig', 'chs', 'nchan', 'sfreq', 'lowpass', 'highpass',
-                'projs', 'comps', 'bads', 'acq_pars', 'acq_stim',
-                'ctf_head_t'):
-        info[key] = out_info[key]
+        trans = np.r_[np.c_[rot, t[:, np.newaxis]],
+                      np.array([0, 0, 0, 1], t.dtype)[np.newaxis, :]]
+        dev_head_t = {'to': 4, 'from': 1, 'trans': trans}
+    info = _empty_info()
+    info['dev_head_t'] = dev_head_t
     write_info(out_file, info)
 
 
