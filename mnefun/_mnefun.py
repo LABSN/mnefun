@@ -1579,8 +1579,9 @@ def _get_finder_cmd(fnames, finder):
     return cmd
 
 
-def gen_html_report(p, raw=False, evoked=False, cov=False, trans=False, epochs=False):
-    """Generates HTML reports using MNE-Python Report assuming SSP pre-processed files exist"""
+def gen_html_report(p, raw=False, evoked=False, cov=False, trans=False,
+                    epochs=False):
+    """Generates HTML reports"""
     types = ['filtered raw', 'evoked', 'covariance', 'trans', 'epochs']
     texts = ['*fil%d*sss.fif' % p.lp_cut, '*ave.fif',
              '*cov.fif', '*trans.fif', '*epo.fif']
@@ -1593,16 +1594,17 @@ def gen_html_report(p, raw=False, evoked=False, cov=False, trans=False, epochs=F
         bools = [True if f else b for f, b in zip(files, bools)]
         missing = ', '.join([t for t, b in zip(types, bools) if not b])
         if len(missing) > 0:
-            print('    For %s no reports generated for:\n        %s' % (subj, missing))
+            print('    For %s no reports generated for:\n        %s'
+                  % (subj, missing))
         patterns = [t for t, b in zip(texts, bools) if b]
         fnames = get_raw_fnames(p, subj, 'pca', False)
         if not fnames:
-            raise RuntimeError('Could not find any processed files for reporting.')
+            raise RuntimeError('Could not find any processed files for '
+                               'reporting.')
         info_fname = op.join(path, fnames[0])
         struc = structural if p.mri else None
         report = Report(info_fname=info_fname, subject=struc)
         report.parse_folder(data_path=path, mri_decim=50, n_jobs=p.n_jobs,
                             pattern=patterns)
-        report.save(op.join(path, '%s_%dfil_report.html' % (subj, p.lp_cut)),
+        report.save(op.join(path, '%s_fil%d_report.html' % (subj, p.lp_cut)),
                     open_browser=False, overwrite=True)
-
