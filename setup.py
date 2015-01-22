@@ -36,5 +36,5 @@ if __name__ == "__main__":
           classifiers=[],
           platforms='any',
           packages=['mnefun', 'mnefun.tests'],
-          package_data={'mnefun': []},
+          package_data={'mnefun': ['run_sss.sh']},
           scripts=[])
