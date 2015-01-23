@@ -499,6 +499,14 @@ def extract_expyfun_events(fname):
         trigger. Each array has shape (N_presses, 2).
     orig_events : array
         Original events array.
+
+    Notes
+    -----
+    When this function translates binary event codes into decimal integers, it
+    adds 1 to the value of all events. This is done to prevent the occurrence
+    of events with a value of 0 (which downstream processing would treat as
+    non-events). If you need to convert the integer event codes back to binary,
+    subtract 1 before doing so to yield the original binary values.
     """
     # Read events
     raw = Raw(fname, allow_maxshield=True)
