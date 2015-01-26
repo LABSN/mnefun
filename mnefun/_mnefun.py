@@ -15,6 +15,7 @@ import glob
 from collections import Counter
 import matplotlib.pyplot as plt
 from time import time
+import tempfile
 from numpy.testing import assert_allclose
 
 from mne import (compute_proj_raw, make_fixed_length_events, Epochs,
@@ -526,6 +527,49 @@ def fetch_sss_files(p, subjects):
            ['--exclude', '*'])
     cmd += ['%s:%s' % (p.sws_ssh, op.join(p.sws_dir, '*')), '.']
     run_subprocess(cmd, cwd=p.work_dir)
+
+
+def run_sss_command(fname_in, options, fname_out, host='kasga'):
+    """Run Maxfilter remotely and fetch resulting file
+
+    Parameters
+    ----------
+    fname_in : str
+        The filename to process.
+    options : str
+        The command-line options for Maxfilter.
+    out_fname : str | None
+        Output filename to use to store the result on the local machine.
+        None will output to a temporary file.
+    host : str
+        The SSH/scp host to run the command on.
+    """
+    # let's make sure we can actually write where we want
+    if not op.isfile(fname_in):
+        raise IOError('input file not found: %s' % fname_in)
+    if not op.isdir(op.dirname(op.abspath(fname_out))):
+        raise IOError('output directory for output file does not exist')
+    if '-f ' in options or '-o ' in options:
+        raise ValueError('options cannot contain -o or -f, these are set '
+                         'automatically')
+    remote_in = '~/temp_%s_raw.fif' % time()
+    remote_out = '~/temp_%s_raw_sss.fif' % time()
+    print('Copying file to %s' % host)
+    cmd = ['scp', fname_in, host + ':' + remote_in]
+    run_subprocess(cmd, stdout=None, stderr=None)
+
+    print('Running maxfilter on %s' % host)
+    cmd = ['ssh', host, 'maxfilter -f ' + remote_in + ' -o ' + remote_out
+           + ' ' + options]
+    run_subprocess(cmd, stdout=None, stderr=None)
+
+    print('Copying result to %s' % fname_out)
+    cmd = ['scp', host + ':' + remote_out, fname_out]
+    run_subprocess(cmd, stdout=None, stderr=None)
+
+    print('Cleaning up %s' % host)
+    cmd = ['ssh', host, 'rm %s %s' % (remote_in, remote_out)]
+    run_subprocess(cmd, stdout=None, stderr=None)
 
 
 def extract_expyfun_events(fname, return_offsets=False):
