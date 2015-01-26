@@ -1119,7 +1119,8 @@ def _fix_raw_eog_cals(raws, raw_names):
     if len(picks) > 0:
         first_cals = raws[0].cals[picks]
         for ri, r in enumerate(raws[1:]):
-            picks_2 = pick_types(r.info, eeg=False, meg=False, eog=True)
+            picks_2 = pick_types(r.info, eeg=False, meg=False, eog=True,
+                                 exclude=[])
             assert np.array_equal(picks, picks_2)
             these_cals = r.cals[picks]
             if not np.array_equal(first_cals, these_cals):
