@@ -1114,15 +1114,18 @@ def _fix_raw_eog_cals(raws, raw_names):
     """Fix for annoying issue where EOG cals don't match"""
     # Warning: this will only produce correct EOG scalings with preloaded
     # raw data!
-    picks = pick_types(raws[0].info, eeg=False, meg=False, eog=True)
-    first_cals = raws[0].cals[picks]
-    for ri, r in enumerate(raws[1:]):
-        picks_2 = pick_types(r.info, eeg=False, meg=False, eog=True)
-        assert np.array_equal(picks, picks_2)
-        these_cals = r.cals[picks]
-        if not np.array_equal(first_cals, these_cals):
-            warnings.warn('Adjusting EOG cals for %s' % raw_names[ri + 1])
-            r.cals[picks] = first_cals
+    picks = pick_types(raws[0].info, eeg=False, meg=False, eog=True,
+                       exclude=[])
+    if len(picks) > 0:
+        first_cals = raws[0].cals[picks]
+        for ri, r in enumerate(raws[1:]):
+            picks_2 = pick_types(r.info, eeg=False, meg=False, eog=True,
+                                 exclude=[])
+            assert np.array_equal(picks, picks_2)
+            these_cals = r.cals[picks]
+            if not np.array_equal(first_cals, these_cals):
+                warnings.warn('Adjusting EOG cals for %s' % raw_names[ri + 1])
+                r.cals[picks] = first_cals
 
 
 # noinspection PyPep8Naming
