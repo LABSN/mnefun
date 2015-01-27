@@ -13,7 +13,7 @@ from mne import (pick_types, pick_info, SourceEstimate, pick_channels,
 from mne.io import read_info, Raw
 from mne.io.pick import _has_kit_refs
 from mne.externals.six import string_types
-from mne.forward.forward import _merge_meg_eeg_fwds
+from mne.forward.forward import _merge_meg_eeg_fwds, _stc_src_sel
 from mne.forward._make_forward import (_create_coils, _read_coil_defs,
                                        _compute_forwards, _to_forward_dict)
 from mne.transforms import (read_trans, _get_mri_head_t_from_trans_file,
@@ -23,7 +23,7 @@ from mne.source_space import (SourceSpaces, read_source_spaces,
 from mne.io.constants import FIFF
 from mne.utils import logger, verbose, check_random_state
 from mne.surface import read_bem_solution
-from mne.simulation import generate_evoked
+from mne.simulation import add_noise_evoked, generate_noise_evoked
 
 
 def _make_forward_solutions(info, mri, src, bem, dev_head_ts, mindist, n_jobs):
@@ -318,7 +318,8 @@ def _mag_dipole_field_vec(rrs, coils):
 @verbose
 def simulate_movement(raw, pos, stc, trans, src, bem, snr=0., cov=None,
                       snr_tmin=None, snr_tmax=None, mindist=1.0,
-                      random_state=None, n_jobs=1, verbose=True):
+                      interp='linear', random_state=None, n_jobs=1,
+                      verbose=True):
     """Simulate raw data with head movements
 
     Parameters
@@ -359,6 +360,9 @@ def simulate_movement(raw, pos, stc, trans, src, bem, snr=0., cov=None,
     mindist : float
         Minimum distance between sources and the inner skull boundary
         to use during forward calculation.
+    interp : str
+        Either 'linear' or 'zero', the type of forward-solution
+        interpolation to use between provided time points.
     random_state : None | int | np.random.RandomState
         To specify the random generator state.
     n_jobs : int
@@ -387,10 +391,13 @@ def simulate_movement(raw, pos, stc, trans, src, bem, snr=0., cov=None,
     if not np.allclose(raw.info['sfreq'], 1. / stc.tstep):
         raise ValueError('stc and raw must have same sample rate')
     rng = check_random_state(random_state)
+    if interp not in ('linear', 'zero'):
+        raise ValueError('interp must be "linear" or "zero"')
 
     if pos is None:  # use pos from file
-        dev_head_ts = [raw.info['dev_head_t']]
+        dev_head_ts = [raw.info['dev_head_t']] * 2
         offsets = np.array([0, raw.n_times])
+        interp = 'zero'
     else:
         transs, rots, ts = get_chpi_positions(pos, verbose=False)
         dev_head_ts = [np.r_[np.c_[r, t[:, np.newaxis]], [[0, 0, 0, 1]]]
@@ -398,16 +405,23 @@ def simulate_movement(raw, pos, stc, trans, src, bem, snr=0., cov=None,
         if not (ts >= 0).all():  # pathological if not
             raise RuntimeError('Cannot have t < 0 in transform file')
         t0 = raw.first_samp / raw.info['sfreq']
+        tend = (raw.last_samp + 1) / raw.info['sfreq']
+        assert not (ts < t0).any()
+        assert not (ts > tend).any()
         if t0 < ts[0]:
             ts = np.r_[[t0], ts]
             dev_head_ts.insert(0, raw.info['dev_head_t']['trans'])
         dev_head_ts = [dict(trans=d, to=raw.info['dev_head_t']['to'])
                        for d in dev_head_ts]
+        if ts[-1] < tend:
+            dev_head_ts.append(dev_head_ts[-1])
+            ts = np.r_[ts, [tend]]
         ts -= ts[0]  # re-reference
-        offsets = np.r_[raw.time_as_index(ts), raw.n_times]
+        offsets = raw.time_as_index(ts)
+        assert offsets[-1] == raw.n_times
         del transs, rots, ts
     assert np.array_equal(offsets, np.unique(offsets))
-    assert len(offsets) == len(dev_head_ts) + 1
+    assert len(offsets) == len(dev_head_ts)
 
     # get HPI freqs and reorder
     hpi_freqs = np.array([x['custom_ref'][0]
@@ -443,46 +457,70 @@ def simulate_movement(raw, pos, stc, trans, src, bem, snr=0., cov=None,
     stc_indices = np.arange(raw.n_times) % len(stc.times)
     t0 = time.time()
     raw._data[event_ch, ].fill(0)
-    phases = np.zeros(n_freqs)
     hpi_mag = np.sqrt(np.mean(stc.copy().crop(snr_tmin, snr_tmax).data ** 2))
-    hpi_mag *= max(1. / max(snr, 1.), 10.)
+    hpi_mag *= max(1. / max(snr, 1.), 1.)
+    last_fwd = last_fwd_chpi = src_sel = None
     for fi, (fwd, fwd_chpi) in enumerate(_make_forward_solutions(
             fwd_info, trans, src, bem, dev_head_ts, mindist, n_jobs)):
+        # must be fixed orientation
         fwd = convert_forward_solution(fwd, surf_ori=True, force_fixed=True,
                                        verbose=False)
-        n_time = offsets[fi+1] - offsets[fi]
+        fwd_chpi = fwd_chpi[::3]  # just use one arbitrary direction
+        assert fwd_chpi.shape[0] == n_freqs
 
-        time_slice = slice(offsets[fi], offsets[fi+1])
+        if src_sel is None:
+            src_sel = _stc_src_sel(fwd['src'], stc)
+            assert len(src_sel) == sum([len(v) for v in stc.vertices])
+        if last_fwd is None:
+            last_fwd, last_fwd_chpi = fwd, fwd_chpi
+            continue
+        n_time = offsets[fi] - offsets[fi-1]
+        lin_interp_1 = np.linspace(1, 0, n_time, endpoint=False)
+        lin_interp_2 = 1 - lin_interp_1
+
+        time_slice = slice(offsets[fi-1], offsets[fi])
         assert not used[time_slice].any()
         stc_idxs = stc_indices[time_slice]
-        event_idxs = np.where(stc_idxs == stc_event_idx)[0] + offsets[fi]
+        event_idxs = np.where(stc_idxs == stc_event_idx)[0] + offsets[fi-1]
         used[time_slice] = True
         logger.info('  Simulating data for %0.1f-%0.1f sec with %s events'
-                    % (tuple(offsets[fi:fi+2] / raw.info['sfreq'])
+                    % (tuple(offsets[fi-1:fi+1] / raw.info['sfreq'])
                        + (len(event_idxs),)))
 
-        # simulate data
-        sim_stc = SourceEstimate(stc.data[:, stc_idxs], stc.vertices,
-                                 stc.tmin, stc.tstep)
-        simulated = generate_evoked(fwd, sim_stc, evoked, cov, snr,
-                                    tmin=snr_tmin, tmax=snr_tmax,
-                                    random_state=rng, verbose=False)
+        # simulate brain data
+        stc_data = stc.data[:, stc_idxs]
+        if interp == 'zero':
+            data = np.dot(last_fwd['sol']['data'][:, src_sel], stc_data)
+        else:  # interp == 'linear':
+            data_1 = np.dot(last_fwd['sol']['data'][:, src_sel], stc_data)
+            data_2 = np.dot(fwd['sol']['data'][:, src_sel], stc_data)
+            data = data_1 * lin_interp_1 + data_2 * lin_interp_2
+        evoked = EvokedArray(data, evoked.info, 0)
+        noise = generate_noise_evoked(evoked, cov, None, rng)
+        simulated = add_noise_evoked(evoked, noise, snr, snr_tmin, snr_tmax)
         assert simulated.data.shape[0] == len(picks)
         assert simulated.data.shape[1] == len(stc_idxs)
+        raw._data[picks, time_slice] = simulated.data
 
-        # add CHPI info
-        fwd_chpi = fwd_chpi[::3]  # just use one direction
-        assert fwd_chpi.shape[0] == n_freqs
-        this_t = np.arange(1, n_time + 1) / raw.info['sfreq']
+        # add CHPI traces
+        this_t = np.arange(offsets[fi-1], offsets[fi]) / raw.info['sfreq']
         sinusoids = np.zeros((n_freqs, n_time))
         for fi, freq in enumerate(hpi_freqs):
-            sinusoids[fi] = 2 * np.pi * freq * this_t + phases[fi]
-            phases[fi] = sinusoids[fi, -1]
+            sinusoids[fi] = 2 * np.pi * freq * this_t
             sinusoids[fi] = hpi_mag * np.sin(sinusoids[fi])
-        chpi_data = np.dot(fwd_chpi.T, sinusoids)
-        raw._data[picks, time_slice] = simulated.data
-        raw._data[hpi_picks, time_slice] += chpi_data
+        if interp == 'zero':
+            data = np.dot(last_fwd_chpi.T, sinusoids)
+        else:  # interp == 'linear':
+            data_1 = np.dot(last_fwd_chpi.T, sinusoids)
+            data_2 = np.dot(fwd_chpi.T, sinusoids)
+            data = data_1 * lin_interp_1 + data_2 * lin_interp_2
+        raw._data[hpi_picks, time_slice] += data
+
+        # add events
         raw._data[event_ch, event_idxs] = 1.
+
+        # prepare for next iteration
+        last_fwd, last_fwd_chpi = fwd, fwd_chpi
     assert used.all()
     logger.info('Done')
     return raw

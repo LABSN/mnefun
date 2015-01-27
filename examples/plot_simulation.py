@@ -70,13 +70,13 @@ if rerun_simulation:
     raw_movement = simulate_movement(
         raw, fname_pos, stc, trans, src, bem, cov=cov,
         snr=snr, snr_tmin=pulse_tmin, snr_tmax=pulse_tmax,
-        n_jobs=6)
+        interp='zero', n_jobs=6)
 
     # Simulate data with no movement (use original head position)
     raw_stationary = simulate_movement(
         raw, None, stc, trans, src, bem, cov=cov,
         snr=snr, snr_tmin=pulse_tmin, snr_tmax=pulse_tmax,
-        n_jobs=6)
+        interp='zero', n_jobs=6)
 
 # Saved these files locally:
 # >>> raw_movement.save('test_move_raw.fif')
