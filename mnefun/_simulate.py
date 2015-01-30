@@ -453,7 +453,7 @@ def simulate_movement(raw, pos, stc, trans, src, bem, cov, mindist=1.0,
     stc_indices = np.arange(raw.n_times) % len(stc.times)
     t0 = time.time()
     raw._data[event_ch, ].fill(0)
-    hpi_mag = 1e-7
+    hpi_mag = 25e-9
     last_fwd = last_fwd_chpi = src_sel = None
     for fi, (fwd, fwd_chpi) in enumerate(_make_forward_solutions(
             fwd_info, trans, src, bem, dev_head_ts, mindist, n_jobs)):
