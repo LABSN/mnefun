@@ -8,8 +8,7 @@ import warnings
 from copy import deepcopy
 
 from mne import (pick_types, pick_info, SourceEstimate, pick_channels,
-                 compute_raw_data_covariance, convert_forward_solution,
-                 get_chpi_positions, EvokedArray)
+                 convert_forward_solution, get_chpi_positions, EvokedArray)
 from mne.io import read_info, Raw
 from mne.io.pick import _has_kit_refs
 from mne.externals.six import string_types
@@ -23,7 +22,7 @@ from mne.source_space import (SourceSpaces, read_source_spaces,
 from mne.io.constants import FIFF
 from mne.utils import logger, verbose, check_random_state
 from mne.surface import read_bem_solution
-from mne.simulation import add_noise_evoked, generate_noise_evoked
+from mne.simulation import generate_noise_evoked
 
 
 def _make_forward_solutions(info, mri, src, bem, dev_head_ts, mindist, n_jobs):
@@ -316,8 +315,7 @@ def _mag_dipole_field_vec(rrs, coils):
 
 
 @verbose
-def simulate_movement(raw, pos, stc, trans, src, bem, snr=0., cov=None,
-                      snr_tmin=None, snr_tmax=None, mindist=1.0,
+def simulate_movement(raw, pos, stc, trans, src, bem, cov, mindist=1.0,
                       interp='linear', random_state=None, n_jobs=1,
                       verbose=True):
     """Simulate raw data with head movements
@@ -346,17 +344,9 @@ def simulate_movement(raw, pos, stc, trans, src, bem, snr=0., cov=None,
         instance of loaded or generated SourceSpaces.
     bem : str
         Filename of the BEM (e.g., "sample-5120-5120-5120-bem-sol.fif").
-    snr : float
-        SNR of the simulated data.
-    cov : instance of Covariance | None
+    cov : instance of Covariance
         The sensor covariance matrix used to generate noise. If None,
         the covariance will be estimated from the raw data.
-    snr_tmin : float | None
-        Minimum time to use in SNR computations. None will use the starting
-        time.
-    snr_tmax : float
-        Maximum time to use in SNR computations. None will use the ending
-        time.
     mindist : float
         Minimum distance between sources and the inner skull boundary
         to use during forward calculation.
@@ -377,8 +367,13 @@ def simulate_movement(raw, pos, stc, trans, src, bem, snr=0., cov=None,
 
     Notes
     -----
-    Events coded with number 1 will be placed in the raw files in the
-    trigger channel STI101 at the t=0 times of the SourceEstimates.
+    Events coded with the number of the forward solution used will be placed
+    in the raw files in the trigger channel STI101 at the t=0 times of the
+    SourceEstimates.
+
+    The resulting SNR will be determined by the structure of the noise
+    covariance, and the amplitudes of the SourceEstimate. Note that this
+    will vary as a function of position.
     """
     if isinstance(raw, string_types):
         with warnings.catch_warnings(record=True):
@@ -422,6 +417,10 @@ def simulate_movement(raw, pos, stc, trans, src, bem, snr=0., cov=None,
         del transs, rots, ts
     assert np.array_equal(offsets, np.unique(offsets))
     assert len(offsets) == len(dev_head_ts)
+    approx_events = int((raw.n_times / raw.info['sfreq']) /
+                        (stc.times[-1] - stc.times[0]))
+    logger.info('Provided parameters will provide approximately %s events'
+                % approx_events)
 
     # get HPI freqs and reorder
     hpi_freqs = np.array([x['custom_ref'][0]
@@ -444,9 +443,6 @@ def simulate_movement(raw, pos, stc, trans, src, bem, snr=0., cov=None,
 
     # Create a covariance if none was supplied
     raw.preload_data()
-    if cov is None:
-        logger.info('Computing raw data covariance for noise simulation')
-        cov = compute_raw_data_covariance(raw, verbose=False)
     src = _restrict_source_space_to(src, stc.vertices)
 
     evoked = EvokedArray(np.zeros((len(picks), len(stc.times))), fwd_info,
@@ -457,8 +453,7 @@ def simulate_movement(raw, pos, stc, trans, src, bem, snr=0., cov=None,
     stc_indices = np.arange(raw.n_times) % len(stc.times)
     t0 = time.time()
     raw._data[event_ch, ].fill(0)
-    hpi_mag = np.sqrt(np.mean(stc.copy().crop(snr_tmin, snr_tmax).data ** 2))
-    hpi_mag *= max(1. / max(snr, 1.), 1.)
+    hpi_mag = 1e-7
     last_fwd = last_fwd_chpi = src_sel = None
     for fi, (fwd, fwd_chpi) in enumerate(_make_forward_solutions(
             fwd_info, trans, src, bem, dev_head_ts, mindist, n_jobs)):
@@ -495,9 +490,9 @@ def simulate_movement(raw, pos, stc, trans, src, bem, snr=0., cov=None,
             data_1 = np.dot(last_fwd['sol']['data'][:, src_sel], stc_data)
             data_2 = np.dot(fwd['sol']['data'][:, src_sel], stc_data)
             data = data_1 * lin_interp_1 + data_2 * lin_interp_2
-        evoked = EvokedArray(data, evoked.info, 0)
-        noise = generate_noise_evoked(evoked, cov, None, rng)
-        simulated = add_noise_evoked(evoked, noise, snr, snr_tmin, snr_tmax)
+        simulated = EvokedArray(data, evoked.info, 0)
+        noise = generate_noise_evoked(simulated, cov, None, rng)
+        simulated.data += noise.data
         assert simulated.data.shape[0] == len(picks)
         assert simulated.data.shape[1] == len(stc_idxs)
         raw._data[picks, time_slice] = simulated.data
@@ -517,7 +512,7 @@ def simulate_movement(raw, pos, stc, trans, src, bem, snr=0., cov=None,
         raw._data[hpi_picks, time_slice] += data
 
         # add events
-        raw._data[event_ch, event_idxs] = 1.
+        raw._data[event_ch, event_idxs] = fi
 
         # prepare for next iteration
         last_fwd, last_fwd_chpi = fwd, fwd_chpi
