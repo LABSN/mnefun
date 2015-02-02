@@ -1616,5 +1616,3 @@ def gen_html_report(p, subjects, structurals, raw=False, evoked=False,
                             pattern=patterns)
         report.save(op.join(path, '%s_fil%d_report.html' % (subj, p.lp_cut)),
                     open_browser=False, overwrite=True)
-
-
