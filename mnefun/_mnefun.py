@@ -292,6 +292,8 @@ def do_processing(p, fetch_raw=False, push_raw=False, do_sss=False,
                 outs[ii] = func(p, subjects, p.in_names, p.in_numbers,
                                 p.analyses, p.out_names, p.out_numbers,
                                 p.must_match)
+            elif func == gen_html_report:
+                outs[ii] = func(p, subjects, structurals)
             else:
                 outs[ii] = func(p, subjects)
             print('  (' + timestring(time() - t0) + ')')
@@ -1585,14 +1587,14 @@ def _get_finder_cmd(fnames, finder):
     return cmd
 
 
-def gen_html_report(p, raw=False, evoked=False, cov=False, trans=False,
-                    epochs=False):
+def gen_html_report(p, subjects, structurals, raw=False, evoked=False,
+                    cov=False, trans=False, epochs=False):
     """Generates HTML reports"""
     types = ['filtered raw', 'evoked', 'covariance', 'trans', 'epochs']
     texts = ['*fil%d*sss.fif' % p.lp_cut, '*ave.fif',
              '*cov.fif', '*trans.fif', '*epo.fif']
     bools = [raw, evoked, cov, trans, epochs]
-    for subj, structural in zip(p.subjects, p.structurals):
+    for subj, structural in zip(subjects, structurals):
         path = op.join(p.work_dir, subj)
         files = []
         for ii, (b, text) in enumerate(zip(bools, texts)):
@@ -1614,3 +1616,5 @@ def gen_html_report(p, raw=False, evoked=False, cov=False, trans=False,
                             pattern=patterns)
         report.save(op.join(path, '%s_fil%d_report.html' % (subj, p.lp_cut)),
                     open_browser=False, overwrite=True)
+
+
