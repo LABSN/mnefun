@@ -1585,14 +1585,14 @@ def _get_finder_cmd(fnames, finder):
     return cmd
 
 
-def gen_html_report(p, raw=False, evoked=False, cov=False, trans=False,
-                    epochs=False):
+def gen_html_report(p, subjects, structurals, raw=False, evoked=False,
+                    cov=False, trans=False, epochs=False):
     """Generates HTML reports"""
     types = ['filtered raw', 'evoked', 'covariance', 'trans', 'epochs']
     texts = ['*fil%d*sss.fif' % p.lp_cut, '*ave.fif',
              '*cov.fif', '*trans.fif', '*epo.fif']
     bools = [raw, evoked, cov, trans, epochs]
-    for subj, structural in zip(p.subjects, p.structurals):
+    for subj, structural in zip(subjects, structurals):
         path = op.join(p.work_dir, subj)
         files = []
         for ii, (b, text) in enumerate(zip(bools, texts)):
@@ -1614,3 +1614,5 @@ def gen_html_report(p, raw=False, evoked=False, cov=False, trans=False,
                             pattern=patterns)
         report.save(op.join(path, '%s_fil%d_report.html' % (subj, p.lp_cut)),
                     open_browser=False, overwrite=True)
+
+
