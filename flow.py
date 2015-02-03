@@ -1,95 +1,132 @@
 import pygraphviz as pgv
 
-font_face = 'OpenSans'
-node_size = 12
-edge_size = 8
+font_face = 'Arial'
+node_size = 9
+node_small_size = 11
+edge_size = 11
+acq_color = '#9869A5'
+sss_color = '#C0E48F'
+user_color = '#D384A7'
+pipe_color = '#EDF59A'
 
-# Input files (presumed to be available / manually created)
-sco = 'score.py'
-bem = 'SUBJECTS_DIR/struc/bem/struc-5120-5120-5120-bem-sol.fif'
-pbd = 'subj/raw_fif/subj_prebad.txt'
-bads = 'subj/bads/subj_post-sss.txt'
-tra = 'subj/trans/subj-trans.fif'
-acq = 'user@minea:/data/somewhere/*_raw.fif'
+# TODO:
+# Pick colors
+# Edges bold?
 
-# Files created by various steps
-mfr = 'user@kasga:/data00/user/subj/*_raw.fif'
-mfs = 'user@kasga:/data00/user/subj/*_raw_sss.fif'
-mfb = 'user@kasga:/data00/user/subj/*_prebad.txt'
-mfl = 'user@kasga:/data00/user/subj/*_log.txt'
-cov = 'subj/cov/subj[-erm]-cov.fif'
+legend = """
+<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="4" CELLPADDING="4">
+<TR><TD BGCOLOR="%s">    </TD><TD>Acquisiton machine</TD></TR>
+<TR><TD BGCOLOR="%s">    </TD><TD>SSS machine</TD></TR>
+<TR><TD BGCOLOR="%s">    </TD><TD>User-created files</TD></TR>
+<TR><TD BGCOLOR="%s">    </TD><TD>Pipeline-created files</TD></TR>
+</TABLE>>""" % (acq_color, sss_color, user_color, pipe_color)
+legend = ''.join(legend.split('\n'))
 
-lst = 'subj/lists/ALL_subj-eve.lst'
-raw = 'subj/raw_fif/*_raw.fif'
-sss = 'subj/sss_fif/*_raw_sss.fif'
-ssl = 'subj/sss_log/*_log.txt'
-pca = 'subj/sss_pca_fif/*_allclean_fil55_raw_sss.fif'
-pro = 'subj/sss_pca_fif/*-proj.fif'
-epo = 'subj/epochs/subj-All-epo.fif'
-evo = 'subj/inverse/*-ave.fif'
-src = 'SUBJECTS_DIR/struc/bem/struc-oct-6-src.fif'
-fwd = 'subj/forward/subj-fwd.fif'
-inv = 'subj/inverse/subj[-meg][-eeg][-erm]-inv.fif'
-htm = 'subj/subj.hmtl'
+nodes = dict(
+    # Input files (presumed to be available / manually created)
+    sco='./\nscore.py',
+    bem='structural/bem/\n*-bem-sol.fif',
+    pbd='./subj/raw_fif/\n*_prebad.txt',
+    bad='./subj/bads/\n*_post-sss.txt',
+    tra='./subj/trans/\n*-trans.fif',
+    acq='user@minea\n*_raw.fif',
 
-# steps / processes
-fetch_raw = 'fetch_raw'
-push_raw = 'push_raw'
-do_sss = 'do_sss'
-fetch_sss = 'fetch_sss'
-do_score = 'do_score'
-do_ch_fix = 'do_ch_fix'
-gen_ssp = 'gen_ssp'
-apply_ssp = 'apply_ssp'
-gen_covs = 'gen_covs'
-gen_fwd = 'gen_fwd'
-gen_inv = 'gen_inv'
-write_epochs = 'write_epochs'
-gen_report = 'gen_report'
+    # Files created by various steps
+    mfr='user@kasga:/data00/user/subj/\n*_raw.fif, *_prebad.txt',
+    mfs='user@kasga:/data00/user/subj/\n*_raw_sss.fif, *_log.txt',
+    cov='./subj/cov/\n*-cov.fif',
 
-edges = (
-    (acq, raw, fetch_raw),
-    (raw, mfr, push_raw),
-    (pbd, mfb, push_raw),
-    (mfr, mfs, do_sss),
-    (pbd, mfs, do_sss),
-    (mfs, sss, fetch_sss),
-    (mfl, ssl, fetch_sss),
-    (raw, lst, do_score),
-    (sss, sss, do_ch_fix),
-    (sss, pro, gen_ssp),
-    (pro, pca, apply_ssp),
-    (sss, pca, apply_ssp),
-    (pca, cov, gen_covs),
-    (src, src, gen_fwd),
-    (bem, fwd, gen_fwd),
-    (pca, fwd, gen_fwd),
-    (tra, fwd, gen_fwd),
-    (src, fwd, gen_fwd),
-    (fwd, inv, gen_inv),
-    (cov, inv, gen_inv),
-    (pca, evo, write_epochs),
-    (lst, evo, write_epochs),
-    (pca, epo, write_epochs),
-    (lst, epo, write_epochs),
-    (epo, htm, gen_report),
-    (evo, htm, gen_report),
-    (cov, htm, gen_report),
-    (bem, htm, gen_report),
+    lst='./subj/lists/\nALL_*-eve.lst',
+    raw='./subj/raw_fif/\n*_raw.fif',
+    sss='./subj/sss_fif/\n*_raw_sss.fif',
+    ssl='./subj/sss_log/\n*_log.txt',
+    pca='./subj/sss_pca_fif/\n*_raw_sss.fif',
+    pro='./subj/sss_pca_fif/\n*-proj.fif',
+    evo='./subj/inverse/, ./subj/epochs/\n*-evo.fif, *-epo.fif',
+    # epo='./subj/epochs/\nsubj-All-epo.fif',
+    src='structural/bem/\n*-oct-6-src.fif',
+    fwd='./subj/forward/\n*-fwd.fif',
+    inv='./subj/inverse/\n*-inv.fif',
+    # htm='./subj/\nsubj.hmtl',
+    legend=legend,
 )
 
-g = pgv.AGraph(directed=True)
-for x in (g.node_attr, g.edge_attr):
-    x['fontname'] = font_face
-    x['fontsize'] = node_size
-g.node_attr['shape'] = 'box'
+edges = (
+    ('acq', 'raw', '1. fetch_raw'),
+    ('sco', 'lst', '2. do_score'),
+    ('raw', 'lst'),
+    ('raw', 'mfr', '3. push_raw'),
+    ('pbd', 'mfr',),
+    ('mfr', 'mfs', '4. do_sss'),
+    ('mfs', 'sss', '5. fetch_sss'),
+    ('mfs', 'ssl'),
+    ('sss', 'sss', '6. do_ch_fix'),
+    ('bad', 'pro'),
+    ('sss', 'pro', '7. gen_ssp'),
+    ('bad', 'pca'),
+    ('pro', 'pca', '8. apply_ssp'),
+    ('sss', 'pca'),
+    ('pca', 'evo', '9. write_epochs'),
+    ('lst', 'evo'),
+    ('pca', 'cov', '10. gen_covs'),
+    ('src', 'src'),
+    ('bem', 'fwd'),
+    ('pca', 'fwd'),
+    ('tra', 'fwd', '11. gen_fwd'),
+    ('src', 'fwd'),
+    ('fwd', 'inv', '12. gen_inv'),
+    ('cov', 'inv'),
+    # ('evo', 'htm', 'gen_report'),
+    # ('cov', 'htm', 'gen_report'),
+    # ('bem', 'htm', 'gen_report'),
+)
 
+grouped_nodes = [
+    [('acq', 'pbd', 'sco', 'tra', 'bad'), user_color],
+    [('acq',), acq_color],
+    [('mfr', 'mfs'), sss_color],
+]
+grouped_nodes.append([[node for node in nodes.keys()
+                       if not any(node in x[0] for x in grouped_nodes) and
+                       node != 'legend'],
+                      pipe_color])
+
+g = pgv.AGraph(directed=True)
+
+for key, label in nodes.items():
+    label = label.split('\n')
+    if len(label) > 1:
+        label[0] = '<<FONT POINT-SIZE="%s">' % node_size + label[0] + '</FONT>'
+        for li in range(1, len(label)):
+            label[li] = ('<FONT POINT-SIZE="%s">' % node_small_size
+                         + label[li] + '</FONT>')
+        label[-1] = label[-1] + '>'
+        label = '<BR/>'.join(label)
+    else:
+        label = label[0]
+    g.add_node(key, label=label)
+
+# Create and customize nodes and edges
 for edge in edges:
     g.add_edge(*edge[:2])
     e = g.get_edge(*edge[:2])
     if len(edge) > 2:
-        e.attr['label'] = edge[2]
+        e.attr['label'] = '<<B>%s</B>>' % edge[2]
     e.attr['fontsize'] = edge_size
+
+# Change colors
+for these_nodes, color in grouped_nodes:
+    for node in these_nodes:
+        g.get_node(node).attr['fillcolor'] = color
+        g.get_node(node).attr['style'] = 'filled'
+
+# Format (sub)graphs
+for gr in g.subgraphs() + [g]:
+    for x in [gr.node_attr, gr.edge_attr]:
+        x['fontname'] = font_face
+        x['fontsize'] = node_size
+g.node_attr['shape'] = 'box'
+g.get_node('legend').attr.update(shape='plaintext', margin=0)
 
 g.layout('dot')
 g.draw('flow.svg', format='svg')
