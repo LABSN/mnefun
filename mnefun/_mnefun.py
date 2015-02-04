@@ -286,14 +286,12 @@ def do_processing(p, fetch_raw=False, push_raw=False, do_sss=False,
             print(text + '. ')
             if func == fix_eeg_files:
                 outs[ii] = func(p, subjects, structurals, dates)
-            elif func == gen_forwards:
+            elif func in (gen_forwards, gen_html_report):
                 outs[ii] = func(p, subjects, structurals)
             elif func == save_epochs:
                 outs[ii] = func(p, subjects, p.in_names, p.in_numbers,
                                 p.analyses, p.out_names, p.out_numbers,
                                 p.must_match)
-            elif func == gen_html_report:
-                outs[ii] = func(p, subjects, structurals)
             else:
                 outs[ii] = func(p, subjects)
             print('  (' + timestring(time() - t0) + ')')
@@ -1587,19 +1585,19 @@ def _get_finder_cmd(fnames, finder):
     return cmd
 
 
-def gen_html_report(p, subjects, structurals, raw=False, evoked=False,
-                    cov=False, trans=False, epochs=False):
+def gen_html_report(p, subjects, structurals, raw=True, evoked=True,
+                    cov=True, trans=True, epochs=True):
     """Generates HTML reports"""
     types = ['filtered raw', 'evoked', 'covariance', 'trans', 'epochs']
     texts = ['*fil%d*sss.fif' % p.lp_cut, '*ave.fif',
              '*cov.fif', '*trans.fif', '*epo.fif']
-    bools = [raw, evoked, cov, trans, epochs]
     for subj, structural in zip(subjects, structurals):
+        bools = [raw, evoked, cov, trans, epochs]
         path = op.join(p.work_dir, subj)
         files = []
         for ii, (b, text) in enumerate(zip(bools, texts)):
             files.append(glob.glob(path + '/*/' + text))
-        bools = [True if f else b for f, b in zip(files, bools)]
+        bools = [False if not f else b for f, b in zip(files, bools)]
         missing = ', '.join([t for t, b in zip(types, bools) if not b])
         if len(missing) > 0:
             print('    For %s no reports generated for:\n        %s'
