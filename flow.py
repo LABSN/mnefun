@@ -4,14 +4,10 @@ font_face = 'Arial'
 node_size = 9
 node_small_size = 11
 edge_size = 11
-acq_color = '#9869A5'
-sss_color = '#C0E48F'
-user_color = '#D384A7'
-pipe_color = '#EDF59A'
-
-# TODO:
-# Pick colors
-# Edges bold?
+acq_color = '#AA4499'
+sss_color = '#999933'
+user_color = '#CC6677'
+pipe_color = '#44AA99'
 
 legend = """
 <<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="4" CELLPADDING="4">
@@ -119,6 +115,7 @@ for these_nodes, color in grouped_nodes:
     for node in these_nodes:
         g.get_node(node).attr['fillcolor'] = color
         g.get_node(node).attr['style'] = 'filled'
+        g.get_node(node).attr['fontcolor'] = '#FFFFFF'
 
 # Format (sub)graphs
 for gr in g.subgraphs() + [g]:
