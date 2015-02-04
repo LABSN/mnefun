@@ -11,13 +11,13 @@
 <polygon fill="white" stroke="none" points="-4,4 -4,-769.5 564.5,-769.5 564.5,4 -4,4"/>
 <!-- sco -->
 <g id="node1" class="node"><title>sco</title>
-<polygon fill="#332288" stroke="black" points="59,-624 0,-624 0,-588 59,-588 59,-624"/>
-<text text-anchor="start" x="27" y="-609.8" font-family="Arial" font-size="9.00" fill="#ffffff">./</text>
-<text text-anchor="start" x="8" y="-599.2" font-family="Arial" font-size="11.00" fill="#ffffff">score.py</text>
+<polygon fill="#61c5ad" stroke="black" points="59,-624 0,-624 0,-588 59,-588 59,-624"/>
+<text text-anchor="start" x="27" y="-609.8" font-family="Arial" font-size="9.00" fill="#000000">./</text>
+<text text-anchor="start" x="8" y="-599.2" font-family="Arial" font-size="11.00" fill="#000000">score.py</text>
 </g>
 <!-- lst -->
 <g id="node2" class="node"><title>lst</title>
-<polygon fill="#88ccee" stroke="black" points="98,-540 17,-540 17,-504 98,-504 98,-540"/>
+<polygon fill="#adc7f7" stroke="black" points="98,-540 17,-540 17,-504 98,-504 98,-540"/>
 <text text-anchor="start" x="35" y="-525.8" font-family="Arial" font-size="9.00" fill="#000000">./subj/lists/</text>
 <text text-anchor="start" x="25" y="-515.2" font-family="Arial" font-size="11.00" fill="#000000">ALL_*&#45;eve.lst</text>
 </g>
@@ -29,7 +29,7 @@
 </g>
 <!-- evo -->
 <g id="node3" class="node"><title>evo</title>
-<polygon fill="#88ccee" stroke="black" points="158.5,-120 22.5,-120 22.5,-84 158.5,-84 158.5,-120"/>
+<polygon fill="#adc7f7" stroke="black" points="158.5,-120 22.5,-120 22.5,-84 158.5,-84 158.5,-120"/>
 <text text-anchor="start" x="30.5" y="-105.8" font-family="Arial" font-size="9.00" fill="#000000">./subj/inverse/, ./subj/epochs/</text>
 <text text-anchor="start" x="50" y="-95.2" font-family="Arial" font-size="11.00" fill="#000000">*&#45;evo.fif, *&#45;epo.fif</text>
 </g>
@@ -40,13 +40,13 @@
 </g>
 <!-- pbd -->
 <g id="node4" class="node"><title>pbd</title>
-<polygon fill="#332288" stroke="black" points="256,-624 181,-624 181,-588 256,-588 256,-624"/>
-<text text-anchor="start" x="191" y="-609.8" font-family="Arial" font-size="9.00" fill="#ffffff">./subj/raw_fif/</text>
-<text text-anchor="start" x="189" y="-599.2" font-family="Arial" font-size="11.00" fill="#ffffff">*_prebad.txt</text>
+<polygon fill="#61c5ad" stroke="black" points="256,-624 181,-624 181,-588 256,-588 256,-624"/>
+<text text-anchor="start" x="191" y="-609.8" font-family="Arial" font-size="9.00" fill="#000000">./subj/raw_fif/</text>
+<text text-anchor="start" x="189" y="-599.2" font-family="Arial" font-size="11.00" fill="#000000">*_prebad.txt</text>
 </g>
 <!-- mfr -->
 <g id="node5" class="node"><title>mfr</title>
-<polygon fill="#999933" stroke="black" points="276.5,-540 130.5,-540 130.5,-504 276.5,-504 276.5,-540"/>
+<polygon fill="#a8a564" stroke="black" points="276.5,-540 130.5,-540 130.5,-504 276.5,-504 276.5,-540"/>
 <text text-anchor="start" x="138.5" y="-525.8" font-family="Arial" font-size="9.00" fill="#000000">user@kasga:/data00/user/subj/</text>
 <text text-anchor="start" x="151" y="-515.2" font-family="Arial" font-size="11.00" fill="#000000">*_raw.fif, *_prebad.txt</text>
 </g>
@@ -57,7 +57,7 @@
 </g>
 <!-- mfs -->
 <g id="node6" class="node"><title>mfs</title>
-<polygon fill="#999933" stroke="black" points="276.5,-456 130.5,-456 130.5,-420 276.5,-420 276.5,-456"/>
+<polygon fill="#a8a564" stroke="black" points="276.5,-456 130.5,-456 130.5,-420 276.5,-420 276.5,-456"/>
 <text text-anchor="start" x="138.5" y="-441.8" font-family="Arial" font-size="9.00" fill="#000000">user@kasga:/data00/user/subj/</text>
 <text text-anchor="start" x="149" y="-431.2" font-family="Arial" font-size="11.00" fill="#000000">*_raw_sss.fif, *_log.txt</text>
 </g>
@@ -69,7 +69,7 @@
 </g>
 <!-- sss -->
 <g id="node7" class="node"><title>sss</title>
-<polygon fill="#88ccee" stroke="black" points="363.5,-372 283.5,-372 283.5,-336 363.5,-336 363.5,-372"/>
+<polygon fill="#adc7f7" stroke="black" points="363.5,-372 283.5,-372 283.5,-336 363.5,-336 363.5,-372"/>
 <text text-anchor="start" x="296" y="-357.8" font-family="Arial" font-size="9.00" fill="#000000">./subj/sss_fif/</text>
 <text text-anchor="start" x="291.5" y="-347.2" font-family="Arial" font-size="11.00" fill="#000000">*_raw_sss.fif</text>
 </g>
@@ -81,7 +81,7 @@
 </g>
 <!-- ssl -->
 <g id="node8" class="node"><title>ssl</title>
-<polygon fill="#88ccee" stroke="black" points="163,-372 86,-372 86,-336 163,-336 163,-372"/>
+<polygon fill="#adc7f7" stroke="black" points="163,-372 86,-372 86,-336 163,-336 163,-372"/>
 <text text-anchor="start" x="94" y="-357.8" font-family="Arial" font-size="9.00" fill="#000000">./subj/sss_log/</text>
 <text text-anchor="start" x="104.5" y="-347.2" font-family="Arial" font-size="11.00" fill="#000000">*_log.txt</text>
 </g>
@@ -98,7 +98,7 @@
 </g>
 <!-- pca -->
 <g id="node10" class="node"><title>pca</title>
-<polygon fill="#88ccee" stroke="black" points="264.5,-204 172.5,-204 172.5,-168 264.5,-168 264.5,-204"/>
+<polygon fill="#adc7f7" stroke="black" points="264.5,-204 172.5,-204 172.5,-168 264.5,-168 264.5,-204"/>
 <text text-anchor="start" x="180.5" y="-189.8" font-family="Arial" font-size="9.00" fill="#000000">./subj/sss_pca_fif/</text>
 <text text-anchor="start" x="186.5" y="-179.2" font-family="Arial" font-size="11.00" fill="#000000">*_raw_sss.fif</text>
 </g>
@@ -109,7 +109,7 @@
 </g>
 <!-- pro -->
 <g id="node11" class="node"><title>pro</title>
-<polygon fill="#88ccee" stroke="black" points="301.5,-288 209.5,-288 209.5,-252 301.5,-252 301.5,-288"/>
+<polygon fill="#adc7f7" stroke="black" points="301.5,-288 209.5,-288 209.5,-252 301.5,-252 301.5,-288"/>
 <text text-anchor="start" x="217.5" y="-273.8" font-family="Arial" font-size="9.00" fill="#000000">./subj/sss_pca_fif/</text>
 <text text-anchor="start" x="236.5" y="-263.2" font-family="Arial" font-size="11.00" fill="#000000">*&#45;proj.fif</text>
 </g>
@@ -121,7 +121,7 @@
 </g>
 <!-- inv -->
 <g id="node9" class="node"><title>inv</title>
-<polygon fill="#88ccee" stroke="black" points="329.5,-36 255.5,-36 255.5,-0 329.5,-0 329.5,-36"/>
+<polygon fill="#adc7f7" stroke="black" points="329.5,-36 255.5,-36 255.5,-0 329.5,-0 329.5,-36"/>
 <text text-anchor="start" x="263.5" y="-21.8" font-family="Arial" font-size="9.00" fill="#000000">./subj/inverse/</text>
 <text text-anchor="start" x="275.5" y="-11.2" font-family="Arial" font-size="11.00" fill="#000000">*&#45;inv.fif</text>
 </g>
@@ -133,7 +133,7 @@
 </g>
 <!-- fwd -->
 <g id="node12" class="node"><title>fwd</title>
-<polygon fill="#88ccee" stroke="black" points="365.5,-120 291.5,-120 291.5,-84 365.5,-84 365.5,-120"/>
+<polygon fill="#adc7f7" stroke="black" points="365.5,-120 291.5,-120 291.5,-84 365.5,-84 365.5,-120"/>
 <text text-anchor="start" x="299.5" y="-105.8" font-family="Arial" font-size="9.00" fill="#000000">./subj/forward/</text>
 <text text-anchor="start" x="310" y="-95.2" font-family="Arial" font-size="11.00" fill="#000000">*&#45;fwd.fif</text>
 </g>
@@ -144,7 +144,7 @@
 </g>
 <!-- cov -->
 <g id="node13" class="node"><title>cov</title>
-<polygon fill="#88ccee" stroke="black" points="257,-120 200,-120 200,-84 257,-84 257,-120"/>
+<polygon fill="#adc7f7" stroke="black" points="257,-120 200,-120 200,-84 257,-84 257,-120"/>
 <text text-anchor="start" x="208" y="-105.8" font-family="Arial" font-size="9.00" fill="#000000">./subj/cov/</text>
 <text text-anchor="start" x="210" y="-95.2" font-family="Arial" font-size="11.00" fill="#000000">*&#45;cov.fif</text>
 </g>
@@ -173,7 +173,7 @@
 </g>
 <!-- raw -->
 <g id="node14" class="node"><title>raw</title>
-<polygon fill="#88ccee" stroke="black" points="155,-624 84,-624 84,-588 155,-588 155,-624"/>
+<polygon fill="#adc7f7" stroke="black" points="155,-624 84,-624 84,-588 155,-588 155,-624"/>
 <text text-anchor="start" x="92" y="-609.8" font-family="Arial" font-size="9.00" fill="#000000">./subj/raw_fif/</text>
 <text text-anchor="start" x="99.5" y="-599.2" font-family="Arial" font-size="11.00" fill="#000000">*_raw.fif</text>
 </g>
@@ -190,9 +190,9 @@
 </g>
 <!-- acq -->
 <g id="node15" class="node"><title>acq</title>
-<polygon fill="#aa4499" stroke="black" points="155,-737 84,-737 84,-701 155,-701 155,-737"/>
-<text text-anchor="start" x="92" y="-722.8" font-family="Arial" font-size="9.00" fill="#ffffff">user@minea</text>
-<text text-anchor="start" x="99.5" y="-712.2" font-family="Arial" font-size="11.00" fill="#ffffff">*_raw.fif</text>
+<polygon fill="#c37d8b" stroke="black" points="155,-737 84,-737 84,-701 155,-701 155,-737"/>
+<text text-anchor="start" x="92" y="-722.8" font-family="Arial" font-size="9.00" fill="#000000">user@minea</text>
+<text text-anchor="start" x="99.5" y="-712.2" font-family="Arial" font-size="11.00" fill="#000000">*_raw.fif</text>
 </g>
 <!-- acq&#45;&gt;raw -->
 <g id="edge18" class="edge"><title>acq&#45;&gt;raw</title>
@@ -202,22 +202,22 @@
 </g>
 <!-- legend -->
 <g id="node16" class="node"><title>legend</title>
-<polygon fill="#aa4499" stroke="none" points="177.5,-742 177.5,-761 196.5,-761 196.5,-742 177.5,-742"/>
+<polygon fill="#c37d8b" stroke="none" points="177.5,-742 177.5,-761 196.5,-761 196.5,-742 177.5,-742"/>
 <text text-anchor="start" x="182" y="-749.3" font-family="Arial" font-size="9.00"> &#160;&#160;&#160;</text>
 <text text-anchor="start" x="207.5" y="-749.3" font-family="Arial" font-size="9.00">Acquisiton machine</text>
-<polygon fill="#999933" stroke="none" points="177.5,-720 177.5,-738 196.5,-738 196.5,-720 177.5,-720"/>
+<polygon fill="#a8a564" stroke="none" points="177.5,-720 177.5,-738 196.5,-738 196.5,-720 177.5,-720"/>
 <text text-anchor="start" x="182" y="-726.8" font-family="Arial" font-size="9.00"> &#160;&#160;&#160;</text>
 <text text-anchor="start" x="220" y="-726.8" font-family="Arial" font-size="9.00">SSS machine</text>
-<polygon fill="#332288" stroke="none" points="177.5,-698 177.5,-716 196.5,-716 196.5,-698 177.5,-698"/>
+<polygon fill="#61c5ad" stroke="none" points="177.5,-698 177.5,-716 196.5,-716 196.5,-698 177.5,-698"/>
 <text text-anchor="start" x="182" y="-704.8" font-family="Arial" font-size="9.00"> &#160;&#160;&#160;</text>
 <text text-anchor="start" x="211.5" y="-704.8" font-family="Arial" font-size="9.00">User&#45;created files</text>
-<polygon fill="#88ccee" stroke="none" points="177.5,-676 177.5,-694 196.5,-694 196.5,-676 177.5,-676"/>
+<polygon fill="#adc7f7" stroke="none" points="177.5,-676 177.5,-694 196.5,-694 196.5,-676 177.5,-676"/>
 <text text-anchor="start" x="182" y="-682.8" font-family="Arial" font-size="9.00"> &#160;&#160;&#160;</text>
 <text text-anchor="start" x="204.5" y="-682.8" font-family="Arial" font-size="9.00">Pipeline&#45;created files</text>
 </g>
 <!-- src -->
 <g id="node17" class="node"><title>src</title>
-<polygon fill="#88ccee" stroke="black" points="362.5,-204 282.5,-204 282.5,-168 362.5,-168 362.5,-204"/>
+<polygon fill="#adc7f7" stroke="black" points="362.5,-204 282.5,-204 282.5,-168 362.5,-168 362.5,-204"/>
 <text text-anchor="start" x="291.5" y="-189.8" font-family="Arial" font-size="9.00" fill="#000000">structural/bem/</text>
 <text text-anchor="start" x="290.5" y="-179.2" font-family="Arial" font-size="11.00" fill="#000000">*&#45;oct&#45;6&#45;src.fif</text>
 </g>
@@ -233,9 +233,9 @@
 </g>
 <!-- tra -->
 <g id="node18" class="node"><title>tra</title>
-<polygon fill="#332288" stroke="black" points="464,-204 399,-204 399,-168 464,-168 464,-204"/>
-<text text-anchor="start" x="407" y="-189.8" font-family="Arial" font-size="9.00" fill="#ffffff">./subj/trans/</text>
-<text text-anchor="start" x="409" y="-179.2" font-family="Arial" font-size="11.00" fill="#ffffff">*&#45;trans.fif</text>
+<polygon fill="#61c5ad" stroke="black" points="464,-204 399,-204 399,-168 464,-168 464,-204"/>
+<text text-anchor="start" x="407" y="-189.8" font-family="Arial" font-size="9.00" fill="#000000">./subj/trans/</text>
+<text text-anchor="start" x="409" y="-179.2" font-family="Arial" font-size="11.00" fill="#000000">*&#45;trans.fif</text>
 </g>
 <!-- tra&#45;&gt;fwd -->
 <g id="edge21" class="edge"><title>tra&#45;&gt;fwd</title>
@@ -245,9 +245,9 @@
 </g>
 <!-- bad -->
 <g id="node19" class="node"><title>bad</title>
-<polygon fill="#332288" stroke="black" points="265.5,-372 181.5,-372 181.5,-336 265.5,-336 265.5,-372"/>
-<text text-anchor="start" x="199" y="-357.8" font-family="Arial" font-size="9.00" fill="#ffffff">./subj/bads/</text>
-<text text-anchor="start" x="189.5" y="-347.2" font-family="Arial" font-size="11.00" fill="#ffffff">*_post&#45;sss.txt</text>
+<polygon fill="#61c5ad" stroke="black" points="265.5,-372 181.5,-372 181.5,-336 265.5,-336 265.5,-372"/>
+<text text-anchor="start" x="199" y="-357.8" font-family="Arial" font-size="9.00" fill="#000000">./subj/bads/</text>
+<text text-anchor="start" x="189.5" y="-347.2" font-family="Arial" font-size="11.00" fill="#000000">*_post&#45;sss.txt</text>
 </g>
 <!-- bad&#45;&gt;pca -->
 <g id="edge22" class="edge"><title>bad&#45;&gt;pca</title>
@@ -261,7 +261,7 @@
 </g>
 <!-- bem -->
 <g id="node20" class="node"><title>bem</title>
-<polygon fill="#88ccee" stroke="black" points="560.5,-204 482.5,-204 482.5,-168 560.5,-168 560.5,-204"/>
+<polygon fill="#adc7f7" stroke="black" points="560.5,-204 482.5,-204 482.5,-168 560.5,-168 560.5,-204"/>
 <text text-anchor="start" x="490.5" y="-189.8" font-family="Arial" font-size="9.00" fill="#000000">structural/bem/</text>
 <text text-anchor="start" x="491.5" y="-179.2" font-family="Arial" font-size="11.00" fill="#000000">*&#45;bem&#45;sol.fif</text>
 </g>

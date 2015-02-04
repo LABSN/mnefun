@@ -4,10 +4,10 @@ font_face = 'Arial'
 node_size = 9
 node_small_size = 11
 edge_size = 11
-acq_color = ('#AA4499', '#FFFFFF')  # (background color, text color)
-sss_color = ('#999933', '#000000')
-user_color = ('#332288', '#FFFFFF')
-pipe_color = ('#88CCEE', '#000000')
+acq_color = ('#C37D8B', '#000000')  # (background color, text color)
+sss_color = ('#A8A564', '#000000')
+user_color = ('#61C5AD', '#000000')
+pipe_color = ('#ADC7F7', '#000000')
 
 legend = """
 <<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="4" CELLPADDING="4">
