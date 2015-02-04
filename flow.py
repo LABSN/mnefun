@@ -4,10 +4,10 @@ font_face = 'Arial'
 node_size = 9
 node_small_size = 11
 edge_size = 11
-acq_color = '#AA4499'
-sss_color = '#999933'
-user_color = '#CC6677'
-pipe_color = '#44AA99'
+acq_color = ('#C37D8B', '#000000')  # (background color, text color)
+sss_color = ('#A8A564', '#000000')
+user_color = ('#61C5AD', '#000000')
+pipe_color = ('#ADC7F7', '#000000')
 
 legend = """
 <<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="4" CELLPADDING="4">
@@ -15,7 +15,7 @@ legend = """
 <TR><TD BGCOLOR="%s">    </TD><TD>SSS machine</TD></TR>
 <TR><TD BGCOLOR="%s">    </TD><TD>User-created files</TD></TR>
 <TR><TD BGCOLOR="%s">    </TD><TD>Pipeline-created files</TD></TR>
-</TABLE>>""" % (acq_color, sss_color, user_color, pipe_color)
+</TABLE>>""" % (acq_color[0], sss_color[0], user_color[0], pipe_color[0])
 legend = ''.join(legend.split('\n'))
 
 nodes = dict(
@@ -111,11 +111,11 @@ for edge in edges:
     e.attr['fontsize'] = edge_size
 
 # Change colors
-for these_nodes, color in grouped_nodes:
+for these_nodes, (bgcolor, fgcolor) in grouped_nodes:
     for node in these_nodes:
-        g.get_node(node).attr['fillcolor'] = color
+        g.get_node(node).attr['fillcolor'] = bgcolor
         g.get_node(node).attr['style'] = 'filled'
-        g.get_node(node).attr['fontcolor'] = '#FFFFFF'
+        g.get_node(node).attr['fontcolor'] = fgcolor
 
 # Format (sub)graphs
 for gr in g.subgraphs() + [g]:
