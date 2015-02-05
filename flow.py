@@ -87,7 +87,7 @@ grouped_nodes.append([[node for node in nodes.keys()
                        node != 'legend'],
                       pipe_color])
 
-g = pgv.AGraph(directed=True)
+g = pgv.AGraph(name='mnefun flow diagram', directed=True)
 
 for key, label in nodes.items():
     label = label.split('\n')
@@ -123,6 +123,7 @@ for gr in g.subgraphs() + [g]:
         x['fontname'] = font_face
         x['fontsize'] = node_size
 g.node_attr['shape'] = 'box'
+g.node_attr['margin'] = '0.2,0.1'
 g.get_node('legend').attr.update(shape='plaintext', margin=0)
 
 g.layout('dot')
