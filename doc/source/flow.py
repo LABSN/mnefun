@@ -4,18 +4,18 @@ font_face = 'Arial'
 node_size = 9
 node_small_size = 11
 edge_size = 11
-acq_color = ('#C37D8B', '#000000')  # (background color, text color)
+acq_color = ('#61C5AD', '#000000')  # (background color, text color)
 sss_color = ('#A8A564', '#000000')
-user_color = ('#61C5AD', '#000000')
+user_color = ('#C37D8B', '#000000')
 pipe_color = ('#ADC7F7', '#000000')
 
 legend = """
 <<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="4" CELLPADDING="4">
-<TR><TD BGCOLOR="%s">    </TD><TD>Acquisiton machine</TD></TR>
-<TR><TD BGCOLOR="%s">    </TD><TD>SSS machine</TD></TR>
-<TR><TD BGCOLOR="%s">    </TD><TD>User-created files</TD></TR>
-<TR><TD BGCOLOR="%s">    </TD><TD>Pipeline-created files</TD></TR>
-</TABLE>>""" % (acq_color[0], sss_color[0], user_color[0], pipe_color[0])
+<TR><TD BGCOLOR="%s">    </TD><TD ALIGN="left">Remote: acquisiton machine</TD></TR>
+<TR><TD BGCOLOR="%s">    </TD><TD ALIGN="left">Local: user-created files</TD></TR>
+<TR><TD BGCOLOR="%s">    </TD><TD ALIGN="left">Local: pipeline-created files</TD></TR>
+<TR><TD BGCOLOR="%s">    </TD><TD ALIGN="left">Remote: SSS machine</TD></TR>
+</TABLE>>""" % (acq_color[0], user_color[0], pipe_color[0], sss_color[0])
 legend = ''.join(legend.split('\n'))
 
 nodes = dict(
@@ -65,7 +65,6 @@ edges = (
     ('pca', 'evo', '9. write_epochs'),
     ('lst', 'evo'),
     ('pca', 'cov', '10. gen_covs'),
-    ('src', 'src'),
     ('bem', 'fwd'),
     ('pca', 'fwd'),
     ('tra', 'fwd', '11. gen_fwd'),
