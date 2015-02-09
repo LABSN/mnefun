@@ -220,37 +220,37 @@ class Params(object):
         return self.pca_extra + self.sss_fif_tag
 
 
-def do_processing(p, fetch_raw=False, push_raw=False, do_sss=False,
-                  fetch_sss=False, do_score=False, do_ch_fix=False,
-                  gen_ssp=False, apply_ssp=False, gen_covs=False,
-                  gen_fwd=False, gen_inv=False, write_epochs=False,
+def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
+                  do_sss=False, fetch_sss=False, do_ch_fix=False,
+                  gen_ssp=False, apply_ssp=False, write_epochs=False,
+                  gen_covs=False, gen_fwd=False, gen_inv=False,
                   gen_report=False):
     """Do M/EEG data processing
 
     fetch_raw : bool
         Fetch raw recording files from acquisition machine.
+    do_score : bool
+        Do scoring.
     push_raw : bool
         Push raw recording files to SSS workstation.
     do_sss : bool
         Run SSS remotely on SSS workstation.
     fetch_sss : bool
         Fetch SSS files from SSS workstation.
-    do_score : bool
-        Do scoring.
     do_ch_fix : bool
         Fix channel ordering.
     gen_ssp : bool
         Generate SSP vectors.
     apply_ssp : bool
         Apply SSP vectors and filtering.
+    write_epochs : bool
+        Write epochs to disk.
     gen_covs : bool
         Generate covariances.
     gen_fwd : bool
         Generate forward solutions.
     get_inv : bool
         Generate inverses.
-    write_epochs : bool
-        Write epochs to disk.
     gen_report : bool
         Generate HTML reports.
     """
