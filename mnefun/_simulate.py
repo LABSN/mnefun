@@ -18,7 +18,7 @@ from mne.forward._make_forward import (_create_coils, _read_coil_defs,
 from mne.transforms import (read_trans, _get_mri_head_t_from_trans_file,
                             invert_transform, transform_surface_to)
 from mne.source_space import (SourceSpaces, read_source_spaces,
-                              _filter_source_spaces)
+                              _filter_source_spaces, _points_outside_surface)
 from mne.io.constants import FIFF
 from mne.utils import logger, verbose, check_random_state
 from mne.surface import read_bem_solution
@@ -250,6 +250,20 @@ def _make_forward_solutions(info, mri, src, bem, dev_head_ts, mindist, n_jobs):
                                       dev_head_t, coil_type='meg',
                                       coilset=templates)[0]
             compcf = compcoils[0]['coord_frame']
+
+        # make sure our sensors are all outside our BEM
+        rr = [coil['r0'] for coil in megcoils]
+        idx = np.where(np.array([s['id'] for s in bem['surfs']])
+                       == FIFF.FIFFV_BEM_SURF_ID_BRAIN)[0]
+        assert len(idx) == 1
+        bem_surf = transform_surface_to(bem['surfs'][idx[0]], coord_frame,
+                                        mri_head_t)
+        outside = _points_outside_surface(rr, bem_surf, n_jobs, verbose=False)
+        if not np.all(outside):
+            raise RuntimeError('MEG sensors collided with inner skull '
+                               'surface for transform %s' % ti)
+
+        # compute forward
         megfwd = _compute_forwards(src, bem, [megcoils], [megcf], [compcoils],
                                    [compcf], [meg_info], ['meg'], n_jobs,
                                    verbose=False)[0]

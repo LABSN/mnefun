@@ -20,7 +20,7 @@ from mne import (get_config, read_source_spaces, SourceEstimate,
 from mne.io import read_info, Raw
 from mnefun import simulate_movement
 
-rerun_simulation = False
+rerun_simulation = True
 
 snr = 25.
 pulse_tmin, pulse_tmax = 0., 0.1
@@ -62,21 +62,16 @@ if rerun_simulation:
     print('Cleaning data a little bit')
     with warnings.catch_warnings(record=True):
         raw = Raw(fname_raw, allow_maxshield=True, preload=True)
-    raw.add_proj(compute_proj_raw(raw, n_mag=2, n_grad=2, duration=None))
     cov = compute_raw_data_covariance(raw)
 
     # Simulate data with movement
     print('Simulating data')
-    raw_movement = simulate_movement(
-        raw, fname_pos, stc, trans, src, bem, cov=cov,
-        snr=snr, snr_tmin=pulse_tmin, snr_tmax=pulse_tmax,
-        interp='zero', n_jobs=6)
+    raw_movement = simulate_movement(raw, fname_pos, stc, trans, src, bem,
+                                     cov=cov, n_jobs=6)
 
     # Simulate data with no movement (use original head position)
-    raw_stationary = simulate_movement(
-        raw, None, stc, trans, src, bem, cov=cov,
-        snr=snr, snr_tmin=pulse_tmin, snr_tmax=pulse_tmax,
-        interp='zero', n_jobs=6)
+    raw_stationary = simulate_movement(raw, None, stc, trans, src, bem,
+                                       cov=cov, interp='zero', n_jobs=6)
 
 # Saved these files locally:
 # >>> raw_movement.save('test_move_raw.fif')
