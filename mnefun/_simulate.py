@@ -7,7 +7,7 @@ import time
 import warnings
 from copy import deepcopy
 
-from mne import (pick_types, pick_info, SourceEstimate, pick_channels,
+from mne import (pick_types, pick_info, pick_channels, VolSourceEstimate,
                  convert_forward_solution, get_chpi_positions, EvokedArray)
 from mne.io import read_info, Raw
 from mne.io.pick import _has_kit_refs
@@ -20,6 +20,7 @@ from mne.transforms import (read_trans, _get_mri_head_t_from_trans_file,
 from mne.source_space import (SourceSpaces, read_source_spaces,
                               _filter_source_spaces, _points_outside_surface)
 from mne.io.constants import FIFF
+from mne.source_estimate import _BaseSourceEstimate
 from mne.utils import logger, verbose, check_random_state
 from mne.surface import read_bem_solution
 from mne.simulation import generate_noise_evoked
@@ -207,8 +208,8 @@ def _make_forward_solutions(info, mri, src, bem, dev_head_ts, mindist, n_jobs):
         raise RuntimeError('Improper coordinate transform')
 
     # Circumvent numerical problems by excluding points too close to the skull
-    idx = np.where(np.array([s['id'] for s in bem['surfs']])
-                   == FIFF.FIFFV_BEM_SURF_ID_BRAIN)[0]
+    idx = np.where(np.array([s['id'] for s in bem['surfs']]) ==
+                   FIFF.FIFFV_BEM_SURF_ID_BRAIN)[0]
     if len(idx) != 1:
         raise RuntimeError('BEM model does not have the inner skull '
                            'triangulation')
@@ -253,8 +254,8 @@ def _make_forward_solutions(info, mri, src, bem, dev_head_ts, mindist, n_jobs):
 
         # make sure our sensors are all outside our BEM
         rr = [coil['r0'] for coil in megcoils]
-        idx = np.where(np.array([s['id'] for s in bem['surfs']])
-                       == FIFF.FIFFV_BEM_SURF_ID_BRAIN)[0]
+        idx = np.where(np.array([s['id'] for s in bem['surfs']]) ==
+                       FIFF.FIFFV_BEM_SURF_ID_BRAIN)[0]
         assert len(idx) == 1
         bem_surf = transform_surface_to(bem['surfs'][idx[0]], coord_frame,
                                         mri_head_t)
@@ -307,8 +308,9 @@ def _restrict_source_space_to(src, vertices):
     return src
 
 
+'''
 def _mag_dipole_field_vec(rrs, coils):
-    """Compute an MEG forward solution for a set of locations"""
+    """Compute an MEG forward solution for a set of dipoles"""
     fwd = np.zeros((3 * len(rrs), len(coils)))
     for ri, rr in enumerate(rrs):
         for k in range(len(coils)):
@@ -326,10 +328,11 @@ def _mag_dipole_field_vec(rrs, coils):
                     dist2 * this_coil['cosmag']) / dist5
             fwd[3*ri:3*ri+3, k] = 1e-7 * np.dot(this_coil['w'], sum_)
     return fwd
+'''
 
 
 @verbose
-def simulate_movement(raw, pos, stc, trans, src, bem, cov, mindist=1.0,
+def simulate_movement(raw, pos, stc, trans, src, bem, cov=None, mindist=1.0,
                       interp='linear', random_state=None, n_jobs=1,
                       verbose=True):
     """Simulate raw data with head movements
@@ -339,10 +342,12 @@ def simulate_movement(raw, pos, stc, trans, src, bem, cov, mindist=1.0,
     raw : instance of Raw
         The raw instance to use. The measurement info, including the
         head positions, will be used to simulate data.
-    pos : str | None
+    pos : str | dict | None
         Name of the position estimates file. Should be in the format of
-        the files produced by maxfilter-produced. If None, a fixed
-        head position (using ``raw.info['dev_head_t']``) will be used.
+        the files produced by maxfilter-produced. If dict, keys should
+        be the time points and entries should be 4x3 ``dev_head_t``
+        matrices. If None, the original head position (from
+        ``raw.info['dev_head_t']``) will be used.
     stc : instance of SourceEstimate
         The source estimate to use to simulate data. Must have the same
         sample rate as the raw data.
@@ -358,9 +363,9 @@ def simulate_movement(raw, pos, stc, trans, src, bem, cov, mindist=1.0,
         instance of loaded or generated SourceSpaces.
     bem : str
         Filename of the BEM (e.g., "sample-5120-5120-5120-bem-sol.fif").
-    cov : instance of Covariance
+    cov : instance of Covariance | None
         The sensor covariance matrix used to generate noise. If None,
-        the covariance will be estimated from the raw data.
+        no noise will be added.
     mindist : float
         Minimum distance between sources and the inner skull boundary
         to use during forward calculation.
@@ -395,7 +400,7 @@ def simulate_movement(raw, pos, stc, trans, src, bem, cov, mindist=1.0,
     else:
         raw = raw.copy()
 
-    if not isinstance(stc, SourceEstimate):
+    if not isinstance(stc, _BaseSourceEstimate):
         raise TypeError('stc must be a SourceEstimate')
     if not np.allclose(raw.info['sfreq'], 1. / stc.tstep):
         raise ValueError('stc and raw must have same sample rate')
@@ -408,9 +413,15 @@ def simulate_movement(raw, pos, stc, trans, src, bem, cov, mindist=1.0,
         offsets = np.array([0, raw.n_times])
         interp = 'zero'
     else:
-        transs, rots, ts = get_chpi_positions(pos, verbose=False)
-        dev_head_ts = [np.r_[np.c_[r, t[:, np.newaxis]], [[0, 0, 0, 1]]]
-                       for r, t in zip(rots, transs)]
+        if isinstance(pos, string_types):
+            transs, rots, ts = get_chpi_positions(pos, verbose=False)
+            dev_head_ts = [np.r_[np.c_[r, t[:, np.newaxis]], [[0, 0, 0, 1]]]
+                           for r, t in zip(rots, transs)]
+            del transs, rots
+        elif isinstance(pos, dict):
+            ts = np.array(list(pos.keys()), float)
+            ts.sort()
+            dev_head_ts = [pos[float(tt)] for tt in ts]
         if not (ts >= 0).all():  # pathological if not
             raise RuntimeError('Cannot have t < 0 in transform file')
         t0 = raw.first_samp / raw.info['sfreq']
@@ -428,13 +439,13 @@ def simulate_movement(raw, pos, stc, trans, src, bem, cov, mindist=1.0,
         ts -= ts[0]  # re-reference
         offsets = raw.time_as_index(ts)
         assert offsets[-1] == raw.n_times
-        del transs, rots, ts
+        del ts
     assert np.array_equal(offsets, np.unique(offsets))
     assert len(offsets) == len(dev_head_ts)
     approx_events = int((raw.n_times / raw.info['sfreq']) /
                         (stc.times[-1] - stc.times[0]))
-    logger.info('Provided parameters will provide approximately %s events'
-                % approx_events)
+    logger.info('Provided parameters will provide approximately %s event%s'
+                % (approx_events, '' if approx_events == 1 else 's'))
 
     # get HPI freqs and reorder
     hpi_freqs = np.array([x['custom_ref'][0]
@@ -457,7 +468,11 @@ def simulate_movement(raw, pos, stc, trans, src, bem, cov, mindist=1.0,
 
     # Create a covariance if none was supplied
     raw.preload_data()
-    src = _restrict_source_space_to(src, stc.vertices)
+    if isinstance(stc, VolSourceEstimate):
+        verts = [stc.vertices]
+    else:
+        verts = stc.vertices
+    src = _restrict_source_space_to(src, verts)
 
     evoked = EvokedArray(np.zeros((len(picks), len(stc.times))), fwd_info,
                          stc.tmin, verbose=False)
@@ -479,7 +494,14 @@ def simulate_movement(raw, pos, stc, trans, src, bem, cov, mindist=1.0,
 
         if src_sel is None:
             src_sel = _stc_src_sel(fwd['src'], stc)
-            assert len(src_sel) == sum([len(v) for v in stc.vertices])
+            if isinstance(stc, VolSourceEstimate):
+                verts = [stc.vertices]
+            else:
+                verts = stc.vertices
+            diff_ = sum([len(v) for v in verts]) - len(src_sel)
+            if diff_ != 0:
+                warnings.warn('%s STC vertices omitted due to fwd calculation'
+                              % (diff_,))
         if last_fwd is None:
             last_fwd, last_fwd_chpi = fwd, fwd_chpi
             continue
@@ -492,21 +514,22 @@ def simulate_movement(raw, pos, stc, trans, src, bem, cov, mindist=1.0,
         stc_idxs = stc_indices[time_slice]
         event_idxs = np.where(stc_idxs == stc_event_idx)[0] + offsets[fi-1]
         used[time_slice] = True
-        logger.info('  Simulating data for %0.1f-%0.1f sec with %s events'
-                    % (tuple(offsets[fi-1:fi+1] / raw.info['sfreq'])
-                       + (len(event_idxs),)))
+        logger.info('  Simulating data for %0.3f-%0.3f sec with %s event%s'
+                    % (tuple(offsets[fi-1:fi+1] / raw.info['sfreq']) +
+                       (len(event_idxs), '' if len(event_idxs) == 1 else 's')))
 
         # simulate brain data
-        stc_data = stc.data[:, stc_idxs]
+        stc_data = stc.data[:, stc_idxs][src_sel]
         if interp == 'zero':
-            data = np.dot(last_fwd['sol']['data'][:, src_sel], stc_data)
+            data = np.dot(last_fwd['sol']['data'], stc_data)
         else:  # interp == 'linear':
-            data_1 = np.dot(last_fwd['sol']['data'][:, src_sel], stc_data)
-            data_2 = np.dot(fwd['sol']['data'][:, src_sel], stc_data)
+            data_1 = np.dot(last_fwd['sol']['data'], stc_data)
+            data_2 = np.dot(fwd['sol']['data'], stc_data)
             data = data_1 * lin_interp_1 + data_2 * lin_interp_2
         simulated = EvokedArray(data, evoked.info, 0)
-        noise = generate_noise_evoked(simulated, cov, None, rng)
-        simulated.data += noise.data
+        if cov is not None:
+            noise = generate_noise_evoked(simulated, cov, None, rng)
+            simulated.data += noise.data
         assert simulated.data.shape[0] == len(picks)
         assert simulated.data.shape[1] == len(stc_idxs)
         raw._data[picks, time_slice] = simulated.data
