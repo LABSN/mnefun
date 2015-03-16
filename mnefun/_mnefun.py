@@ -444,7 +444,6 @@ def push_raw_files(p, subjects):
                                    for number in origin_head])
             with open(out_pos, 'w') as fid:
                 fid.write(out_string)
-            print('(%s)' % out_string)
 
         med_pos = op.join(raw_dir, subj + '_median_pos.fif')
         if not op.isfile(med_pos):
@@ -516,13 +515,16 @@ def fetch_sss_files(p, subjects):
     run_subprocess(cmd, cwd=p.work_dir)
 
 
-def extract_expyfun_events(fname):
+def extract_expyfun_events(fname, return_offsets=False):
     """Extract expyfun-style serial-coded events from file
 
     Parameters
     ----------
     fname : str
         Filename to use.
+    return_offsets : bool
+        If True, return the time of each press relative to trial onset
+        in addition to the press number.
 
     Returns
     -------
@@ -531,7 +533,9 @@ def extract_expyfun_events(fname):
         are renamed according to their binary expyfun representation.
     presses : list of arrays
         List of all press events that occurred between each one
-        trigger. Each array has shape (N_presses, 2).
+        trigger. Each array has shape (N_presses,). If return_offset is True,
+        then each array has shape (N_presses, 2), with the first column
+        as the time offset from the trial trigger.
     orig_events : array
         Original events array.
 
@@ -562,10 +566,11 @@ def extract_expyfun_events(fname):
     event_nums = []
     for ti in range(len(aud_idx)):
         # pull out responses (they come *after* 1 trig)
-        these = events[breaks[ti + 1]:breaks[ti + 2], 2]
-        resp = these[these > 8]
-        resp = np.log2(resp) - 3
-        resps.append(resp)
+        these = events[breaks[ti + 1]:breaks[ti + 2], :]
+        resp = these[these[:, 2] > 8]
+        resp = np.c_[(resp[:, 0] - events[ti, 0]) / raw.info['sfreq'],
+                     np.log2(resp[:, 2]) - 3]
+        resps.append(resp if return_offsets else resp[:, 1])
 
         # look at trial coding, double-check trial type (pre-1 trig)
         these = events[breaks[ti + 0]:breaks[ti + 1], 2]
