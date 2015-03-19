@@ -32,7 +32,7 @@ from mne.minimum_norm import make_inverse_operator
 from mne.label import read_label
 from mne.epochs import combine_event_ids
 from mne.io import Raw, concatenate_raws, read_info, write_info
-from mne.io.base import _quart_to_rot
+from mne.io.chpi import _quat_to_rot, _rot_to_quat
 from mne.io.pick import pick_types_forward, pick_types
 from mne.io.meas_info import _empty_info
 from mne.cov import regularize
@@ -186,7 +186,7 @@ class Params(object):
         self.eog_channel = eog_channel
         self.plot_raw = plot_raw
         self.translate_positions = True
-        self.quat_tol = 5e-2
+        self.quat_tol = 5e-2  # not used anymore
 
         # add standard file tags
 
@@ -405,21 +405,17 @@ def calc_median_hp(p, subj, out_file):
         trans = info['dev_head_t']['trans']
         ts.append(trans[:3, 3])
         m = trans[:3, :3]
-        qw = np.sqrt(1. + m[0, 0] + m[1, 1] + m[2, 2]) / 2.
         # make sure we are orthogonal and special
         assert_allclose(np.dot(m, m.T), np.eye(3), atol=1e-5)
-        assert_allclose([qw], [1.], atol=p.quat_tol)
-        qs.append([(m[2, 1] - m[1, 2]) / (4 * qw),
-                   (m[0, 2] - m[2, 0]) / (4 * qw),
-                   (m[1, 0] - m[0, 1]) / (4 * qw)])
-        assert_allclose(_quart_to_rot(np.array([qs[-1]]))[0],
+        qs.append(_rot_to_quat(m))
+        assert_allclose(_quat_to_rot(np.array([qs[-1]]))[0],
                         m, rtol=1e-5, atol=1e-5)
     assert info is not None
     if len(raw_files) == 1:  # only one head position
         dev_head_t = info['dev_head_t']
     else:
         t = np.median(np.array(ts), axis=0)
-        rot = np.median(_quart_to_rot(np.array(qs)), axis=0)
+        rot = np.median(_quat_to_rot(np.array(qs)), axis=0)
         trans = np.r_[np.c_[rot, t[:, np.newaxis]],
                       np.array([0, 0, 0, 1], t.dtype)[np.newaxis, :]]
         dev_head_t = {'to': 4, 'from': 1, 'trans': trans}

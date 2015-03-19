@@ -10,19 +10,18 @@ from copy import deepcopy
 from mne import (pick_types, pick_info, pick_channels, VolSourceEstimate,
                  convert_forward_solution, get_chpi_positions, EvokedArray)
 from mne.io import read_info, Raw
-from mne.io.pick import _has_kit_refs
 from mne.externals.six import string_types
 from mne.forward.forward import _merge_meg_eeg_fwds, _stc_src_sel
-from mne.forward._make_forward import (_create_coils, _read_coil_defs,
+from mne.forward._make_forward import (_prep_channels, _setup_bem,
                                        _compute_forwards, _to_forward_dict)
-from mne.transforms import (read_trans, _get_mri_head_t_from_trans_file,
-                            invert_transform, transform_surface_to)
+from mne.forward._compute_forward import _mag_dipole_field_vec
+from mne.transforms import _get_mri_head_t, transform_surface_to
 from mne.source_space import (SourceSpaces, read_source_spaces,
                               _filter_source_spaces, _points_outside_surface)
+from mne.surface import _bem_find_surface
 from mne.io.constants import FIFF
 from mne.source_estimate import _BaseSourceEstimate
 from mne.utils import logger, verbose, check_random_state
-from mne.surface import read_bem_solution
 from mne.simulation import generate_noise_evoked
 
 
@@ -67,24 +66,8 @@ def _make_forward_solutions(info, mri, src, bem, dev_head_ts, mindist, n_jobs):
     consider using the C command line tools or the Python wrapper
     `do_forward_solution`.
     """
-    # Currently not (sup)ported:
-    # 1. EEG Sphere model (not used much)
-    # 2. --grad option (gradients of the field, not used much)
-    # 3. --fixed option (can be computed post-hoc)
-    # 4. --mricoord option (probably not necessary)
-
-    # read the transformation from MRI to HEAD coordinates
-    # (could also be HEAD to MRI)
-    if isinstance(mri, string_types):
-        if not op.isfile(mri):
-            raise IOError('mri file "%s" not found' % mri)
-        if op.splitext(mri)[1] in ['.fif', '.gz']:
-            mri_head_t = read_trans(mri)
-        else:
-            mri_head_t = _get_mri_head_t_from_trans_file(mri)
-    else:  # dict
-        mri_head_t = mri
-        mri = 'dict'
+    mri_head_t, mri = _get_mri_head_t(mri)
+    assert mri_head_t['from'] == FIFF.FIFFV_COORD_MRI
 
     if not isinstance(src, string_types):
         if not isinstance(src, SourceSpaces):
@@ -94,13 +77,16 @@ def _make_forward_solutions(info, mri, src, bem, dev_head_ts, mindist, n_jobs):
             raise IOError('Source space file "%s" not found' % src)
     if not op.isfile(bem):
         raise IOError('BEM file "%s" not found' % bem)
+    if isinstance(bem, dict):
+        bem_extra = 'dict'
+    else:
+        bem_extra = bem
+        if not op.isfile(bem):
+            raise IOError('BEM file "%s" not found' % bem)
     if not isinstance(info, (dict, string_types)):
         raise TypeError('info should be a dict or string')
     if isinstance(info, string_types):
-        info_extra = op.split(info)[1]
         info = read_info(info, verbose=False)
-    else:
-        info_extra = 'info dict'
 
     # set default forward solution coordinate frame to HEAD
     # this could, in principle, be an option
@@ -122,14 +108,6 @@ def _make_forward_solutions(info, mri, src, bem, dev_head_ts, mindist, n_jobs):
     logger.info('Read %d source spaces a total of %d active source locations'
                 % (len(src), nsource))
 
-    # it's actually usually a head->MRI transform, so we probably need to
-    # invert it
-    if mri_head_t['from'] == FIFF.FIFFV_COORD_HEAD:
-        mri_head_t = invert_transform(mri_head_t)
-    if not (mri_head_t['from'] == FIFF.FIFFV_COORD_MRI and
-            mri_head_t['to'] == FIFF.FIFFV_COORD_HEAD):
-        raise RuntimeError('Incorrect MRI transform provided')
-
     # make a new dict with the relevant information
     mri_id = dict(machid=np.zeros(2, np.int32), version=0, secs=0, usecs=0)
     dig = info['dig']
@@ -139,54 +117,9 @@ def _make_forward_solutions(info, mri, src, bem, dev_head_ts, mindist, n_jobs):
                 meas_id=None, working_dir=os.getcwd(),
                 command_line='', bads=info['bads'])
 
-    # MEG channels
-    megnames = None
-    picks = pick_types(info, meg=True, eeg=False, ref_meg=False,
-                       exclude=[])
-    nmeg = len(picks)
-    if nmeg > 0:
-        megchs = pick_info(info, picks)['chs']
-        megnames = [info['ch_names'][p] for p in picks]
-        logger.info('Read %3d MEG channels from %s'
-                    % (len(picks), info_extra))
-
-    # comp channels
-    picks = pick_types(info, meg=False, ref_meg=True, exclude=[])
-    ncomp = len(picks)
-    if (ncomp > 0):
-        compchs = pick_info(info, picks)['chs']
-        logger.info('Read %3d MEG compensation channels from %s'
-                    % (ncomp, info_extra))
-        # We need to check to make sure these are NOT KIT refs
-        if _has_kit_refs(info, picks):
-            err = ('Cannot create forward solution with KIT '
-                   'reference channels. Consider using '
-                   '"ignore_ref=True" in calculation')
-            raise NotImplementedError(err)
-    ncomp_data = len(info['comps'])
-    ref_meg = True
-    picks = pick_types(info, meg=True, ref_meg=ref_meg, exclude=[])
-    meg_info = pick_info(info, picks)
-
-    # EEG channels
-    eegnames = None
-    picks = pick_types(info, meg=False, eeg=True, ref_meg=False,
-                       exclude=[])
-    neeg = len(picks)
-    if neeg > 0:
-        eegchs = pick_info(info, picks)['chs']
-        eegnames = [info['ch_names'][p] for p in picks]
-        logger.info('Read %3d EEG channels from %s'
-                    % (len(picks), info_extra))
-
-    if neeg <= 0 and nmeg <= 0:
-        raise RuntimeError('Could not find any MEG or EEG channels')
-
-    # Create coil descriptions with transformation to head or MRI frame
-    templates = _read_coil_defs(verbose=False)
-    if nmeg > 0 and ncomp > 0:  # Compensation channel information
-        logger.info('%d compensation data sets in %s'
-                    % (ncomp_data, info_extra))
+    # Only get the EEG channels here b/c we can do MEG later
+    _, _, eegels, _, eegnames, _ = \
+        _prep_channels(info, False, True, True, verbose=False)
 
     # Transform the source spaces into the appropriate coordinates
     # (will either be HEAD or MRI)
@@ -194,79 +127,47 @@ def _make_forward_solutions(info, mri, src, bem, dev_head_ts, mindist, n_jobs):
         transform_surface_to(s, coord_frame, mri_head_t)
 
     # Prepare the BEM model
-    bem = read_bem_solution(bem, verbose=False)
-    if neeg > 0 and len(bem['surfs']) == 1:
-        raise RuntimeError('Cannot use a homogeneous model in EEG '
-                           'calculations')
-    # fwd_bem_set_head_mri_t: Set the coordinate transformation
-    to, fro = mri_head_t['to'], mri_head_t['from']
-    if fro == FIFF.FIFFV_COORD_HEAD and to == FIFF.FIFFV_COORD_MRI:
-        bem['head_mri_t'] = mri_head_t
-    elif fro == FIFF.FIFFV_COORD_MRI and to == FIFF.FIFFV_COORD_HEAD:
-        bem['head_mri_t'] = invert_transform(mri_head_t)
-    else:
-        raise RuntimeError('Improper coordinate transform')
+    bem = _setup_bem(bem, bem_extra, len(eegnames), mri_head_t, verbose=False)
 
     # Circumvent numerical problems by excluding points too close to the skull
-    idx = np.where(np.array([s['id'] for s in bem['surfs']]) ==
-                   FIFF.FIFFV_BEM_SURF_ID_BRAIN)[0]
-    if len(idx) != 1:
-        raise RuntimeError('BEM model does not have the inner skull '
-                           'triangulation')
-    logger.info('Filtering source spaces')
-    _filter_source_spaces(bem['surfs'][idx[0]], mindist, mri_head_t, src,
-                          n_jobs, verbose=False)
-
-    picks = pick_types(info, meg=True, eeg=True, ref_meg=False, exclude=[])
-    info = pick_info(info, picks)
-    source_rr = np.concatenate([s['rr'][s['vertno']] for s in src])
-    # deal with free orientations:
-    for key in ['working_dir', 'command_line']:
-        if key in src.info:
-            del src.info[key]
+    if not bem['is_sphere']:
+        inner_skull = _bem_find_surface(bem, 'inner_skull')
+        _filter_source_spaces(inner_skull, mindist, mri_head_t, src, n_jobs,
+                              verbose=False)
 
     # Time to do the heavy lifting: EEG first, then MEG
-    eegfwd = None
-    if neeg > 0:
-        eegels, _ = _create_coils(eegchs, coil_type='eeg', coilset=templates)
-        eegfwd = _compute_forwards(src, bem, [eegels], [None], [None], [None],
-                                   [None], ['eeg'], n_jobs, verbose=False)[0]
+    rr = np.concatenate([s['rr'][s['vertno']] for s in src])
+    eegfwd = _compute_forwards(rr, bem, [eegels], [None],
+                               [None], ['eeg'], n_jobs, verbose=False)[0]
     eegfwd = _to_forward_dict(eegfwd, None, eegnames, coord_frame,
                               FIFF.FIFFV_MNE_FREE_ORI)
 
-    megcoils, megcf, compcoils, compcf = None, None, None, None
-    assert nmeg > 0  # otherwise this function is pointless!
     for ti, dev_head_t in enumerate(dev_head_ts):
         # could be *slightly* more efficient not to do this N times,
         # but the cost here is tiny compared to actual fwd calculation
         logger.info('Computing gain matrix for transform #%s/%s'
                     % (ti + 1, len(dev_head_ts)))
-        megcoils = _create_coils(megchs, FIFF.FWD_COIL_ACCURACY_ACCURATE,
-                                 dev_head_t, coil_type='meg',
-                                 coilset=templates)[0]
-        megcf = megcoils[0]['coord_frame']
-        if ncomp > 0:
-            compcoils = _create_coils(compchs,
-                                      FIFF.FWD_COIL_ACCURACY_NORMAL,
-                                      dev_head_t, coil_type='meg',
-                                      coilset=templates)[0]
-            compcf = compcoils[0]['coord_frame']
+        info = deepcopy(info)
+        info['dev_head_t'] = dev_head_t
+        megcoils, compcoils, _, megnames, _, meg_info = \
+            _prep_channels(info, True, False, False, verbose=False)
 
         # make sure our sensors are all outside our BEM
-        rr = [coil['r0'] for coil in megcoils]
+        coil_rr = [coil['r0'] for coil in megcoils]
         idx = np.where(np.array([s['id'] for s in bem['surfs']]) ==
                        FIFF.FIFFV_BEM_SURF_ID_BRAIN)[0]
         assert len(idx) == 1
         bem_surf = transform_surface_to(bem['surfs'][idx[0]], coord_frame,
                                         mri_head_t)
-        outside = _points_outside_surface(rr, bem_surf, n_jobs, verbose=False)
+        outside = _points_outside_surface(coil_rr, bem_surf, n_jobs,
+                                          verbose=False)
         if not np.all(outside):
             raise RuntimeError('MEG sensors collided with inner skull '
                                'surface for transform %s' % ti)
 
         # compute forward
-        megfwd = _compute_forwards(src, bem, [megcoils], [megcf], [compcoils],
-                                   [compcf], [meg_info], ['meg'], n_jobs,
+        megfwd = _compute_forwards(rr.copy(), bem, [megcoils], [compcoils],
+                                   [meg_info], ['meg'], n_jobs,
                                    verbose=False)[0]
         megfwd = _to_forward_dict(megfwd, None, megnames, coord_frame,
                                   FIFF.FIFFV_MNE_FREE_ORI)
@@ -277,13 +178,12 @@ def _make_forward_solutions(info, mri, src, bem, dev_head_ts, mindist, n_jobs):
         source_nn = np.tile(np.eye(3), (nsource, 1))
         fwd.update(dict(nchan=fwd['sol']['data'].shape[0], nsource=nsource,
                         info=info, src=src, source_nn=source_nn,
-                        source_rr=source_rr, surf_ori=False,
-                        mri_head_t=mri_head_t))
+                        source_rr=rr, surf_ori=False, mri_head_t=mri_head_t))
         fwd['info']['mri_head_t'] = mri_head_t
         fwd['info']['dev_head_t'] = dev_head_t
 
         # make forward for HPI coils
-        if ncomp > 0:
+        if len(compcoils) > 0:
             raise RuntimeError('compensation not supported')
         assert all([d['coord_frame'] == FIFF.FIFFV_COORD_HEAD
                     for d in dig if d['kind'] == FIFF.FIFFV_POINT_HPI])
@@ -306,29 +206,6 @@ def _restrict_source_space_to(src, vertices):
         del s['use_tris']
         del s['patch_inds']
     return src
-
-
-'''
-def _mag_dipole_field_vec(rrs, coils):
-    """Compute an MEG forward solution for a set of dipoles"""
-    fwd = np.zeros((3 * len(rrs), len(coils)))
-    for ri, rr in enumerate(rrs):
-        for k in range(len(coils)):
-            this_coil = coils[k]
-            sum_ = np.zeros(3)
-            # Go through all points
-            diff = this_coil['rmag'] - rr
-            dist2 = np.sum(diff * diff, axis=1)[:, np.newaxis]
-            dist = np.sqrt(dist2)
-            if (dist < 1e-5).any():
-                raise RuntimeError('Coil too close')
-            dist5 = dist2 * dist2 * dist
-            sum_ = (3 * diff * np.sum(diff * this_coil['cosmag'],
-                                      axis=1)[:, np.newaxis] -
-                    dist2 * this_coil['cosmag']) / dist5
-            fwd[3*ri:3*ri+3, k] = 1e-7 * np.dot(this_coil['w'], sum_)
-    return fwd
-'''
 
 
 @verbose
@@ -431,7 +308,8 @@ def simulate_movement(raw, pos, stc, trans, src, bem, cov=None, mindist=1.0,
         if t0 < ts[0]:
             ts = np.r_[[t0], ts]
             dev_head_ts.insert(0, raw.info['dev_head_t']['trans'])
-        dev_head_ts = [dict(trans=d, to=raw.info['dev_head_t']['to'])
+        dev_head_ts = [{'trans': d, 'to': raw.info['dev_head_t']['to'],
+                        'from': raw.info['dev_head_t']['from']}
                        for d in dev_head_ts]
         if ts[-1] < tend:
             dev_head_ts.append(dev_head_ts[-1])
