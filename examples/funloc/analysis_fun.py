@@ -43,7 +43,7 @@ params.plot_drop_logs = False  # turn off for demo or plots will block
 params.acq_ssh = 'minea'  # can also be e.g., "eric@minea.ilabs.uw.edu"
 params.acq_dir = '/sinuhe/data01/eric_non_space'
 params.sws_ssh = 'kasga'
-params.sws_dir = '/data06/eric'
+params.sws_dir = '/data06/larsoner'
 
 params.run_names = ['%s_funloc']
 params.get_projs_from = np.arange(1)
@@ -97,4 +97,5 @@ mnefun.do_processing(
     gen_fwd=True,  # Generate forward solutions (and source space if needed)
     gen_inv=True,  # Generate inverses
     gen_report=True,  # Write mne report html of results to disk
+    print_status=True,  # Print completeness status update
 )

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Copyright (c) 2014, LABS^N
+# Copyright (c) 2015, LABS^N
 # Distributed under the (new) BSD License. See LICENSE.txt for more info.
 
 from __future__ import print_function
@@ -11,7 +11,6 @@ from scipy import io as spio
 import warnings
 from shutil import move, copy2
 import subprocess
-import re
 import glob
 from collections import Counter
 import matplotlib.pyplot as plt
@@ -42,6 +41,10 @@ from mne.viz import plot_drop_log
 from mne.utils import run_subprocess
 from mne.report import Report
 
+from ._paths import (get_raw_fnames, get_event_fnames, get_report_fnames,
+                     get_epochs_evokeds_fnames, safe_inserter)
+from ._status import print_proc_status
+from ._reorder import fix_eeg_channels
 
 # python2/3 conversions
 try:
@@ -225,7 +228,7 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
                   do_sss=False, fetch_sss=False, do_ch_fix=False,
                   gen_ssp=False, apply_ssp=False, write_epochs=False,
                   gen_covs=False, gen_fwd=False, gen_inv=False,
-                  gen_report=False):
+                  gen_report=False, print_status=True):
     """Do M/EEG data processing
 
     fetch_raw : bool
@@ -254,25 +257,55 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
         Generate inverses.
     gen_report : bool
         Generate HTML reports.
+    print_status : bool
+        Print status (determined from file structure).
     """
     # Generate requested things
-    bools = [fetch_raw, push_raw, do_sss, fetch_sss, do_score, do_ch_fix,
-             gen_ssp, apply_ssp, gen_covs, gen_fwd, gen_inv, write_epochs,
-             gen_report]
+    bools = [fetch_raw,
+             do_score,
+             push_raw,
+             do_sss,
+             fetch_sss,
+             do_ch_fix,
+             gen_ssp,
+             apply_ssp,
+             write_epochs,
+             gen_covs,
+             gen_fwd,
+             gen_inv,
+             gen_report,
+             print_status,
+             ]
     texts = ['Pulling raw files from acquisition machine',
+             'Scoring subjects',
              'Pushing raw files to remote workstation',
              'Running SSS on remote workstation',
              'Pulling SSS files from remote workstation',
-             'Scoring subjects', 'Fixing EEG order', 'Preprocessing files',
-             'Applying preprocessing', 'Generating covariances',
-             'Generating forward models', 'Generating inverse solutions',
+             'Fixing EEG order',
+             'Preprocessing files',
+             'Applying preprocessing',
              'Doing epoch EQ/DQ',
-             'Generating HTML Reports']
-    funcs = [fetch_raw_files, push_raw_files, run_sss_remotely,
+             'Generating covariances',
+             'Generating forward models',
+             'Generating inverse solutions',
+             'Generating HTML Reports',
+             'Status',
+             ]
+    funcs = [fetch_raw_files,
+             p.score,
+             push_raw_files,
+             run_sss_remotely,
              fetch_sss_files,
-             p.score, fix_eeg_files, do_preprocessing_combined,
-             apply_preprocessing_combined, gen_covariances,
-             gen_forwards, gen_inverses, save_epochs, gen_html_report]
+             fix_eeg_files,
+             do_preprocessing_combined,
+             apply_preprocessing_combined,
+             save_epochs,
+             gen_covariances,
+             gen_forwards,
+             gen_inverses,
+             gen_html_report,
+             print_proc_status,
+             ]
     assert len(bools) == len(texts) == len(funcs)
 
     sinds = p.subject_indices
@@ -293,6 +326,8 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
                 outs[ii] = func(p, subjects, p.in_names, p.in_numbers,
                                 p.analyses, p.out_names, p.out_numbers,
                                 p.must_match)
+            elif func == print_proc_status:
+                outs[ii] = func(p, subjects, p.analyses)
             else:
                 outs[ii] = func(p, subjects)
             print('  (' + timestring(time() - t0) + ')')
@@ -405,14 +440,13 @@ def push_raw_files(p, subjects):
         if not op.isfile(out_pos):
             print('    Determining head center for %s... ' % subj, end='')
             in_fif = op.join(raw_dir,
-                             safe_inserter(p.run_names[0], subj)
-                             + p.raw_fif_tag)
+                             safe_inserter(p.run_names[0], subj) +
+                             p.raw_fif_tag)
             origin_head = fit_sphere_to_headshape(read_info(in_fif))[1]
             out_string = ' '.join(['%0.0f' % np.round(number)
                                    for number in origin_head])
             with open(out_pos, 'w') as fid:
                 fid.write(out_string)
-            print('(%s)' % out_string)
 
         med_pos = op.join(raw_dir, subj + '_median_pos.fif')
         if not op.isfile(med_pos):
@@ -484,13 +518,16 @@ def fetch_sss_files(p, subjects):
     run_subprocess(cmd, cwd=p.work_dir)
 
 
-def extract_expyfun_events(fname):
+def extract_expyfun_events(fname, return_offsets=False):
     """Extract expyfun-style serial-coded events from file
 
     Parameters
     ----------
     fname : str
         Filename to use.
+    return_offsets : bool
+        If True, return the time of each press relative to trial onset
+        in addition to the press number.
 
     Returns
     -------
@@ -499,7 +536,9 @@ def extract_expyfun_events(fname):
         are renamed according to their binary expyfun representation.
     presses : list of arrays
         List of all press events that occurred between each one
-        trigger. Each array has shape (N_presses, 2).
+        trigger. Each array has shape (N_presses,). If return_offset is True,
+        then each array has shape (N_presses, 2), with the first column
+        as the time offset from the trial trigger.
     orig_events : array
         Original events array.
 
@@ -512,7 +551,8 @@ def extract_expyfun_events(fname):
     subtract 1 before doing so to yield the original binary values.
     """
     # Read events
-    raw = Raw(fname, allow_maxshield=True)
+    with warnings.catch_warnings(record=True):
+        raw = Raw(fname, allow_maxshield=True)
     orig_events = find_events(raw, stim_channel='STI101', shortest_event=0)
     events = list()
     for ch in range(1, 9):
@@ -529,10 +569,11 @@ def extract_expyfun_events(fname):
     event_nums = []
     for ti in range(len(aud_idx)):
         # pull out responses (they come *after* 1 trig)
-        these = events[breaks[ti + 1]:breaks[ti + 2], 2]
-        resp = these[these > 8]
-        resp = np.log2(resp) - 3
-        resps.append(resp)
+        these = events[breaks[ti + 1]:breaks[ti + 2], :]
+        resp = these[these[:, 2] > 8]
+        resp = np.c_[(resp[:, 0] - events[ti, 0]) / raw.info['sfreq'],
+                     np.log2(resp[:, 2]) - 3]
+        resps.append(resp if return_offsets else resp[:, 1])
 
         # look at trial coding, double-check trial type (pre-1 trig)
         these = events[breaks[ti + 0]:breaks[ti + 1], 2]
@@ -543,45 +584,6 @@ def extract_expyfun_events(fname):
     these_events = events[aud_idx]
     these_events[:, 2] = event_nums
     return these_events, resps, orig_events
-
-
-def get_raw_fnames(p, subj, which='raw', erm=True):
-    """Get raw filenames
-
-    Parameters
-    ----------
-    p : instance of Params
-        Parameters structure.
-    subj : str
-        Subject name.
-    which : str
-        Type of raw filenames. Must be 'sss', 'raw', or 'pca'.
-    erm : bool | str
-        If True, include empty-room files (appended to end). If 'only', then
-        only return empty-room files.
-
-    Returns
-    -------
-    fnames : list
-        List of filenames.
-    """
-    assert which in ('sss', 'raw', 'pca')
-    if which == 'sss':
-        raw_dir = op.join(p.work_dir, subj, p.sss_dir)
-        tag = p.sss_fif_tag
-    elif which == 'raw':
-        raw_dir = op.join(p.work_dir, subj, p.raw_dir)
-        tag = p.raw_fif_tag
-    elif which == 'pca':
-        raw_dir = op.join(p.work_dir, subj, p.pca_dir)
-        tag = p.pca_extra + p.sss_fif_tag
-    if erm == 'only':
-        use = p.runs_empty
-    elif erm:
-        use = p.run_names + p.runs_empty
-    else:
-        use = p.run_names
-    return [op.join(raw_dir, safe_inserter(r, subj) + tag) for r in use]
 
 
 def fix_eeg_files(p, subjects, structurals=None, dates=None, verbose=True):
@@ -609,7 +611,7 @@ def fix_eeg_files(p, subjects, structurals=None, dates=None, verbose=True):
         names = [name for name in raw_names if op.isfile(name)]
         # noinspection PyPep8
         if structurals is not None and structurals[si] is not None and \
-                        dates is not None:
+                dates is not None:
             assert isinstance(structurals[si], str)
             assert isinstance(dates[si], tuple) and len(dates[si]) == 3
             assert all([isinstance(d, int) for d in dates[si]])
@@ -618,80 +620,6 @@ def fix_eeg_files(p, subjects, structurals=None, dates=None, verbose=True):
         else:
             anon = None
         fix_eeg_channels(names, anon)
-
-
-def fix_eeg_channels(raw_files, anon=None, verbose=True):
-    """Reorder EEG channels based on UW cap setup
-
-    Parameters
-    ----------
-    raw_files : list of str | str
-        The raw file name(s) to reorder, if it has not been done yet.
-    anon : dict | None
-        If None, no anonymization is done. If dict, should have the following:
-        ``['first_name', 'last_name', 'birthday']``. Names should be strings,
-        while birthday should be a tuple of ints (year, month, day).
-    verbose : bool
-        If True, print whether or not the files were modified.
-    """
-    order = np.array([1, 2, 3, 5, 6, 7, 9, 10,
-                      11, 12, 13, 14, 15, 16, 17, 19, 20,
-                      21, 22, 23, 24, 25, 26, 27, 30,
-                      31, 32, 33, 34, 35, 36, 37, 38,
-                      41, 42, 43, 44, 45, 46, 47, 48, 49,
-                      51, 52, 54, 55, 56, 57, 58, 60,
-                      39, 29, 18, 4, 8, 28, 40, 59, 50, 53]) - 1
-    assert len(order) == 60
-    write_key = 'LABSN_EEG_REORDER:' + ','.join([str(o) for o in order])
-    if anon is None:
-        anon_key = ''
-    else:
-        anon_key = ';anonymized'
-
-    # do some type checking
-    if not isinstance(raw_files, list):
-        raw_files = [raw_files]
-
-    # actually do the reordering
-    for ri, raw_file in enumerate(raw_files):
-        raw = Raw(raw_file, preload=False, allow_maxshield=True)
-        picks = pick_types(raw.info, meg=False, eeg=True, exclude=[])
-        if len(picks) == 0:
-            print('    Skipping %s no EEG channels found.'
-                  % (op.basename(raw_file)))
-            continue
-        if not len(picks) == len(order):
-            raise RuntimeError('Incorrect number of EEG channels (%i) found '
-                               'in %s' % (len(picks), op.basename(raw_file)))
-        need_reorder = (write_key not in raw.info['description'])
-        need_anon = (anon is not None and
-                     (anon_key not in raw.info['description']))
-        if need_anon or need_reorder:
-            to_do = []
-            if need_reorder:
-                to_do += ['reordering']
-            if need_anon:
-                to_do += ['anonymizing']
-            to_do = ' & '.join(to_do)
-            # Now we need to preorder
-            if verbose:
-                print('    Making a backup and %s file %i' % (to_do, ri + 1))
-            raw = Raw(raw_file, preload=True, allow_maxshield=True)
-            # rename split files if any
-            regex = re.compile("-*.fif")
-            split_files = glob.glob(raw_file[:-4] + regex.pattern)
-            move_files = [raw_file] + split_files
-            for f in move_files:
-                move(f, f + '.orig')
-            if need_reorder:
-                raw._data[picks, :] = raw._data[picks, :][order]
-            if need_anon:
-                raw.info['subject_info'].update(anon)
-            raw.info['description'] = write_key + anon_key
-            raw.save(raw_file, format=raw.orig_format, overwrite=True)
-        else:
-            if verbose:
-                print('    File %i already corrected' % (ri + 1))
 
 
 def get_fsaverage_medial_vertices(concatenate=True):
@@ -766,13 +694,11 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
     for n, e in zip(in_names, in_numbers):
         old_dict[n] = e
 
-    n_runs = len(p.run_names)
     ch_namess = list()
     drop_logs = list()
     for subj in subjects:
         if p.disp_files:
             print('  Loading raw files for subject %s.' % subj)
-        lst_dir = op.join(p.work_dir, subj, p.list_dir)
         epochs_dir = op.join(p.work_dir, subj, p.epochs_dir)
         if not op.isdir(epochs_dir):
             os.mkdir(epochs_dir)
@@ -795,10 +721,7 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
         raw = concatenate_raws(raw)
 
         # read in events
-        events = [read_events(op.join(lst_dir, 'ALL_' +
-                                      safe_inserter(p.run_names[ri], subj) +
-                                      '-eve.lst'))
-                  for ri in range(n_runs)]
+        events = [read_events(fname) for fname in get_event_fnames(p, subj)]
         events = concatenate_events(events, first_samps, last_samps)
         # do time adjustment
         t_adj = np.zeros((1, 3), dtype='int')
@@ -816,15 +739,15 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
         ch_namess.append(epochs.ch_names)
         # only kept trials that were not dropped
         sfreq = epochs.info['sfreq']
-        mat_file = op.join(epochs_dir, 'All_%d' % p.lp_cut +
-                           p.inv_tag + '_' + subj + p.epochs_tag + '.mat')
-        fif_file = op.join(epochs_dir, 'All_%d' % p.lp_cut +
-                           p.inv_tag + '_' + subj + p.epochs_tag + '.fif')
+        epochs_fnames, evoked_fnames = get_epochs_evokeds_fnames(p, subj,
+                                                                 analyses)
+        mat_file, fif_file = epochs_fnames
         # now deal with conditions to save evoked
         if p.disp_files:
             print('    Saving evoked data to disk.')
-        for analysis, names, numbers, match in zip(analyses, out_names,
-                                                   out_numbers, must_match):
+        for analysis, names, numbers, match, fn in zip(analyses, out_names,
+                                                       out_numbers, must_match,
+                                                       evoked_fnames):
             # do matching
             numbers = np.asanyarray(numbers)
             nn = numbers[numbers >= 0]
@@ -853,9 +776,7 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
             for name in names:
                 evokeds.append(e[name].average())
                 evokeds.append(e[name].standard_error())
-            fn = '%s_%d%s_%s_%s-ave.fif' % (analysis, p.lp_cut, p.inv_tag,
-                                            p.eq_tag, subj)
-            write_evokeds(op.join(evoked_dir, fn), evokeds)
+            write_evokeds(fn, evokeds)
             if p.disp_files:
                 print('      Analysis "%s": %s epochs / condition'
                       % (analysis, evokeds[0].nave))
@@ -895,14 +816,12 @@ def gen_inverses(p, subjects, use_old_rank=False):
         inv_dir = op.join(p.work_dir, subj, p.inverse_dir)
         fwd_dir = op.join(p.work_dir, subj, p.forward_dir)
         cov_dir = op.join(p.work_dir, subj, p.cov_dir)
-        pca_dir = op.join(p.work_dir, subj, p.pca_dir)
         if not op.isdir(inv_dir):
             os.mkdir(inv_dir)
         make_erm_inv = len(p.runs_empty) > 0
 
         # Shouldn't matter which raw file we use
-        raw_fname = op.join(pca_dir, safe_inserter(p.run_names[0], subj)
-                            + p.pca_fif_tag)
+        raw_fname = get_raw_fnames(p, subj, 'pca')[0]
         raw = Raw(raw_fname)
         meg, eeg = 'meg' in raw, 'eeg' in raw
 
@@ -919,8 +838,8 @@ def gen_inverses(p, subjects, use_old_rank=False):
             meg_bools += [True]
             eeg_bools += [True]
         if make_erm_inv:
-            erm_name = op.join(cov_dir, safe_inserter(p.runs_empty[0], subj)
-                               + p.pca_extra + p.inv_tag + '-cov.fif')
+            erm_name = op.join(cov_dir, safe_inserter(p.runs_empty[0], subj) +
+                               p.pca_extra + p.inv_tag + '-cov.fif')
             empty_cov = read_cov(erm_name)
         for name in p.inv_names:
             s_name = safe_inserter(name, subj)
@@ -928,8 +847,8 @@ def gen_inverses(p, subjects, use_old_rank=False):
             fwd_name = op.join(fwd_dir, s_name + p.inv_tag + '-fwd.fif')
             fwd = read_forward_solution(fwd_name, surf_ori=True)
 
-            cov_name = op.join(cov_dir, safe_inserter(name, subj)
-                               + ('-%d' % p.lp_cut) + p.inv_tag + '-cov.fif')
+            cov_name = op.join(cov_dir, safe_inserter(name, subj) +
+                               ('-%d' % p.lp_cut) + p.inv_tag + '-cov.fif')
             cov = read_cov(cov_name)
             cov_reg = regularize(cov, raw.info)
             if make_erm_inv:
@@ -945,8 +864,8 @@ def gen_inverses(p, subjects, use_old_rank=False):
                                                 fixed=x)
                     write_inverse_operator(inv_name, inv)
                     if (not e) and make_erm_inv:
-                        inv_name = op.join(inv_dir, temp_name + f
-                                           + p.inv_erm_tag + s + '-inv.fif')
+                        inv_name = op.join(inv_dir, temp_name + f +
+                                           p.inv_erm_tag + s + '-inv.fif')
                         inv = make_inverse_operator(raw.info, fwd_restricted,
                                                     empty_cov_reg, fixed=x,
                                                     loose=l, depth=0.8)
@@ -998,8 +917,8 @@ def gen_forwards(p, subjects, structurals):
                 s_name = safe_inserter(p.run_names[inv_run[0]], subj)
                 raw_name = op.join(raw_dir, s_name + p.sss_fif_tag)
                 info = read_info(raw_name)
-                fwd_name = op.join(fwd_dir, safe_inserter(inv_name, subj)
-                                   + p.inv_tag + '-fwd.fif')
+                fwd_name = op.join(fwd_dir, safe_inserter(inv_name, subj) +
+                                   p.inv_tag + '-fwd.fif')
                 make_forward_solution(info, mri_file, src_file, bem_file,
                                       fname=fwd_name, n_jobs=p.n_jobs,
                                       mindist=p.fwd_mindist, overwrite=True)
@@ -1019,8 +938,8 @@ def gen_forwards(p, subjects, structurals):
             for ii, (inv_name, inv_run) in enumerate(zip(p.inv_names,
                                                          p.inv_runs)):
                 fwds_use = [f for fi, f in enumerate(fwds) if fi in inv_run]
-                fwd_name = op.join(fwd_dir, safe_inserter(inv_name, subj)
-                                   + p.inv_tag + '-fwd.fif')
+                fwd_name = op.join(fwd_dir, safe_inserter(inv_name, subj) +
+                                   p.inv_tag + '-fwd.fif')
                 fwd_ave = average_forward_solutions(fwds_use)
                 write_forward_solution(fwd_name, fwd_ave, overwrite=True)
 
@@ -1049,8 +968,8 @@ def gen_covariances(p, subjects):
             if len(p.runs_empty) > 1:
                 raise ValueError('Too many empty rooms; undefined output!')
             new_run = safe_inserter(p.runs_empty[0], subj)
-            empty_cov_name = op.join(cov_dir, new_run + p.pca_extra
-                                     + p.inv_tag + '-cov.fif')
+            empty_cov_name = op.join(cov_dir, new_run + p.pca_extra +
+                                     p.inv_tag + '-cov.fif')
             empty_fif = op.join(pca_dir, new_run + p.pca_fif_tag)
             raw = Raw(empty_fif, preload=True)
             use_reject, use_flat = _restrict_reject_flat(p.reject, p.flat, raw)
@@ -1065,8 +984,8 @@ def gen_covariances(p, subjects):
         # Make evoked covariances
         rn = p.run_names
         for inv_name, inv_run in zip(p.inv_names, p.inv_runs):
-            raw_fnames = [op.join(pca_dir, safe_inserter(rn[ir], subj)
-                                  + p.pca_fif_tag)
+            raw_fnames = [op.join(pca_dir, safe_inserter(rn[ir], subj) +
+                                  p.pca_fif_tag)
                           for ir in inv_run]
             first_samps = []
             last_samps = []
@@ -1077,8 +996,8 @@ def gen_covariances(p, subjects):
             raws = [Raw(fname, preload=False) for fname in raw_fnames]
             _fix_raw_eog_cals(raws, raw_fnames)  # safe b/c cov only needs MEEG
             raw = concatenate_raws(raws)
-            e_names = [op.join(lst_dir, 'ALL_' + safe_inserter(rn[ir], subj)
-                               + '-eve.lst') for ir in inv_run]
+            e_names = [op.join(lst_dir, 'ALL_' + safe_inserter(rn[ir], subj) +
+                               '-eve.lst') for ir in inv_run]
             events = [read_events(e) for e in e_names]
             events = concatenate_events(events, first_samps,
                                         last_samps)
@@ -1086,31 +1005,10 @@ def gen_covariances(p, subjects):
             epochs = Epochs(raw, events, event_id=None, tmin=p.bmin,
                             tmax=p.bmax, baseline=(None, None),
                             picks=picks, preload=True)
-            cov_name = op.join(cov_dir, safe_inserter(inv_name, subj)
-                               + ('-%d' % p.lp_cut) + p.inv_tag + '-cov.fif')
+            cov_name = op.join(cov_dir, safe_inserter(inv_name, subj) +
+                               ('-%d' % p.lp_cut) + p.inv_tag + '-cov.fif')
             cov = compute_covariance(epochs)
             write_cov(cov_name, cov)
-
-
-def safe_inserter(string, inserter):
-    """Helper to insert a subject name into a string if %s is present
-
-    Parameters
-    ----------
-    string : str
-        String to fill.
-
-    inserter : str
-        The string to put in ``string`` if ``'%s'`` is present.
-
-    Returns
-    -------
-    string : str
-        The modified string.
-    """
-    if '%s' in string:
-        string = string % inserter
-    return string
 
 
 def _fix_raw_eog_cals(raws, raw_names):
@@ -1218,8 +1116,8 @@ def do_preprocessing_combined(p, subjects):
             scores = Counter([ch for d in epochs.drop_log for ch in d])
             ch_names = np.array(list(scores.keys()))
             # channel scores expressed as percentile and rank ordered
-            counts = (100 * np.array([scores[ch] for ch in ch_names], float)
-                      / len(epochs.drop_log))
+            counts = (100 * np.array([scores[ch] for ch in ch_names], float) /
+                      len(epochs.drop_log))
             order = np.argsort(counts)[::-1]
             # boolean array masking out channels with <= % epochs dropped
             mask = counts[order] > p.auto_bad
@@ -1483,7 +1381,8 @@ def timestring(t):
     time : str
         The time in HH:MM:SS.
     """
-    rediv = lambda ll, b: list(divmod(ll[0], b)) + ll[1:]
+    def rediv(ll, b):
+        return list(divmod(ll[0], b)) + ll[1:]
     return "%d:%02d:%02d.%03d" % tuple(reduce(rediv, [[t * 1000, ], 1000, 60,
                                                       60]))
 
@@ -1615,5 +1514,5 @@ def gen_html_report(p, subjects, structurals, raw=True, evoked=True,
         report = Report(info_fname=info_fname, subject=struc)
         report.parse_folder(data_path=path, mri_decim=10, n_jobs=p.n_jobs,
                             pattern=patterns)
-        report.save(op.join(path, '%s_fil%d_report.html' % (subj, p.lp_cut)),
-                    open_browser=False, overwrite=True)
+        report_fname = get_report_fnames(p, subj)[0]
+        report.save(report_fname, open_browser=False, overwrite=True)
