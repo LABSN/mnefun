@@ -133,10 +133,6 @@ class Params(object):
             If None, standard matching will be performed. If a function,
             must_match will be ignored, and ``match_fun`` will be called
             to equalize event counts.
-        on_process: function | None
-            This function will be called for each analysis step performed,
-            with arguments: text (name of the step), func (mnefun function ran),
-            outs (files returned by mnefun function), p (the mnefun params obj)
 
         Returns
         -------
@@ -300,7 +296,7 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
             else:
                 outs[ii] = func(p, subjects)
             print('  (' + timestring(time() - t0) + ')')
-            if hasattr(p,'on_process') and p.on_process is not None:
+            if p.on_process is not None:
                 p.on_process(text, func, outs[ii], p)
     print("Done")
 

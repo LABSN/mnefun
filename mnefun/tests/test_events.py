@@ -1,18 +1,19 @@
 from mock import Mock, patch
+import mnefun
 
 
 def test_event():
     """Test that on_process event gets fired"""
-    import mnefun
     handler = Mock()
     params = mnefun.Params()
-    params = setdefaults(params)
+    setdefaults(params)
     params.on_process = handler
     with patch('mnefun._mnefun.save_epochs') as func:
         mnefun.do_processing(params,
             write_epochs=True,
         )
         handler.assert_called_with('Doing epoch EQ/DQ', func, func(), params)
+
 
 def setdefaults(params):
     params.score = Mock()
@@ -26,4 +27,3 @@ def setdefaults(params):
     params.out_names = []
     params.out_numbers = []
     params.must_match = []
-    return params
