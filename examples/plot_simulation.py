@@ -10,6 +10,22 @@ Note: you need to run the ``analysis_fun.py`` example to have the
 necessary raw data.
 """
 
+# XXX Todo:
+# Check HPI fitting with real data
+# 1/f noise rolloff by default + add noise here
+# Add line noise
+# Add ECG/EOG noise
+# Add command-line interface
+
+# An approximate relationship between height and head circumference is:
+# (http://www.scielo.cl/pdf/ijmorphol/v30n4/art33.pdf)
+#     HC = 40.654 + (0.092 * Height) (cm)
+# Or equivalently moving to head radius (HR) in meters we get:
+#     Height = 10.870 * HC - 441.89 (cm)
+#     Height = 10.870 * HC - 4.4189 (m)
+#     Height = 10.870 * 2 * pi * HR - 4.4189
+#     Height = 68.298 * HR - 4.44
+
 import os.path as op
 import warnings
 import numpy as np
@@ -76,7 +92,7 @@ out = calculate_chpi_positions(raw_stationary, verbose=True)
 t_stat, trans_stat = out[:, 0], out[:, 4:7]
 
 trans_orig, rot_orig, t_orig = get_chpi_positions(fname_pos)
-t_orig -= raw.info['first_samp'] / raw.info['sfreq']
+t_orig -= raw.first_samp / raw.info['sfreq']
 
 # Let's look at the results, just translation for simplicity
 axes = 'XYZ'
