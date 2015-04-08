@@ -17,7 +17,7 @@ __license__ = "BSD (3-clause)"
 __version__ = "0"
 __maintainer__ = "Kambiz Tavabi"
 __email__ = "ktavabi@gmail.com"
-__status__ = "Prototype"
+__status__ = "Development"
 
 FS_DIRECTORY = op.join(get_config('SUBJECTS_DIR'))
 assert FS_DIRECTORY is not None
@@ -26,11 +26,19 @@ assert FS_DIRECTORY is not None
 parser = argparse.ArgumentParser(prog='run_anatomy', description='Run recon-all and create mne BEM files')
 parser.add_argument('subject', help='Subject directory')
 parser.add_argument('--layers', default=1, help='Define BEM. Defaults to single layer.', type=int)
+parser.add_argument('--skip_recon', action='store_true', help='Set to skip FS reconstruction.')
+parser.add_argument('--mp', default=8, help='Multi threading argument for recon-all. Default 8.', type=int)
+parser.add_argument('--ico', default=4, help='BEM icosahedral parameter for watershed surfaces. Default 4.',
+                    type=int)
+
 args = parser.parse_args()
 
 # Set variables
 subj = args.subject
 bem_type = args.layers
+skip_recon = args.skip_recon
+openmp = args.mp
+bem_ico = args.ico
 subj_raw_mri_dir = op.join(FS_DIRECTORY, 'DICOM', subj)
 subj_dir = op.join(FS_DIRECTORY, subj)
 subj_bem_dir = op.join(FS_DIRECTORY, subj, 'bem')
@@ -38,53 +46,56 @@ fs_mri_dir = op.join(FS_DIRECTORY, subj, 'mri')
 fs_orig_dir = op.join(FS_DIRECTORY, subj, 'mri/orig')
 fs_nii_dir = op.join(FS_DIRECTORY, subj, 'mri/nii')
 
-parfiles = []
-for root, dirnames, filenames in os.walk(subj_raw_mri_dir):
-    for filename in fnmatch.filter(filenames, '*.PAR'):
-        parfiles.append(os.path.join(root, filename))
-parfiles.sort()
-print('Converting PAREC files for %s ' % subj)
-for ff in parfiles:
-    parrec2nii = 'parrec2nii -o %s %s --overwrite' % (subj_raw_mri_dir, ff)
-    check_call(parrec2nii.split())
+if not skip_recon:
+    parfiles = []
+    for root, dirnames, filenames in os.walk(subj_raw_mri_dir):
+        for filename in fnmatch.filter(filenames, '*.PAR'):
+            parfiles.append(os.path.join(root, filename))
+    parfiles.sort()
+    # TODO(ktavbi@gmail.com): parrec2nii should handle this
+    for f in glob.glob(op.join(subj_raw_mri_dir, '*Quiet_Survey*')):
+        os.remove(f)
+    print('Converting PAREC files for %s ' % subj)
+    for ff in parfiles:
+        parrec2nii = 'parrec2nii -o %s %s --overwrite' % (subj_raw_mri_dir, ff)
+        check_call(parrec2nii.split())
 
-# Check to see if necessary raw input MR files exist
-input_rage = glob.glob(op.join(subj_raw_mri_dir, '*MEMP_VBM*.nii'))
-if len(input_rage) == 0:
-    raise RuntimeError('MPRAGE nifti not found.')
-if bem_type == 3:
-    input_flash5 = glob.glob(op.join(subj_raw_mri_dir, '*FLASH5*.nii'))
-    input_flash30 = glob.glob(op.join(subj_raw_mri_dir, '*FLASH30*.nii'))
-    for fn, f in zip(['Flash30', 'Flash5'], [input_flash30, input_flash5]):
-        if len(f) == 0:
-            raise RuntimeError('%s nifiti not found.' % fn)
+    # Check to see if necessary raw input MR files exist
+    input_rage = glob.glob(op.join(subj_raw_mri_dir, '*MEMP_VBM*.nii'))
+    if len(input_rage) == 0:
+        raise RuntimeError('MPRAGE nifti not found.')
+    if bem_type == 3:
+        input_flash5 = glob.glob(op.join(subj_raw_mri_dir, '*FLASH5*.nii'))
+        input_flash30 = glob.glob(op.join(subj_raw_mri_dir, '*FLASH30*.nii'))
+        for fn, f in zip(['Flash30', 'Flash5'], [input_flash30, input_flash5]):
+            if len(f) == 0:
+                raise RuntimeError('%s nifiti not found.' % fn)
 
-# Create subject's FS directory
-for folder in [subj_dir, fs_mri_dir, fs_nii_dir, fs_orig_dir]:
-    if not op.isdir(folder):
-        os.makedirs(folder)
+    # Create subject's FS directory
+    for folder in [subj_dir, fs_mri_dir, fs_nii_dir, fs_orig_dir]:
+        if not op.isdir(folder):
+            os.makedirs(folder)
 
-# copy & link raw nifti files into  subject's FS nii directory and create symlinks
-copy(input_rage[0], fs_nii_dir)
-copy(input_flash30[0], fs_nii_dir)
-copy(input_flash5[0], fs_nii_dir)
-os.symlink(op.join(fs_nii_dir, op.basename(input_rage[0])),
-           op.join(fs_nii_dir, 'MEMPRAGE.nii'))
-os.symlink(op.join(fs_nii_dir, op.basename(input_flash30[0])),
-           op.join(fs_nii_dir, 'flash30.nii'))
-os.symlink(op.join(fs_nii_dir, op.basename(input_flash5[0])),
-           op.join(fs_nii_dir, 'flash5.nii'))
-input_rage = op.join(fs_nii_dir, 'MEMPRAGE.nii')
+    # copy & link raw nifti files into  subject's FS nii directory and create symlinks
+    copy(input_rage[0], fs_nii_dir)
+    copy(input_flash30[0], fs_nii_dir)
+    copy(input_flash5[0], fs_nii_dir)
+    os.symlink(op.join(fs_nii_dir, op.basename(input_rage[0])),
+               op.join(fs_nii_dir, 'MEMPRAGE.nii'))
+    os.symlink(op.join(fs_nii_dir, op.basename(input_flash30[0])),
+               op.join(fs_nii_dir, 'flash30.nii'))
+    os.symlink(op.join(fs_nii_dir, op.basename(input_flash5[0])),
+               op.join(fs_nii_dir, 'flash5.nii'))
+    input_rage = op.join(fs_nii_dir, 'MEMPRAGE.nii')
 
-# FS rms_concat & recon-all commands
-print('Beginning Freesurfer reconstruction for %s ' % subj)
-rms_concat = 'mri_concat --rms --i %s --o %s/001.mgz' % (input_rage, fs_orig_dir)
-# TODO(ktavbi@gmail.com): create input arg for openmp
-recon = 'recon-all -openmp 20 -subject %s -all' % subj
-# RMS average the multiple echos from the MEMPRAGE
-check_call(rms_concat.split())
-# Do the full reconstruction (about 12 hours)
-check_call(recon.split())
+    # FS rms_concat & recon-all commands
+    print('Beginning Freesurfer reconstruction for %s ' % subj)
+    rms_concat = 'mri_concat --rms --i %s --o %s/001.mgz' % (input_rage, fs_orig_dir)
+    recon = 'recon-all -openmp %.0f -subject %s -all' % (openmp, subj)
+    # RMS average the multiple echos from the MEMPRAGE
+    check_call(rms_concat.split())
+    # Do the full reconstruction (about 12 hours)
+    check_call(recon.split())
 
 # Start BEM routines
 mne_setup_mri = 'mne_setup_mri mri T1 --subject %s --overwrite' % subj
@@ -94,7 +105,8 @@ if bem_type == 3:
     # MEEG BEM from LABSN script
     print('Creating 3-layer BEM for %s ' %subj)
     param_maps_dir = op.join(fs_mri_dir, 'flash/parameter_maps')
-    os.mkdir(param_maps_dir)
+    if not op.isdir(param_maps_dir):
+        os.makedirs(param_maps_dir)
     os.chdir(param_maps_dir)
     for fn in ('flash5', 'flash30'):
         mri_convert = 'mri_convert %s/%s.nii %s.mgz' % (fs_nii_dir, fn, fn)
@@ -128,8 +140,7 @@ else:
         os.symlink(op.join(subj_dir, 'bem/watershed/%s_%s_surface' % (subj, srf)),
                    op.join(subj_dir, 'bem/%s.surf' % srf))
 
-# TODO(ktavbi@gmail.com): create input arg for ico
-mne_setup_fwd = 'mne_setup_forward_model --surf --ico 4 --subject %s' % subj
+mne_setup_fwd = 'mne_setup_forward_model --surf --ico %.0f --subject %s' % (bem_ico, subj)
 check_call(mne_setup_fwd.split())
 
 # Create dense head surface
@@ -142,7 +153,6 @@ if not op.isfile(op.join(subj_dir, 'bem/%s-head-dense.fif' % subj)):
     check_call(mne_surf2bem_.split())
 else:
     os.remove(op.join(subj_bem_dir, '%s-head.fif' % subj))
-
-os.symlink(op.join(subj_bem_dir, '%s-head-dense.fif' % subj),
-           op.join(subj_bem_dir, '%s-head.fif' % subj))
+    os.symlink(op.join(subj_bem_dir, '%s-head-dense.fif' % subj),
+               op.join(subj_bem_dir, '%s-head.fif' % subj))
 print('Done')
