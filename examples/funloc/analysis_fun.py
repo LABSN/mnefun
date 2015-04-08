@@ -28,6 +28,7 @@ SUBJECTS_DIR directory:
 import mnefun
 from score import score
 import numpy as np
+import niprov.mnefunsupport
 
 params = mnefun.Params(tmin=-0.2, tmax=0.5, t_adjust=-4e-3,
                        n_jobs=6, n_jobs_mkl=1,
@@ -44,6 +45,9 @@ params.acq_ssh = 'minea'  # can also be e.g., "eric@minea.ilabs.uw.edu"
 params.acq_dir = '/sinuhe/data01/eric_non_space'
 params.sws_ssh = 'kasga'
 params.sws_dir = '/data06/larsoner'
+
+## set the niprov handler to deal with events:
+params.on_process = niprov.mnefunsupport.handler 
 
 params.run_names = ['%s_funloc']
 params.get_projs_from = np.arange(1)
