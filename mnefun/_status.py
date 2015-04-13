@@ -51,7 +51,7 @@ def print_proc_status(p, subjects, analyses):
             fetch_sss = 'complete'
 
         # check if channel orders have been fixed_all_files_fixed
-        if _all_files_fixed(p, subj):
+        if _all_files_fixed(p, subj, 'sss'):
             do_ch_fix = 'complete'
 
         # check if SSPs have been generated

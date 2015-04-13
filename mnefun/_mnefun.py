@@ -40,6 +40,7 @@ from mne.layouts import make_eeg_layout
 from mne.viz import plot_drop_log
 from mne.utils import run_subprocess
 from mne.report import Report
+from mne.io.constants import FIFF
 
 from ._paths import (get_raw_fnames, get_event_fnames, get_report_fnames,
                      get_epochs_evokeds_fnames, safe_inserter)
@@ -214,6 +215,8 @@ class Params(object):
         # boolean for whether data set(s) have an individual mri
         self.mri = True
         self.on_process = None
+        # Use more than EXTRA points to fit headshape
+        self.dig_with_eeg = False
 
     @property
     def pca_extra(self):
@@ -442,7 +445,14 @@ def push_raw_files(p, subjects):
             in_fif = op.join(raw_dir,
                              safe_inserter(p.run_names[0], subj) +
                              p.raw_fif_tag)
-            origin_head = fit_sphere_to_headshape(read_info(in_fif))[1]
+            if p.dig_with_eeg:
+                dig_kinds = (FIFF.FIFFV_POINT_EXTRA, FIFF.FIFFV_POINT_LPA,
+                             FIFF.FIFFV_POINT_NASION, FIFF.FIFFV_POINT_RPA,
+                             FIFF.FIFFV_POINT_EEG)
+            else:
+                dig_kinds = (FIFF.FIFFV_POINT_EXTRA,)
+            origin_head = fit_sphere_to_headshape(read_info(in_fif),
+                                                  dig_kinds=dig_kinds)[1]
             out_string = ' '.join(['%0.0f' % np.round(number)
                                    for number in origin_head])
             with open(out_pos, 'w') as fid:

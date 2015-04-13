@@ -49,7 +49,7 @@ def fix_eeg_channels(raw_files, anon=None, verbose=True):
 
     # actually do the reordering
     for ri, raw_file in enumerate(raw_files):
-        need_anon, need_reorder, order, write_key, anon_key, picks, order = \
+        need_reorder, need_anon, write_key, anon_key, picks, order = \
             _is_file_unfixed(raw_file, anon)
         if need_anon or need_reorder:
             to_do = []
