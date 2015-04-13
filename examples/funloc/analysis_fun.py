@@ -28,7 +28,12 @@ SUBJECTS_DIR directory:
 import mnefun
 from score import score
 import numpy as np
-import niprov.mnefunsupport
+
+try:
+    # Use niprov as handler for events, or if it's not installed, ignore
+    from niprov.mnefunsupport import handler
+except ImportError:
+    handler = None
 
 params = mnefun.Params(tmin=-0.2, tmax=0.5, t_adjust=-4e-3,
                        n_jobs=6, n_jobs_mkl=1,
@@ -47,7 +52,7 @@ params.sws_ssh = 'kasga'
 params.sws_dir = '/data06/larsoner'
 
 ## set the niprov handler to deal with events:
-params.on_process = niprov.mnefunsupport.handler 
+params.on_process = handler 
 
 params.run_names = ['%s_funloc']
 params.get_projs_from = np.arange(1)
