@@ -213,6 +213,7 @@ class Params(object):
         self.tsss_dur = 60.
         # boolean for whether data set(s) have an individual mri
         self.mri = True
+        self.on_process = None
 
     @property
     def pca_extra(self):
@@ -330,6 +331,8 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
             else:
                 outs[ii] = func(p, subjects)
             print('  (' + timestring(time() - t0) + ')')
+            if p.on_process is not None:
+                p.on_process(text, func, outs[ii], p)
     print("Done")
 
 
