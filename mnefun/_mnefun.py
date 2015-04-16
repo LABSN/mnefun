@@ -15,7 +15,6 @@ import glob
 from collections import Counter
 import matplotlib.pyplot as plt
 from time import time
-import tempfile
 from numpy.testing import assert_allclose
 
 from mne import (compute_proj_raw, make_fixed_length_events, Epochs,

@@ -10,21 +10,12 @@ Note: you need to run the ``analysis_fun.py`` example to have the
 necessary raw data.
 """
 
-# XXX Todo:
-# Check HPI fitting with real data
-# 1/f noise rolloff by default + add noise here
-# Add line noise
-# Add ECG/EOG noise
-# Add command-line interface
-
-# An approximate relationship between height and head circumference is:
-# (http://www.scielo.cl/pdf/ijmorphol/v30n4/art33.pdf)
-#     HC = 40.654 + (0.092 * Height) (cm)
-# Or equivalently moving to head radius (HR) in meters we get:
-#     Height = 10.870 * HC - 441.89 (cm)
-#     Height = 10.870 * HC - 4.4189 (m)
-#     Height = 10.870 * 2 * pi * HR - 4.4189
-#     Height = 68.298 * HR - 4.44
+# Todo:
+#
+#     * Add noise to this example
+#     * Add line noise
+#     * Add more realistic ECG/EOG (not magnetic dipoles)
+#     * Add command-line interface
 
 import os.path as op
 import warnings
@@ -36,7 +27,6 @@ from mne import (get_config, read_source_spaces, SourceEstimate,
 from mne.io import read_info, Raw, calculate_chpi_positions
 from mnefun import simulate_movement
 
-snr = 25.
 pulse_tmin, pulse_tmax = 0., 0.1
 
 this_dir = op.dirname(__file__)
@@ -71,7 +61,7 @@ labels = [read_labels_from_annot(subject, 'aparc.a2009s', hemi,
 stc = stc.in_label(labels[0] + labels[1])
 stc.data.fill(0)
 stc.data[:, np.where(np.logical_and(stc.times >= pulse_tmin,
-                                    stc.times <= pulse_tmax))[0]] = 1e-8
+                                    stc.times <= pulse_tmax))[0]] = 10e-9
 
 # Simulate data with movement, with no noise (cov=None) for simplicity
 with warnings.catch_warnings(record=True):
@@ -80,7 +70,7 @@ print('Simulating data')
 raw_movement = simulate_movement(raw, fname_pos, stc, trans, src, bem,
                                  interp='zero', n_jobs=6)
 
-# Simulate data with no movement (use original head position)
+# Simulate data with no movement (use initial head position)
 raw_stationary = simulate_movement(raw, None, stc, trans, src, bem,
                                    interp='zero', n_jobs=6)
 

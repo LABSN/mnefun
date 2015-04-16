@@ -1,0 +1,4 @@
+# origin (x, y, z) in mm, current (x, y, z) in nA, time (start, stop) in sec
+48	-10	40	-12	3	24	0.1	0.2
+48	-10	40	0	0	0	0	1.0
+-48	-10	40	8	2	18	0.2	0.3

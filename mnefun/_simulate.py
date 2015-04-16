@@ -3,12 +3,13 @@
 import os
 from os import path as op
 import numpy as np
-import time
 import warnings
 from copy import deepcopy
 
 from mne import (pick_types, pick_info, pick_channels, VolSourceEstimate,
                  convert_forward_solution, get_chpi_positions, EvokedArray)
+from mne.io.chpi import chpi_to_trans_rot_t
+from mne.bem import fit_sphere_to_headshape
 from mne.io import read_info, Raw
 from mne.externals.six import string_types
 from mne.forward.forward import _merge_meg_eeg_fwds, _stc_src_sel
@@ -25,7 +26,8 @@ from mne.utils import logger, verbose, check_random_state
 from mne.simulation import generate_noise_evoked
 
 
-def _make_forward_solutions(info, mri, src, bem, dev_head_ts, mindist, n_jobs):
+def _make_forward_solutions(info, mri, src, bem, dev_head_ts, mindist,
+                            mag_dipole_rrs, n_jobs):
     """Calculate a forward solution for a subject
 
     Parameters
@@ -51,6 +53,8 @@ def _make_forward_solutions(info, mri, src, bem, dev_head_ts, mindist, n_jobs):
         List of device<->head transforms.
     mindist : float
         Minimum distance of sources from inner skull surface (in mm).
+    mag_dipole_rrs : ndarray
+        Additional magnetic dipoles to simulate.
     n_jobs : int
         Number of jobs to run in parallel.
 
@@ -75,8 +79,6 @@ def _make_forward_solutions(info, mri, src, bem, dev_head_ts, mindist, n_jobs):
     else:
         if not op.isfile(src):
             raise IOError('Source space file "%s" not found' % src)
-    if not op.isfile(bem):
-        raise IOError('BEM file "%s" not found' % bem)
     if isinstance(bem, dict):
         bem_extra = 'dict'
     else:
@@ -110,7 +112,6 @@ def _make_forward_solutions(info, mri, src, bem, dev_head_ts, mindist, n_jobs):
 
     # make a new dict with the relevant information
     mri_id = dict(machid=np.zeros(2, np.int32), version=0, secs=0, usecs=0)
-    dig = info['dig']
     info = dict(nchan=info['nchan'], chs=info['chs'], comps=info['comps'],
                 ch_names=info['ch_names'],
                 mri_file='', mri_id=mri_id, meas_file='',
@@ -154,13 +155,17 @@ def _make_forward_solutions(info, mri, src, bem, dev_head_ts, mindist, n_jobs):
 
         # make sure our sensors are all outside our BEM
         coil_rr = [coil['r0'] for coil in megcoils]
-        idx = np.where(np.array([s['id'] for s in bem['surfs']]) ==
-                       FIFF.FIFFV_BEM_SURF_ID_BRAIN)[0]
-        assert len(idx) == 1
-        bem_surf = transform_surface_to(bem['surfs'][idx[0]], coord_frame,
-                                        mri_head_t)
-        outside = _points_outside_surface(coil_rr, bem_surf, n_jobs,
-                                          verbose=False)
+        if not bem['is_sphere']:
+            idx = np.where(np.array([s['id'] for s in bem['surfs']]) ==
+                           FIFF.FIFFV_BEM_SURF_ID_BRAIN)[0]
+            assert len(idx) == 1
+            bem_surf = transform_surface_to(bem['surfs'][idx[0]], coord_frame,
+                                            mri_head_t)
+            outside = _points_outside_surface(coil_rr, bem_surf, n_jobs,
+                                              verbose=False)
+        else:
+            rad = bem['layers'][-1]['rad']
+            outside = np.sqrt(np.sum((coil_rr - bem['r0']) ** 2)) >= rad
         if not np.all(outside):
             raise RuntimeError('MEG sensors collided with inner skull '
                                'surface for transform %s' % ti)
@@ -185,10 +190,7 @@ def _make_forward_solutions(info, mri, src, bem, dev_head_ts, mindist, n_jobs):
         # make forward for HPI coils
         if len(compcoils) > 0:
             raise RuntimeError('compensation not supported')
-        assert all([d['coord_frame'] == FIFF.FIFFV_COORD_HEAD
-                    for d in dig if d['kind'] == FIFF.FIFFV_POINT_HPI])
-        rrs = [d['r'] for d in dig if d['kind'] == FIFF.FIFFV_POINT_HPI]
-        fwd_chpi = _mag_dipole_field_vec(rrs, megcoils)
+        fwd_chpi = _mag_dipole_field_vec(mag_dipole_rrs, megcoils)
         yield fwd, fwd_chpi
 
 
@@ -211,7 +213,7 @@ def _restrict_source_space_to(src, vertices):
 @verbose
 def simulate_movement(raw, pos, stc, trans, src, bem, cov=None, mindist=1.0,
                       interp='linear', random_state=None, n_jobs=1,
-                      verbose=True):
+                      verbose=None):
     """Simulate raw data with head movements
 
     Parameters
@@ -292,6 +294,7 @@ def simulate_movement(raw, pos, stc, trans, src, bem, cov=None, mindist=1.0,
     else:
         if isinstance(pos, string_types):
             transs, rots, ts = get_chpi_positions(pos, verbose=False)
+            ts -= raw.first_samp / raw.info['sfreq']  # MF files need reref
             dev_head_ts = [np.r_[np.c_[r, t[:, np.newaxis]], [[0, 0, 0, 1]]]
                            for r, t in zip(rots, transs)]
             del transs, rots
@@ -299,14 +302,19 @@ def simulate_movement(raw, pos, stc, trans, src, bem, cov=None, mindist=1.0,
             ts = np.array(list(pos.keys()), float)
             ts.sort()
             dev_head_ts = [pos[float(tt)] for tt in ts]
+        elif isinstance(pos, np.ndarray):
+            transs, rots, ts = chpi_to_trans_rot_t(pos)
+            dev_head_ts = [np.r_[np.c_[r, t[:, np.newaxis]], [[0, 0, 0, 1]]]
+                           for r, t in zip(rots, transs)]
+        else:
+            raise TypeError('unknown pos type %s' % type(pos))
         if not (ts >= 0).all():  # pathological if not
             raise RuntimeError('Cannot have t < 0 in transform file')
-        t0 = raw.first_samp / raw.info['sfreq']
-        tend = (raw.last_samp + 1) / raw.info['sfreq']
-        assert not (ts < t0).any()
+        tend = raw.times[-1]
+        assert not (ts < 0).any()
         assert not (ts > tend).any()
-        if t0 < ts[0]:
-            ts = np.r_[[t0], ts]
+        if ts[0] > 0:
+            ts = np.r_[[0.], ts]
             dev_head_ts.insert(0, raw.info['dev_head_t']['trans'])
         dev_head_ts = [{'trans': d, 'to': raw.info['dev_head_t']['to'],
                         'from': raw.info['dev_head_t']['from']}
@@ -314,9 +322,9 @@ def simulate_movement(raw, pos, stc, trans, src, bem, cov=None, mindist=1.0,
         if ts[-1] < tend:
             dev_head_ts.append(dev_head_ts[-1])
             ts = np.r_[ts, [tend]]
-        ts -= ts[0]  # re-reference
         offsets = raw.time_as_index(ts)
-        assert offsets[-1] == raw.n_times
+        offsets[-1] = raw.n_times  # fix for roundoff error
+        assert offsets[-2] != offsets[-1]
         del ts
     assert np.array_equal(offsets, np.unique(offsets))
     assert len(offsets) == len(dev_head_ts)
@@ -352,23 +360,69 @@ def simulate_movement(raw, pos, stc, trans, src, bem, cov=None, mindist=1.0,
         verts = stc.vertices
     src = _restrict_source_space_to(src, verts)
 
+    # figure out our cHPI, ECG, and EOG dipoles
+    dig = raw.info['dig']
+    assert all([d['coord_frame'] == FIFF.FIFFV_COORD_HEAD
+                for d in dig if d['kind'] == FIFF.FIFFV_POINT_HPI])
+    chpi_rrs = [d['r'] for d in dig if d['kind'] == FIFF.FIFFV_POINT_HPI]
+    r = fit_sphere_to_headshape(raw.info, verbose=False)[0] / 1000.
+    ecg = [-r, 0, -3 * r]
+    eog = [d['r'] for d in raw.info['dig']
+           if d['ident'] == FIFF.FIFFV_POINT_NASION][0]
+    eog = eog / np.sqrt(np.sum(eog * eog)) * r
+    # let's oscillate between resting (17 bpm) and reading (4.5 bpm) rate
+    # http://www.ncbi.nlm.nih.gov/pubmed/9399231
+    blink_rate = np.cos(2 * np.pi * 1. / 60. * raw.times)
+    blink_rate *= 12.5 / 60.
+    blink_rate += 4.5 / 60.
+    blink_data = rng.rand(raw.n_times) < blink_rate / raw.info['sfreq']
+    blink_kernel = np.hanning(int(0.25 * raw.info['sfreq']))
+    blink_data = np.convolve(blink_data, blink_kernel, 'same')
+
+    max_beats = int(np.ceil(raw.times[-1] * 70. / 60.))
+    cardiac_idx = np.cumsum(rng.uniform(60. / 70., 60. / 50., max_beats) *
+                            raw.info['sfreq']).astype(int)
+    cardiac_idx = cardiac_idx[cardiac_idx < raw.n_times]
+    cardiac_data = np.zeros(raw.n_times)
+    cardiac_data[cardiac_idx] = 1
+    cardiac_kernel = np.concatenate([
+        2 * np.hanning(int(0.04 * raw.info['sfreq'])),
+        -0.3 * np.hanning(int(0.05 * raw.info['sfreq'])),
+        0.2 * np.hanning(int(0.26 * raw.info['sfreq']))], axis=-1)
+    cardiac_data = np.convolve(cardiac_data, cardiac_kernel, 'same')
+
+    scales = [4e-4, 100e-6]  # scales (V) for ExG channel in data
+    simulation_scales = [2e-4, 1e-4]  # additional to use before simulation
+    exg_data = np.array([cardiac_data, blink_data])
+    del cardiac_data, blink_data
+    for data, scale in zip(exg_data, scales):
+        data += rng.randn(len(data)) * 0.05
+        data *= scale
+    for exg_ch, data in zip(['ECG063', 'EOG062'], exg_data):
+        ch = pick_channels(raw.ch_names, [exg_ch])
+        if len(ch) == 1:
+            raw._data[ch[0], :] = data
+    exg_data *= np.array(simulation_scales)[:, np.newaxis]
+    mag_dipole_rrs = np.concatenate((chpi_rrs, [ecg], [eog]), axis=0)
+
     evoked = EvokedArray(np.zeros((len(picks), len(stc.times))), fwd_info,
                          stc.tmin, verbose=False)
     stc_event_idx = np.argmin(np.abs(stc.times))
     event_ch = pick_channels(raw.info['ch_names'], ['STI101'])[0]
     used = np.zeros(raw.n_times, bool)
     stc_indices = np.arange(raw.n_times) % len(stc.times)
-    t0 = time.time()
     raw._data[event_ch, ].fill(0)
     hpi_mag = 25e-9
-    last_fwd = last_fwd_chpi = src_sel = None
+    last_fwd = last_fwd_chpi = last_fwd_exg = src_sel = None
     for fi, (fwd, fwd_chpi) in enumerate(_make_forward_solutions(
-            fwd_info, trans, src, bem, dev_head_ts, mindist, n_jobs)):
+            fwd_info, trans, src, bem, dev_head_ts, mindist,
+            mag_dipole_rrs, n_jobs)):
         # must be fixed orientation
         fwd = convert_forward_solution(fwd, surf_ori=True, force_fixed=True,
                                        verbose=False)
-        fwd_chpi = fwd_chpi[::3]  # just use one arbitrary direction
-        assert fwd_chpi.shape[0] == n_freqs
+        # just use one arbitrary direction
+        fwd_exg = fwd_chpi[::3][n_freqs:].T
+        fwd_chpi = fwd_chpi[::3][:n_freqs].T
 
         if src_sel is None:
             src_sel = _stc_src_sel(fwd['src'], stc)
@@ -381,11 +435,9 @@ def simulate_movement(raw, pos, stc, trans, src, bem, cov=None, mindist=1.0,
                 warnings.warn('%s STC vertices omitted due to fwd calculation'
                               % (diff_,))
         if last_fwd is None:
-            last_fwd, last_fwd_chpi = fwd, fwd_chpi
+            last_fwd, last_fwd_chpi, last_fwd_exg = fwd, fwd_chpi, fwd_exg
             continue
         n_time = offsets[fi] - offsets[fi-1]
-        lin_interp_1 = np.linspace(1, 0, n_time, endpoint=False)
-        lin_interp_2 = 1 - lin_interp_1
 
         time_slice = slice(offsets[fi-1], offsets[fi])
         assert not used[time_slice].any()
@@ -398,19 +450,19 @@ def simulate_movement(raw, pos, stc, trans, src, bem, cov=None, mindist=1.0,
 
         # simulate brain data
         stc_data = stc.data[:, stc_idxs][src_sel]
-        if interp == 'zero':
-            data = np.dot(last_fwd['sol']['data'], stc_data)
-        else:  # interp == 'linear':
-            data_1 = np.dot(last_fwd['sol']['data'], stc_data)
-            data_2 = np.dot(fwd['sol']['data'], stc_data)
-            data = data_1 * lin_interp_1 + data_2 * lin_interp_2
+        data = _interp(last_fwd['sol']['data'], fwd['sol']['data'],
+                       stc_data, interp)
         simulated = EvokedArray(data, evoked.info, 0)
         if cov is not None:
-            noise = generate_noise_evoked(simulated, cov, None, rng)
+            noise = generate_noise_evoked(simulated, cov, [1, -1, 0.2], rng)
             simulated.data += noise.data
         assert simulated.data.shape[0] == len(picks)
         assert simulated.data.shape[1] == len(stc_idxs)
         raw._data[picks, time_slice] = simulated.data
+
+        # add ECG and EOG
+        raw._data[hpi_picks, time_slice] += \
+            _interp(last_fwd_exg, fwd_exg, exg_data[:, time_slice], interp)
 
         # add CHPI traces
         this_t = np.arange(offsets[fi-1], offsets[fi]) / raw.info['sfreq']
@@ -418,19 +470,27 @@ def simulate_movement(raw, pos, stc, trans, src, bem, cov=None, mindist=1.0,
         for fi, freq in enumerate(hpi_freqs):
             sinusoids[fi] = 2 * np.pi * freq * this_t
             sinusoids[fi] = hpi_mag * np.sin(sinusoids[fi])
-        if interp == 'zero':
-            data = np.dot(last_fwd_chpi.T, sinusoids)
-        else:  # interp == 'linear':
-            data_1 = np.dot(last_fwd_chpi.T, sinusoids)
-            data_2 = np.dot(fwd_chpi.T, sinusoids)
-            data = data_1 * lin_interp_1 + data_2 * lin_interp_2
-        raw._data[hpi_picks, time_slice] += data
+        raw._data[hpi_picks, time_slice] += \
+            _interp(last_fwd_chpi, fwd_chpi, sinusoids, interp)
 
         # add events
         raw._data[event_ch, event_idxs] = fi
 
         # prepare for next iteration
-        last_fwd, last_fwd_chpi = fwd, fwd_chpi
+        last_fwd, last_fwd_chpi, last_fwd_exg = fwd, fwd_chpi, fwd_exg
     assert used.all()
     logger.info('Done')
     return raw
+
+
+def _interp(data_1, data_2, stc_data, interp):
+    """Helper to interpolate"""
+    n_time = stc_data.shape[1]
+    lin_interp_1 = np.linspace(1, 0, n_time, endpoint=False)
+    lin_interp_2 = 1 - lin_interp_1
+    if interp == 'zero':
+        return np.dot(data_1, stc_data)
+    else:  # interp == 'linear':
+        data_1 = np.dot(data_1, stc_data)
+        data_2 = np.dot(data_2, stc_data)
+        return data_1 * lin_interp_1 + data_2 * lin_interp_2
