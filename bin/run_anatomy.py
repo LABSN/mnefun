@@ -47,6 +47,7 @@ subj_bem_dir = op.join(FS_DIRECTORY, subj, 'bem')
 fs_mri_dir = op.join(FS_DIRECTORY, subj, 'mri')
 fs_orig_dir = op.join(FS_DIRECTORY, subj, 'mri/orig')
 fs_nii_dir = op.join(FS_DIRECTORY, subj, 'mri/nii')
+input_rage = op.join(fs_nii_dir, 'MEMPRAGE.nii')
 
 if not skip_recon:
     parfiles = []
@@ -72,7 +73,12 @@ if not skip_recon:
         for fn, f in zip(['Flash30', 'Flash5'], [input_flash30, input_flash5]):
             if len(f) == 0:
                 raise RuntimeError('%s nifiti not found.' % fn)
-
+        copy(input_flash30[0], fs_nii_dir)
+        copy(input_flash5[0], fs_nii_dir)
+        os.symlink(op.join(fs_nii_dir, op.basename(input_flash30[0])),
+                   op.join(fs_nii_dir, 'flash30.nii'))
+        os.symlink(op.join(fs_nii_dir, op.basename(input_flash5[0])),
+                   op.join(fs_nii_dir, 'flash5.nii'))
     # Create subject's FS directory
     for folder in [subj_dir, fs_mri_dir, fs_nii_dir, fs_orig_dir]:
         if not op.isdir(folder):
@@ -80,19 +86,12 @@ if not skip_recon:
 
     # copy & link raw nifti files into  subject's FS nii directory and create symlinks
     copy(input_rage[0], fs_nii_dir)
-    copy(input_flash30[0], fs_nii_dir)
-    copy(input_flash5[0], fs_nii_dir)
     os.symlink(op.join(fs_nii_dir, op.basename(input_rage[0])),
                op.join(fs_nii_dir, 'MEMPRAGE.nii'))
-    os.symlink(op.join(fs_nii_dir, op.basename(input_flash30[0])),
-               op.join(fs_nii_dir, 'flash30.nii'))
-    os.symlink(op.join(fs_nii_dir, op.basename(input_flash5[0])),
-               op.join(fs_nii_dir, 'flash5.nii'))
-    input_rage = op.join(fs_nii_dir, 'MEMPRAGE.nii')
 
     # FS rms_concat & recon-all commands
     print('Beginning Freesurfer reconstruction for %s ' % subj)
-    rms_concat = 'mri_concat --rms --i %s --o %s/001.mgz' % (input_rage, fs_orig_dir)
+    rms_concat = 'mri_concat --rms --i %s --o %s/001.mgz' % (input_rage[0], fs_orig_dir)
     recon = 'recon-all -openmp %.0f -subject %s -all' % (openmp, subj)
     # RMS average the multiple echos from the MEMPRAGE
     check_call(rms_concat.split())
@@ -100,7 +99,7 @@ if not skip_recon:
     check_call(recon.split())
 
 # Start BEM routines
-if not skip_recon:
+if not skip_bem:
     mne_setup_mri = 'mne_setup_mri mri T1 --subject %s --overwrite' % subj
     check_call(mne_setup_mri.split())
 
@@ -138,7 +137,6 @@ if not skip_recon:
         os.chdir(fs_mri_dir)
         watershed_bem = 'mne_watershed_bem --subject %s --overwrite' % subj
         check_call(watershed_bem.split())
-        os.symlink(op.join(fs_nii_dir, op.basename(input_rage[0])), op.join(fs_nii_dir, 'MEMPRAGE.nii'))
         for srf in ('inner_skull', 'outer_skull', 'outer_skin'):
             os.symlink(op.join(subj_dir, 'bem/watershed/%s_%s_surface' % (subj, srf)),
                        op.join(subj_dir, 'bem/%s.surf' % srf))
