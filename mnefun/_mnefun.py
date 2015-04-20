@@ -1028,15 +1028,23 @@ def _fix_raw_eog_cals(raws, raw_names):
     picks = pick_types(raws[0].info, eeg=False, meg=False, eog=True,
                        exclude=[])
     if len(picks) > 0:
-        first_cals = raws[0].cals[picks]
+        first_cals = _cals(raws[0])[picks]
         for ri, r in enumerate(raws[1:]):
             picks_2 = pick_types(r.info, eeg=False, meg=False, eog=True,
                                  exclude=[])
             assert np.array_equal(picks, picks_2)
-            these_cals = r.cals[picks]
+            these_cals = _cals(r)[picks]
             if not np.array_equal(first_cals, these_cals):
                 warnings.warn('Adjusting EOG cals for %s' % raw_names[ri + 1])
-                r.cals[picks] = first_cals
+                _cals(r)[picks] = first_cals
+
+
+def _cals(raw):
+    """Helper to deal with the .cals->._cals attribute change"""
+    try:
+        return raw._cals
+    except AttributeError:
+        return raw.cals
 
 
 # noinspection PyPep8Naming
