@@ -101,7 +101,7 @@ def _is_file_unfixed(fname, anon=None):
         raw = Raw(fname, preload=False, allow_maxshield=True)
     picks = pick_types(raw.info, meg=False, eeg=True, exclude=[])
     if len(picks) == 0:
-        return False, False
+        return False, False, None, None, None, None
     if not len(picks) == len(order):
         raise RuntimeError('Incorrect number of EEG channels (%i) found '
                            'in %s' % (len(picks), op.basename(fname)))
