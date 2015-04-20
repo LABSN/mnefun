@@ -141,7 +141,7 @@ if not skip_bem:
             os.symlink(op.join(subj_dir, 'bem/watershed/%s_%s_surface' % (subj, srf)),
                        op.join(subj_dir, 'bem/%s.surf' % srf))
 
-    mne_setup_fwd = 'mne_setup_forward_model --surf --ico %.0f --subject %s' % (bem_ico, subj)
+    mne_setup_fwd = 'mne_setup_forward_model --surf --ico %.0f --subject %s --outershift 1' % (bem_ico, subj)
     check_call(mne_setup_fwd.split())
 
 # Create dense head surface
