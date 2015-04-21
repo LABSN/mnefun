@@ -62,7 +62,6 @@ stc.data[:, np.where(np.logical_and(stc.times >= pulse_tmin,
 # Simulate data with movement
 with warnings.catch_warnings(record=True):
     raw = Raw(fname_raw, allow_maxshield=True)
-print('Simulating data')
 raw_movement = simulate_movement(raw, fname_pos_orig, stc, trans, src, bem,
                                  interp='zero', n_jobs=6, verbose=True)
 
@@ -71,8 +70,8 @@ raw_stationary = simulate_movement(raw, None, stc, trans, src, bem,
                                    interp='zero', n_jobs=6, verbose=True)
 
 # Extract positions
-trans_move, trans_move, t_move = get_chpi_positions(fname_pos_move)
-trans_stat, trans_stat, t_stat = get_chpi_positions(fname_pos_stat)
+trans_move, rot_move, t_move = get_chpi_positions(fname_pos_move)
+trans_stat, rot_stat, t_stat = get_chpi_positions(fname_pos_stat)
 trans_orig, rot_orig, t_orig = get_chpi_positions(fname_pos_orig)
 
 # Let's look at the results, just translation for simplicity
