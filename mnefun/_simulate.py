@@ -8,14 +8,13 @@ from copy import deepcopy
 
 from mne import (pick_types, pick_info, pick_channels, VolSourceEstimate,
                  convert_forward_solution, get_chpi_positions, EvokedArray)
-from mne.io.chpi import chpi_to_trans_rot_t
-from mne.bem import fit_sphere_to_headshape
+from mne.bem import fit_sphere_to_headshape, make_sphere_model
 from mne.io import read_info, Raw
 from mne.externals.six import string_types
 from mne.forward.forward import _merge_meg_eeg_fwds, _stc_src_sel
 from mne.forward._make_forward import (_prep_channels, _setup_bem,
                                        _compute_forwards, _to_forward_dict)
-from mne.forward._compute_forward import _mag_dipole_field_vec
+from mne.forward._compute_forward import _magnetic_dipole_field_vec
 from mne.transforms import _get_mri_head_t, transform_surface_to
 from mne.source_space import (SourceSpaces, read_source_spaces,
                               _filter_source_spaces, _points_outside_surface)
@@ -26,8 +25,8 @@ from mne.utils import logger, verbose, check_random_state
 from mne.simulation import generate_noise_evoked
 
 
-def _make_forward_solutions(info, mri, src, bem, dev_head_ts, mindist,
-                            mag_dipole_rrs, n_jobs):
+def _make_forward_solutions(info, mri, src, bem, bem_eog, dev_head_ts, mindist,
+                            chpi_rrs, eog_rrs, ecg_rrs, n_jobs):
     """Calculate a forward solution for a subject
 
     Parameters
@@ -49,12 +48,18 @@ def _make_forward_solutions(info, mri, src, bem, dev_head_ts, mindist,
     bem : str
         Filename of the BEM (e.g., "sample-5120-5120-5120-bem-sol.fif") to
         use.
+    bem_eog : dict
+        Spherical BEM to use for EOG (and ECG) simulation.
     dev_head_ts : list
         List of device<->head transforms.
     mindist : float
         Minimum distance of sources from inner skull surface (in mm).
-    mag_dipole_rrs : ndarray
-        Additional magnetic dipoles to simulate.
+    chpi_rrs : ndarray
+        CHPI dipoles to simulate (magnetic dipoles).
+    eog_rrs : ndarray
+        EOG dipoles to simulate.
+    ecg_rrs : ndarray
+        ECG dipoles to simulate.
     n_jobs : int
         Number of jobs to run in parallel.
 
@@ -142,6 +147,10 @@ def _make_forward_solutions(info, mri, src, bem, dev_head_ts, mindist,
                                [None], ['eeg'], n_jobs, verbose=False)[0]
     eegfwd = _to_forward_dict(eegfwd, None, eegnames, coord_frame,
                               FIFF.FIFFV_MNE_FREE_ORI)
+    eegeog = _compute_forwards(eog_rrs, bem_eog, [eegels], [None],
+                               [None], ['eeg'], n_jobs, verbose=False)[0]
+    eegeog = _to_forward_dict(eegeog, None, eegnames, coord_frame,
+                              FIFF.FIFFV_MNE_FREE_ORI)
 
     for ti, dev_head_t in enumerate(dev_head_ts):
         # could be *slightly* more efficient not to do this N times,
@@ -171,7 +180,7 @@ def _make_forward_solutions(info, mri, src, bem, dev_head_ts, mindist,
                                'surface for transform %s' % ti)
 
         # compute forward
-        megfwd = _compute_forwards(rr.copy(), bem, [megcoils], [compcoils],
+        megfwd = _compute_forwards(rr, bem, [megcoils], [compcoils],
                                    [meg_info], ['meg'], n_jobs,
                                    verbose=False)[0]
         megfwd = _to_forward_dict(megfwd, None, megnames, coord_frame,
@@ -187,11 +196,19 @@ def _make_forward_solutions(info, mri, src, bem, dev_head_ts, mindist,
         fwd['info']['mri_head_t'] = mri_head_t
         fwd['info']['dev_head_t'] = dev_head_t
 
-        # make forward for HPI coils
-        if len(compcoils) > 0:
-            raise RuntimeError('compensation not supported')
-        fwd_chpi = _mag_dipole_field_vec(mag_dipole_rrs, megcoils)
-        yield fwd, fwd_chpi
+        megeog = _compute_forwards(eog_rrs, bem_eog, [megcoils], [compcoils],
+                                   [meg_info], ['meg'], n_jobs,
+                                   verbose=False)[0]
+        megeog = _to_forward_dict(megeog, None, megnames, coord_frame,
+                                  FIFF.FIFFV_MNE_FREE_ORI)
+        fwd_eog = _merge_meg_eeg_fwds(megeog, eegeog, verbose=False)
+        megecg = _compute_forwards(ecg_rrs, bem_eog, [megcoils], [compcoils],
+                                   [meg_info], ['meg'], n_jobs,
+                                   verbose=False)[0]
+        fwd_ecg = _to_forward_dict(megecg, None, megnames, coord_frame,
+                                   FIFF.FIFFV_MNE_FREE_ORI)
+        fwd_chpi = _magnetic_dipole_field_vec(chpi_rrs, megcoils).T
+        yield fwd, fwd_eog, fwd_ecg, fwd_chpi
 
 
 def _restrict_source_space_to(src, vertices):
@@ -211,7 +228,7 @@ def _restrict_source_space_to(src, vertices):
 
 
 @verbose
-def simulate_movement(raw, pos, stc, trans, src, bem, cov=None, mindist=1.0,
+def simulate_movement(raw, pos, stc, trans, src, bem, cov='basic', mindist=1.0,
                       interp='linear', random_state=None, n_jobs=1,
                       verbose=None):
     """Simulate raw data with head movements
@@ -242,9 +259,10 @@ def simulate_movement(raw, pos, stc, trans, src, bem, cov=None, mindist=1.0,
         instance of loaded or generated SourceSpaces.
     bem : str
         Filename of the BEM (e.g., "sample-5120-5120-5120-bem-sol.fif").
-    cov : instance of Covariance | None
+    cov : instance of Covariance | 'simple' | None
         The sensor covariance matrix used to generate noise. If None,
-        no noise will be added.
+        no noise will be added. If 'simple', a basic (diagonal) ad-hoc
+        noise covariance will be used.
     mindist : float
         Minimum distance between sources and the inner skull boundary
         to use during forward calculation.
@@ -294,6 +312,8 @@ def simulate_movement(raw, pos, stc, trans, src, bem, cov=None, mindist=1.0,
     else:
         if isinstance(pos, string_types):
             transs, rots, ts = get_chpi_positions(pos, verbose=False)
+        if isinstance(pos, tuple):  # can be an already-loaded pos file
+            transs, rots, ts = pos
             ts -= raw.first_samp / raw.info['sfreq']  # MF files need reref
             dev_head_ts = [np.r_[np.c_[r, t[:, np.newaxis]], [[0, 0, 0, 1]]]
                            for r, t in zip(rots, transs)]
@@ -302,10 +322,6 @@ def simulate_movement(raw, pos, stc, trans, src, bem, cov=None, mindist=1.0,
             ts = np.array(list(pos.keys()), float)
             ts.sort()
             dev_head_ts = [pos[float(tt)] for tt in ts]
-        elif isinstance(pos, np.ndarray):
-            transs, rots, ts = chpi_to_trans_rot_t(pos)
-            dev_head_ts = [np.r_[np.c_[r, t[:, np.newaxis]], [[0, 0, 0, 1]]]
-                           for r, t in zip(rots, transs)]
         else:
             raise TypeError('unknown pos type %s' % type(pos))
         if not (ts >= 0).all():  # pathological if not
@@ -346,7 +362,7 @@ def simulate_movement(raw, pos, stc, trans, src, bem, cov=None, mindist=1.0,
 
     # extract necessary info
     picks = pick_types(raw.info, meg=True, eeg=True)  # for simulation
-    hpi_picks = pick_types(raw.info, meg=True, eeg=False)  # for CHPI
+    meg_picks = pick_types(raw.info, meg=True, eeg=False)  # for CHPI
     fwd_info = pick_info(raw.info, picks)
     fwd_info['projs'] = []
     logger.info('Setting up raw data simulation using %s head position%s'
@@ -365,19 +381,30 @@ def simulate_movement(raw, pos, stc, trans, src, bem, cov=None, mindist=1.0,
     assert all([d['coord_frame'] == FIFF.FIFFV_COORD_HEAD
                 for d in dig if d['kind'] == FIFF.FIFFV_POINT_HPI])
     chpi_rrs = [d['r'] for d in dig if d['kind'] == FIFF.FIFFV_POINT_HPI]
-    r = fit_sphere_to_headshape(raw.info, verbose=False)[0] / 1000.
-    ecg = [-r, 0, -3 * r]
-    eog = [d['r'] for d in raw.info['dig']
-           if d['ident'] == FIFF.FIFFV_POINT_NASION][0]
-    eog = eog / np.sqrt(np.sum(eog * eog)) * r
+    R, r0 = fit_sphere_to_headshape(raw.info, verbose=False)[:2]
+    R /= 1000.
+    r0 /= 1000.
+    ecg_rr = np.array([[-R, 0, -3 * R]])
+    eog_rr = [d['r'] for d in raw.info['dig']
+              if d['ident'] == FIFF.FIFFV_POINT_NASION][0]
+    eog_rr = eog_rr - r0
+    eog_rr = (eog_rr / np.sqrt(np.sum(eog_rr * eog_rr)) *
+              0.98 * R)[np.newaxis, :]
+    eog_rr += r0
+    eog_bem = make_sphere_model(r0, head_radius=R, relative_radii=(0.99, 1.),
+                                sigmas=(0.33, 0.33), verbose=False)
     # let's oscillate between resting (17 bpm) and reading (4.5 bpm) rate
     # http://www.ncbi.nlm.nih.gov/pubmed/9399231
     blink_rate = np.cos(2 * np.pi * 1. / 60. * raw.times)
     blink_rate *= 12.5 / 60.
     blink_rate += 4.5 / 60.
     blink_data = rng.rand(raw.n_times) < blink_rate / raw.info['sfreq']
+    blink_data = blink_data * (rng.rand(raw.n_times) + 0.5)  # vary amplitudes
     blink_kernel = np.hanning(int(0.25 * raw.info['sfreq']))
-    blink_data = np.convolve(blink_data, blink_kernel, 'same')
+    eog_data = np.convolve(blink_data, blink_kernel, 'same')[np.newaxis, :]
+    eog_data += rng.randn(eog_data.shape[1]) * 0.05
+    eog_data *= 100e-6
+    del blink_data,
 
     max_beats = int(np.ceil(raw.times[-1] * 70. / 60.))
     cardiac_idx = np.cumsum(rng.uniform(60. / 70., 60. / 50., max_beats) *
@@ -389,21 +416,19 @@ def simulate_movement(raw, pos, stc, trans, src, bem, cov=None, mindist=1.0,
         2 * np.hanning(int(0.04 * raw.info['sfreq'])),
         -0.3 * np.hanning(int(0.05 * raw.info['sfreq'])),
         0.2 * np.hanning(int(0.26 * raw.info['sfreq']))], axis=-1)
-    cardiac_data = np.convolve(cardiac_data, cardiac_kernel, 'same')
+    ecg_data = np.convolve(cardiac_data, cardiac_kernel, 'same')[np.newaxis, :]
+    ecg_data += rng.randn(ecg_data.shape[1]) * 0.05
+    ecg_data *= 3e-4
+    del cardiac_data
 
-    scales = [4e-4, 100e-6]  # scales (V) for ExG channel in data
-    simulation_scales = [2e-4, 1e-4]  # additional to use before simulation
-    exg_data = np.array([cardiac_data, blink_data])
-    del cardiac_data, blink_data
-    for data, scale in zip(exg_data, scales):
-        data += rng.randn(len(data)) * 0.05
-        data *= scale
-    for exg_ch, data in zip(['ECG063', 'EOG062'], exg_data):
+    # Add to data file, then rescale for simulation
+    for data, scale, exg_ch in zip([eog_data, ecg_data],
+                                   [1e-3, 5e-4],
+                                   ['EOG062', 'ECG063']):
         ch = pick_channels(raw.ch_names, [exg_ch])
         if len(ch) == 1:
             raw._data[ch[0], :] = data
-    exg_data *= np.array(simulation_scales)[:, np.newaxis]
-    mag_dipole_rrs = np.concatenate((chpi_rrs, [ecg], [eog]), axis=0)
+        data *= scale
 
     evoked = EvokedArray(np.zeros((len(picks), len(stc.times))), fwd_info,
                          stc.tmin, verbose=False)
@@ -413,16 +438,18 @@ def simulate_movement(raw, pos, stc, trans, src, bem, cov=None, mindist=1.0,
     stc_indices = np.arange(raw.n_times) % len(stc.times)
     raw._data[event_ch, ].fill(0)
     hpi_mag = 25e-9
-    last_fwd = last_fwd_chpi = last_fwd_exg = src_sel = None
-    for fi, (fwd, fwd_chpi) in enumerate(_make_forward_solutions(
-            fwd_info, trans, src, bem, dev_head_ts, mindist,
-            mag_dipole_rrs, n_jobs)):
+    last_fwd = last_fwd_chpi = last_fwd_eog = last_fwd_ecg = src_sel = None
+    for fi, (fwd, fwd_eog, fwd_ecg, fwd_chpi) in \
+        enumerate(_make_forward_solutions(
+            fwd_info, trans, src, bem, eog_bem, dev_head_ts, mindist,
+            chpi_rrs, eog_rr, ecg_rr, n_jobs)):
         # must be fixed orientation
-        fwd = convert_forward_solution(fwd, surf_ori=True, force_fixed=True,
-                                       verbose=False)
+        fwd = convert_forward_solution(fwd, surf_ori=True,
+                                       force_fixed=True, verbose=False)
         # just use one arbitrary direction
-        fwd_exg = fwd_chpi[::3][n_freqs:].T
-        fwd_chpi = fwd_chpi[::3][:n_freqs].T
+        fwd_eog = fwd_eog['sol']['data'][:, ::3]
+        fwd_ecg = fwd_ecg['sol']['data'][:, ::3]
+        fwd_chpi = fwd_chpi[:, ::3]
 
         if src_sel is None:
             src_sel = _stc_src_sel(fwd['src'], stc)
@@ -435,7 +462,8 @@ def simulate_movement(raw, pos, stc, trans, src, bem, cov=None, mindist=1.0,
                 warnings.warn('%s STC vertices omitted due to fwd calculation'
                               % (diff_,))
         if last_fwd is None:
-            last_fwd, last_fwd_chpi, last_fwd_exg = fwd, fwd_chpi, fwd_exg
+            last_fwd, last_fwd_eog, last_fwd_ecg, last_fwd_chpi = \
+                fwd, fwd_eog, fwd_ecg, fwd_chpi
             continue
         n_time = offsets[fi] - offsets[fi-1]
 
@@ -460,24 +488,25 @@ def simulate_movement(raw, pos, stc, trans, src, bem, cov=None, mindist=1.0,
         assert simulated.data.shape[1] == len(stc_idxs)
         raw._data[picks, time_slice] = simulated.data
 
-        # add ECG and EOG
-        raw._data[hpi_picks, time_slice] += \
-            _interp(last_fwd_exg, fwd_exg, exg_data[:, time_slice], interp)
-
-        # add CHPI traces
+        # add ECG, EOG, and CHPI traces
+        raw._data[picks, time_slice] += \
+            _interp(last_fwd_eog, fwd_eog, eog_data[:, time_slice], interp)
+        raw._data[meg_picks, time_slice] += \
+            _interp(last_fwd_ecg, fwd_ecg, ecg_data[:, time_slice], interp)
         this_t = np.arange(offsets[fi-1], offsets[fi]) / raw.info['sfreq']
         sinusoids = np.zeros((n_freqs, n_time))
         for fi, freq in enumerate(hpi_freqs):
             sinusoids[fi] = 2 * np.pi * freq * this_t
             sinusoids[fi] = hpi_mag * np.sin(sinusoids[fi])
-        raw._data[hpi_picks, time_slice] += \
+        raw._data[meg_picks, time_slice] += \
             _interp(last_fwd_chpi, fwd_chpi, sinusoids, interp)
 
         # add events
         raw._data[event_ch, event_idxs] = fi
 
         # prepare for next iteration
-        last_fwd, last_fwd_chpi, last_fwd_exg = fwd, fwd_chpi, fwd_exg
+        last_fwd, last_fwd_eog, last_fwd_ecg, last_fwd_chpi = \
+            fwd, fwd_eog, fwd_ecg, fwd_chpi
     assert used.all()
     logger.info('Done')
     return raw

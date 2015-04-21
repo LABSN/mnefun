@@ -4,12 +4,14 @@
 
 You can do for example:
 
-$ simulate_movement.py --raw sample_audvis_raw.fif
+$ simulate_movement.py --raw test_raw.fif
+                       --pos test_raw_hp.txt
                        --dipoles dips.txt
-                       --out sample_audvis_sim_raw.fif
-                       --tstep 10 --jobs 2 --overwrite --plot
+                       --cov simple
+                       --out test_sim_raw.fif
+                       --jobs 2 --overwrite --plot
 
-Both --raw and --dipoles must be specified at a minimum. For
+At a minimum --raw, --dipoles, and --pos must be specified. For
 simplicity, a spherical head model will be constructed and used.
 """
 
@@ -53,14 +55,20 @@ def run():
     parser = get_optparser(__file__)
     parser.add_option("--raw", dest="raw_in",
                       help="Input raw FIF file", metavar="FILE")
-    parser.add_option("--dipoles", dest="dipoles",
+    parser.add_option("--pos", dest="pos", default=None,
+                      help="Position definition text file. Can be 'constant' "
+                      "to hold the head position fixed", metavar="FILE")
+    parser.add_option("--dipoles", dest="dipoles", default=None,
                       help="Dipole definition file", metavar="FILE")
     parser.add_option("--cov", dest="cov",
-                      help="Covariance to use for noise generation",
-                      metavar="FILE", default=None)
-    parser.add_option("-t", "--tstep", dest="tstep", type=float,
-                      help="Minimum time step to allow for position "
-                      "estimation", default=10.)
+                      help="Covariance to use for noise generation. Can be "
+                      "'simple' to use a diagonal covariance, or 'off' to "
+                      "omit noise",
+                      metavar="FILE", default='simple')
+    parser.add_option("--duration", dest="duration", default=None,
+                      help="Duration of each epoch (sec). If omitted, the last"
+                      " time point in the dipole definition file plus 200 ms "
+                      "will be used", type="float")
     parser.add_option("-j", "--jobs", dest="n_jobs", help="Number of jobs to"
                       " run in parallel", type="int", default=1)
     parser.add_option("--out", dest="raw_out",
@@ -73,13 +81,12 @@ def run():
                       "data", action="store_true")
     parser.add_option("-p", "--plot", dest="plot", help="Plot dipoles, raw, "
                       "and evoked", action="store_true")
-    parser.add_option("-s", "--stationary", dest="stationary",
-                      help="Don't actually move the head", action="store_true")
     parser.add_option("--overwrite", dest="overwrite", help="Overwrite the"
                       "output file if it exists", action="store_true")
     options, args = parser.parse_args()
 
     raw_in = options.raw_in
+    pos = options.pos
     raw_out = options.raw_out
     dipoles = options.dipoles
     n_jobs = options.n_jobs
@@ -87,20 +94,18 @@ def run():
     plot_dipoles = options.plot_dipoles or plot
     plot_raw = options.plot_raw or plot
     plot_evoked = options.plot_evoked or plot
-    stationary = options.stationary
     overwrite = options.overwrite
+    duration = options.duration
     cov = options.cov
-    tstep = max(options.tstep, 0.01)
 
     # check parameters
-
     if not (raw_out or plot_raw or plot_evoked):
         raise ValueError('data must either be saved (--out) or '
                          'plotted (--plot-raw or --plot_evoked)')
     if raw_out and op.isfile(raw_out) and not overwrite:
         raise ValueError('output file exists, use --overwrite (%s)' % raw_out)
 
-    if raw_in is None or dipoles is None:
+    if raw_in is None or pos is None or dipoles is None:
         parser.print_help()
         sys.exit(1)
 
@@ -119,10 +124,13 @@ def run():
         rr = dipoles[:, :3] * 1e-3
         nn = dipoles[:, 3:6]
         t = dipoles[:, 6:8]
+        duration = t.max() + 0.2 if duration is None else duration
         if (t[:, 0] > t[:, 1]).any():
             raise ValueError('found tmin > tmax in dipole file')
         if (t < 0).any():
             raise ValueError('found t < 0 in dipole file')
+        if (t > duration).any():
+            raise ValueError('found t > duration in dipole file')
         amp = np.sqrt(np.sum(nn * nn, axis=1)) * 1e-9
         mne.surface._normalize_vectors(nn)
         nn[(nn == 0).all(axis=1)] = (1, 0, 0)
@@ -138,10 +146,27 @@ def run():
             warnings.warn('Largest dipole amplitude %0.1f > 100 nA'
                           % (amp.max() * 1e9))
 
+    if pos == 'constant':
+        print('Holding head position constant')
+        pos = None
+    else:
+        with printer('Loading head positions'):
+            pos = mne.get_chpi_positions(pos)
+
     with printer('Loading raw data file'):
         with warnings.catch_warnings(record=True):
-            raw = mne.io.Raw(raw_in, preload=True, allow_maxshield=True,
+            raw = mne.io.Raw(raw_in, preload=False, allow_maxshield=True,
                              verbose=False)
+
+    if cov == 'simple':
+        print('Using diagonal covariance for brain noise')
+        cov = mne.make_ad_hoc_cov(raw.info, verbose=False)
+    elif cov == 'off':
+        print('Omitting brain noise in the simulation')
+        cov = None
+    else:
+        with printer('Loading covariance file for brain noise'):
+            cov = mne.read_cov(cov)
 
     with printer('Setting up spherical model'):
         bem = mne.bem.make_sphere_model('auto', 'auto', raw.info,
@@ -158,40 +183,22 @@ def run():
                 'in mm?' % (n_outside, 's were' if n_outside != 1 else ' was'))
 
     with printer('Constructing source estimate'):
-        tmin, tmax = t.min(), t.max()
         tmids = t.mean(axis=1)
         t = np.round(t * raw.info['sfreq']).astype(int)
         t[:, 1] += 1  # make it inclusive
-        n_samp = t.max()
+        n_samp = int(np.ceil(duration * raw.info['sfreq']))
         data = np.zeros((n_dipoles, n_samp))
         for di, (t_, amp_) in enumerate(zip(t, amp)):
             data[di, t_[0]:t_[1]] = amp_ * np.hanning(t_[1] - t_[0])
         stc = mne.VolSourceEstimate(data, np.arange(n_dipoles),
                                     0, 1. / raw.info['sfreq'])
 
-    if cov is not None:
-        if cov == '':
-            with printer('Computing covariance for brain noise'):
-                cov = mne.compute_raw_data_covariance(raw, verbose=False)
-        else:
-            with printer('Loading covariance file for brain noise'):
-                cov = mne.read_cov(cov)
-    else:
-        print('Omitting brain noise in the simulation')
-
-    if not stationary:
-        with printer('Extracting head positions (tstep=%0.2f sec)' % tstep,
-                     True):
-            pos = mne.io.calculate_chpi_positions(raw, t_step_min=tstep,
-                                                  verbose=True)
-    else:
-        print('Holding head position constant')
-        pos = None
-        print('')
-
     # do the simulation
-    raw_mv = simulate_movement(raw, pos, stc, trans, src, bem, None,
+    print('')
+    raw_mv = simulate_movement(raw, pos, stc, trans, src, bem, cov,
                                n_jobs=n_jobs, verbose=True)
+    print('')
+
     if raw_out:
         with printer('Saving data'):
             raw_mv.save(raw_out, overwrite=overwrite)
@@ -248,10 +255,10 @@ def run():
                 picks = mne.pick_types(raw_mv.info, meg=True, eeg=True)
                 events[:, 2] = 1
                 evoked = mne.Epochs(raw_mv, events, {'Simulated': 1},
-                                    tmin, tmax, None, picks).average()
+                                    0, duration, None, picks).average()
                 evoked.plot_topomap(np.unique(tmids), show=False)
 
-    print('\nTotal time: %0 sec' % (time.time() - t0))
+    print('\nTotal time: %0.1f sec' % (time.time() - t0))
     sys.stdout.flush()
     if any([plot_dipoles, plot_raw, plot_evoked]):
         plt.show(block=True)
