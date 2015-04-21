@@ -7,7 +7,8 @@ import warnings
 from copy import deepcopy
 
 from mne import (pick_types, pick_info, pick_channels, VolSourceEstimate,
-                 convert_forward_solution, get_chpi_positions, EvokedArray)
+                 convert_forward_solution, get_chpi_positions, EvokedArray,
+                 make_ad_hoc_cov)
 from mne.bem import fit_sphere_to_headshape, make_sphere_model
 from mne.io import read_info, Raw
 from mne.externals.six import string_types
@@ -228,9 +229,9 @@ def _restrict_source_space_to(src, vertices):
 
 
 @verbose
-def simulate_movement(raw, pos, stc, trans, src, bem, cov='basic', mindist=1.0,
-                      interp='linear', random_state=None, n_jobs=1,
-                      verbose=None):
+def simulate_movement(raw, pos, stc, trans, src, bem, cov='simple',
+                      mindist=1.0, interp='linear', random_state=None,
+                      n_jobs=1, verbose=None):
     """Simulate raw data with head movements
 
     Parameters
@@ -293,7 +294,7 @@ def simulate_movement(raw, pos, stc, trans, src, bem, cov='basic', mindist=1.0,
     """
     if isinstance(raw, string_types):
         with warnings.catch_warnings(record=True):
-            raw = Raw(raw, allow_maxshield=True, verbose=False)
+            raw = Raw(raw, allow_maxshield=True, preload=True, verbose=False)
     else:
         raw = raw.copy()
 
@@ -311,7 +312,7 @@ def simulate_movement(raw, pos, stc, trans, src, bem, cov='basic', mindist=1.0,
         interp = 'zero'
     else:
         if isinstance(pos, string_types):
-            transs, rots, ts = get_chpi_positions(pos, verbose=False)
+            pos = get_chpi_positions(pos, verbose=False)
         if isinstance(pos, tuple):  # can be an already-loaded pos file
             transs, rots, ts = pos
             ts -= raw.first_samp / raw.info['sfreq']  # MF files need reref
@@ -342,6 +343,9 @@ def simulate_movement(raw, pos, stc, trans, src, bem, cov='basic', mindist=1.0,
         offsets[-1] = raw.n_times  # fix for roundoff error
         assert offsets[-2] != offsets[-1]
         del ts
+    if isinstance(cov, string_types):
+        assert cov == 'simple'
+        cov = make_ad_hoc_cov(raw.info, verbose=False)
     assert np.array_equal(offsets, np.unique(offsets))
     assert len(offsets) == len(dev_head_ts)
     approx_events = int((raw.n_times / raw.info['sfreq']) /
@@ -367,9 +371,8 @@ def simulate_movement(raw, pos, stc, trans, src, bem, cov='basic', mindist=1.0,
     fwd_info['projs'] = []
     logger.info('Setting up raw data simulation using %s head position%s'
                 % (len(dev_head_ts), 's' if len(dev_head_ts) != 1 else ''))
+    raw.preload_data(verbose=False)
 
-    # Create a covariance if none was supplied
-    raw.preload_data()
     if isinstance(stc, VolSourceEstimate):
         verts = [stc.vertices]
     else:

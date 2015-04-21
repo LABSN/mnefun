@@ -160,7 +160,6 @@ def run():
 
     if cov == 'simple':
         print('Using diagonal covariance for brain noise')
-        cov = mne.make_ad_hoc_cov(raw.info, verbose=False)
     elif cov == 'off':
         print('Omitting brain noise in the simulation')
         cov = None
