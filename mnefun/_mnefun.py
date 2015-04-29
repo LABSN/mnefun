@@ -31,7 +31,7 @@ from mne.minimum_norm import make_inverse_operator
 from mne.label import read_label
 from mne.epochs import combine_event_ids
 from mne.io import Raw, concatenate_raws, read_info, write_info
-from mne.io.base import _quart_to_rot
+from mne.io.chpi import _quat_to_rot, _rot_to_quat
 from mne.io.pick import pick_types_forward, pick_types
 from mne.io.meas_info import _empty_info
 from mne.cov import regularize
@@ -185,7 +185,7 @@ class Params(object):
         self.eog_channel = eog_channel
         self.plot_raw = plot_raw
         self.translate_positions = True
-        self.quat_tol = 5e-2
+        self.quat_tol = 5e-2  # not used anymore
 
         # add standard file tags
 
@@ -404,21 +404,17 @@ def calc_median_hp(p, subj, out_file):
         trans = info['dev_head_t']['trans']
         ts.append(trans[:3, 3])
         m = trans[:3, :3]
-        qw = np.sqrt(1. + m[0, 0] + m[1, 1] + m[2, 2]) / 2.
         # make sure we are orthogonal and special
         assert_allclose(np.dot(m, m.T), np.eye(3), atol=1e-5)
-        assert_allclose([qw], [1.], atol=p.quat_tol)
-        qs.append([(m[2, 1] - m[1, 2]) / (4 * qw),
-                   (m[0, 2] - m[2, 0]) / (4 * qw),
-                   (m[1, 0] - m[0, 1]) / (4 * qw)])
-        assert_allclose(_quart_to_rot(np.array([qs[-1]]))[0],
+        qs.append(_rot_to_quat(m))
+        assert_allclose(_quat_to_rot(np.array([qs[-1]]))[0],
                         m, rtol=1e-5, atol=1e-5)
     assert info is not None
     if len(raw_files) == 1:  # only one head position
         dev_head_t = info['dev_head_t']
     else:
         t = np.median(np.array(ts), axis=0)
-        rot = np.median(_quart_to_rot(np.array(qs)), axis=0)
+        rot = np.median(_quat_to_rot(np.array(qs)), axis=0)
         trans = np.r_[np.c_[rot, t[:, np.newaxis]],
                       np.array([0, 0, 0, 1], t.dtype)[np.newaxis, :]]
         dev_head_t = {'to': 4, 'from': 1, 'trans': trans}
@@ -526,6 +522,49 @@ def fetch_sss_files(p, subjects):
            ['--exclude', '*'])
     cmd += ['%s:%s' % (p.sws_ssh, op.join(p.sws_dir, '*')), '.']
     run_subprocess(cmd, cwd=p.work_dir)
+
+
+def run_sss_command(fname_in, options, fname_out, host='kasga'):
+    """Run Maxfilter remotely and fetch resulting file
+
+    Parameters
+    ----------
+    fname_in : str
+        The filename to process.
+    options : str
+        The command-line options for Maxfilter.
+    out_fname : str | None
+        Output filename to use to store the result on the local machine.
+        None will output to a temporary file.
+    host : str
+        The SSH/scp host to run the command on.
+    """
+    # let's make sure we can actually write where we want
+    if not op.isfile(fname_in):
+        raise IOError('input file not found: %s' % fname_in)
+    if not op.isdir(op.dirname(op.abspath(fname_out))):
+        raise IOError('output directory for output file does not exist')
+    if '-f ' in options or '-o ' in options:
+        raise ValueError('options cannot contain -o or -f, these are set '
+                         'automatically')
+    remote_in = '~/temp_%s_raw.fif' % time()
+    remote_out = '~/temp_%s_raw_sss.fif' % time()
+    print('Copying file to %s' % host)
+    cmd = ['scp', fname_in, host + ':' + remote_in]
+    run_subprocess(cmd, stdout=None, stderr=None)
+
+    print('Running maxfilter on %s' % host)
+    cmd = ['ssh', host, 'maxfilter -f ' + remote_in + ' -o ' + remote_out
+           + ' ' + options]
+    run_subprocess(cmd, stdout=None, stderr=None)
+
+    print('Copying result to %s' % fname_out)
+    cmd = ['scp', host + ':' + remote_out, fname_out]
+    run_subprocess(cmd, stdout=None, stderr=None)
+
+    print('Cleaning up %s' % host)
+    cmd = ['ssh', host, 'rm %s %s' % (remote_in, remote_out)]
+    run_subprocess(cmd, stdout=None, stderr=None)
 
 
 def extract_expyfun_events(fname, return_offsets=False):
@@ -1028,15 +1067,23 @@ def _fix_raw_eog_cals(raws, raw_names):
     picks = pick_types(raws[0].info, eeg=False, meg=False, eog=True,
                        exclude=[])
     if len(picks) > 0:
-        first_cals = raws[0].cals[picks]
+        first_cals = _cals(raws[0])[picks]
         for ri, r in enumerate(raws[1:]):
             picks_2 = pick_types(r.info, eeg=False, meg=False, eog=True,
                                  exclude=[])
             assert np.array_equal(picks, picks_2)
-            these_cals = r.cals[picks]
+            these_cals = _cals(r)[picks]
             if not np.array_equal(first_cals, these_cals):
                 warnings.warn('Adjusting EOG cals for %s' % raw_names[ri + 1])
-                r.cals[picks] = first_cals
+                _cals(r)[picks] = first_cals
+
+
+def _cals(raw):
+    """Helper to deal with the .cals->._cals attribute change"""
+    try:
+        return raw._cals
+    except AttributeError:
+        return raw.cals
 
 
 # noinspection PyPep8Naming

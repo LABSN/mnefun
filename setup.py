@@ -37,4 +37,6 @@ if __name__ == "__main__":
           platforms='any',
           packages=['mnefun', 'mnefun.tests'],
           package_data={'mnefun': ['run_sss.sh']},
-          scripts=[])
+          scripts=[
+              'bin/simulate_movement.py',
+          ])
