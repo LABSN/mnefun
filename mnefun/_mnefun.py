@@ -24,7 +24,8 @@ from mne import (compute_proj_raw, make_fixed_length_events, Epochs,
                  write_proj, read_proj, setup_source_space,
                  make_forward_solution, average_forward_solutions,
                  write_forward_solution, get_config, write_evokeds,
-                 add_source_space_distances, write_source_spaces)
+                 add_source_space_distances, write_source_spaces,
+                 make_sphere_model, setup_volume_source_space)
 from mne.preprocessing.ssp import compute_proj_ecg, compute_proj_eog
 from mne.preprocessing.maxfilter import fit_sphere_to_headshape
 from mne.minimum_norm import make_inverse_operator
@@ -933,8 +934,9 @@ def gen_forwards(p, subjects, structurals):
         Analysis parameters.
     subjects : list of str
         Subject names to analyze (e.g., ['Eric_SoP_001', ...]).
-    structurals : list of str
+    structurals : list (of str or None)
         The structural data names for each subject (e.g., ['AKCLEE_101', ...]).
+        If None, a spherical BEM and volume grid space will be used.
     """
     for subj, structural in zip(subjects, structurals):
         raw_dir = op.join(p.work_dir, subj, p.sss_dir)
@@ -943,23 +945,30 @@ def gen_forwards(p, subjects, structurals):
             os.mkdir(fwd_dir)
 
         subjects_dir = get_config('SUBJECTS_DIR')
-        mri_file = op.join(p.work_dir, subj, p.trans_dir, subj + '-trans.fif')
-        if not op.isfile(mri_file):
-            mri_file = op.join(p.work_dir, subj, p.trans_dir,
-                               subj + '-trans_head2mri.txt')
-        elif not op.isfile(mri_file):
-            raise IOError('Unable to find coordinate transformation file')
-        src_file = op.join(subjects_dir, structural, 'bem',
-                           structural + '-oct-6-src.fif')
-        if not op.isfile(src_file):
-            print('  Creating source space for %s...' % subj)
-            src = setup_source_space(structural, None, 'oct6')
-            print('  Adding distances and patch information...')
-            add_source_space_distances(src, n_jobs=p.n_jobs)
-            write_source_spaces(src_file, src)
-            print('  Creating forward solution(s)...')
-        bem_file = op.join(subjects_dir, structural, 'bem',
-                           structural + '-' + p.bem_type + '-bem-sol.fif')
+        trans = op.join(p.work_dir, subj, p.trans_dir, subj + '-trans.fif')
+        if not op.isfile(trans):
+            trans = op.join(p.work_dir, subj, p.trans_dir,
+                            subj + '-trans_head2mri.txt')
+            if not op.isfile(trans):
+                raise IOError('Unable to find head<->MRI trans file')
+        if structural is None:  # spherical case
+            # create spherical BEM
+            s_name = safe_inserter(p.run_names[0], subj)
+            info = read_info(op.join(raw_dir, s_name + p.sss_fif_tag))
+            bem = make_sphere_model('auto', 'auto', info, verbose=False)
+            # create source space
+            sphere = tuple(bem['r0']) + (bem['layers'][0]['rad']) 
+            src = setup_volume_source_space(subj, None, sphere=sphere,
+                                            mindist=1.)
+        else:
+            src = op.join(subjects_dir, structural, 'bem',
+                          structural + '-oct-6-src.fif')
+            if not op.isfile(src):
+                print('  Creating source space for %s...' % subj)
+                setup_source_space(structural, src, 'oct6', n_jobs=p.n_jobs)
+            bem = op.join(subjects_dir, structural, 'bem',
+                          structural + '-' + p.bem_type + '-bem-sol.fif')
+        print('  Creating forward solution(s)...')
         if p.translate_positions:
             for ii, (inv_name, inv_run) in enumerate(zip(p.inv_names,
                                                          p.inv_runs)):
@@ -968,7 +977,7 @@ def gen_forwards(p, subjects, structurals):
                 info = read_info(raw_name)
                 fwd_name = op.join(fwd_dir, safe_inserter(inv_name, subj) +
                                    p.inv_tag + '-fwd.fif')
-                make_forward_solution(info, mri_file, src_file, bem_file,
+                make_forward_solution(info, trans, src, bem,
                                       fname=fwd_name, n_jobs=p.n_jobs,
                                       mindist=p.fwd_mindist, overwrite=True)
         else:
@@ -979,7 +988,7 @@ def gen_forwards(p, subjects, structurals):
                 raw_name = op.join(raw_dir, s_name + p.sss_fif_tag)
                 info = read_info(raw_name)
                 fwd_name = op.join(fwd_dir, s_name + p.inv_tag + '-fwd.fif')
-                fwd = make_forward_solution(info, mri_file, src_file, bem_file,
+                fwd = make_forward_solution(info, trans, src, bem,
                                             fname=fwd_name, n_jobs=p.n_jobs,
                                             overwrite=True)
                 fwds.append(fwd)
