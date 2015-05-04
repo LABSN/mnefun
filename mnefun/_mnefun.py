@@ -466,9 +466,11 @@ def push_raw_files(p, subjects):
                      '--include', op.join(raw_root, op.basename(out_pos)),
                      '--include', op.join(raw_root, op.basename(med_pos))]
         prebad_file = op.join(raw_dir, subj + '_prebad.txt')
-        if op.isfile(prebad_file):  # SSS prebad file
-            includes += ['--include',
-                         op.join(raw_root, op.basename(prebad_file))]
+        if not op.isfile(prebad_file):  # SSS prebad file
+            raise RuntimeError('Could not find SSS prebad file: %s'
+                               % prebad_file)
+        includes += ['--include',
+                     op.join(raw_root, op.basename(prebad_file))]
         # build local raw file finder
         finder_stem = 'find %s ' % raw_dir
         fnames = get_raw_fnames(p, subj, 'raw', True)
@@ -1030,10 +1032,12 @@ def gen_forwards(p, subjects, structurals):
         subjects_dir = get_config('SUBJECTS_DIR')
         mri_file = op.join(p.work_dir, subj, p.trans_dir, subj + '-trans.fif')
         if not op.isfile(mri_file):
+            mri_file_orig = mri_file
             mri_file = op.join(p.work_dir, subj, p.trans_dir,
                                subj + '-trans_head2mri.txt')
         elif not op.isfile(mri_file):
-            raise IOError('Unable to find coordinate transformation file')
+            raise IOError('Unable to find coordinate transformation file, '
+                          'did you create e.g. %s?' % mri_file_orig)
         src_file = op.join(subjects_dir, structural, 'bem',
                            structural + '-oct-6-src.fif')
         if not op.isfile(src_file):
