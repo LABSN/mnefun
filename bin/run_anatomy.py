@@ -50,14 +50,14 @@ fs_nii_dir = op.join(FS_DIRECTORY, subj, 'mri/nii')
 input_rage = op.join(fs_nii_dir, 'MEMPRAGE.nii')
 
 if not skip_recon:
+    # TODO(ktavbi@gmail.com): parrec2nii should handle this
+    for f in glob.glob(op.join(subj_raw_mri_dir, '*Quiet_Survey*')):
+        os.remove(f)
     parfiles = []
     for root, dirnames, filenames in os.walk(subj_raw_mri_dir):
         for filename in fnmatch.filter(filenames, '*.PAR'):
             parfiles.append(os.path.join(root, filename))
     parfiles.sort()
-    # TODO(ktavbi@gmail.com): parrec2nii should handle this
-    for f in glob.glob(op.join(subj_raw_mri_dir, '*Quiet_Survey*')):
-        os.remove(f)
     print('Converting PAREC files for %s ' % subj)
     for ff in parfiles:
         parrec2nii = 'parrec2nii -o %s %s --overwrite' % (subj_raw_mri_dir, ff)
@@ -67,18 +67,6 @@ if not skip_recon:
     input_rage = glob.glob(op.join(subj_raw_mri_dir, '*MEMP_VBM*.nii'))
     if len(input_rage) == 0:
         raise RuntimeError('MPRAGE nifti not found.')
-    if bem_type == 3:
-        input_flash5 = glob.glob(op.join(subj_raw_mri_dir, '*FLASH5*.nii'))
-        input_flash30 = glob.glob(op.join(subj_raw_mri_dir, '*FLASH30*.nii'))
-        for fn, f in zip(['Flash30', 'Flash5'], [input_flash30, input_flash5]):
-            if len(f) == 0:
-                raise RuntimeError('%s nifiti not found.' % fn)
-        copy(input_flash30[0], fs_nii_dir)
-        copy(input_flash5[0], fs_nii_dir)
-        os.symlink(op.join(fs_nii_dir, op.basename(input_flash30[0])),
-                   op.join(fs_nii_dir, 'flash30.nii'))
-        os.symlink(op.join(fs_nii_dir, op.basename(input_flash5[0])),
-                   op.join(fs_nii_dir, 'flash5.nii'))
     # Create subject's FS directory
     for folder in [subj_dir, fs_mri_dir, fs_nii_dir, fs_orig_dir]:
         if not op.isdir(folder):
@@ -88,7 +76,6 @@ if not skip_recon:
     copy(input_rage[0], fs_nii_dir)
     os.symlink(op.join(fs_nii_dir, op.basename(input_rage[0])),
                op.join(fs_nii_dir, 'MEMPRAGE.nii'))
-
     # FS rms_concat & recon-all commands
     print('Beginning Freesurfer reconstruction for %s ' % subj)
     rms_concat = 'mri_concat --rms --i %s --o %s/001.mgz' % (input_rage[0], fs_orig_dir)
@@ -102,10 +89,20 @@ if not skip_recon:
 if not skip_bem:
     mne_setup_mri = 'mne_setup_mri mri T1 --subject %s --overwrite' % subj
     check_call(mne_setup_mri.split())
-
     if bem_type == 3:
         # MEEG BEM from LABSN script
         print('Creating 3-layer BEM for %s ' %subj)
+        input_flash5 = glob.glob(op.join(subj_raw_mri_dir, '*FLASH5*.nii'))
+        input_flash30 = glob.glob(op.join(subj_raw_mri_dir, '*FLASH30*.nii'))
+        for fn, f in zip(['Flash30', 'Flash5'], [input_flash30, input_flash5]):
+            if len(f) == 0:
+                raise RuntimeError('%s file not found.' % fn)
+        copy(input_flash30[0], fs_nii_dir)
+        copy(input_flash5[0], fs_nii_dir)
+        os.symlink(op.join(fs_nii_dir, op.basename(input_flash30[0])),
+                   op.join(fs_nii_dir, 'flash30.nii'))
+        os.symlink(op.join(fs_nii_dir, op.basename(input_flash5[0])),
+                   op.join(fs_nii_dir, 'flash5.nii'))
         param_maps_dir = op.join(fs_mri_dir, 'flash/parameter_maps')
         if not op.isdir(param_maps_dir):
             os.makedirs(param_maps_dir)
@@ -115,7 +112,8 @@ if not skip_bem:
             check_call(mri_convert.split())
             fsl_rigid_register = 'fsl_rigid_register -r %s/rawavg.mgz -i %s.mgz -o %s_reg.mgz' % (fs_mri_dir, fn, fn)
             check_call(fsl_rigid_register.split())
-            os.mkdir(op.join(fs_mri_dir, '%s' % fn))
+            if not op.isdir(op.join(fs_mri_dir, '%s' % fn)):
+                os.mkdir(op.join(fs_mri_dir, '%s' % fn))
             mri_convert = 'mri_convert -ot cor %s/%s_reg.mgz %s/%s' % (param_maps_dir, fn, fs_mri_dir, fn)
             check_call(mri_convert.split())
         os.chdir(fs_mri_dir)
@@ -141,7 +139,7 @@ if not skip_bem:
             os.symlink(op.join(subj_dir, 'bem/watershed/%s_%s_surface' % (subj, srf)),
                        op.join(subj_dir, 'bem/%s.surf' % srf))
 
-    mne_setup_fwd = 'mne_setup_forward_model --surf --ico %.0f --subject %s --outershift 1' % (bem_ico, subj)
+    mne_setup_fwd = 'mne_setup_forward_model --surf --ico %.0f --subject %s' % (bem_ico, subj)
     check_call(mne_setup_fwd.split())
 
 # Create dense head surface
