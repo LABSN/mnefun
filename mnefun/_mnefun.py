@@ -1118,7 +1118,13 @@ def gen_covariances(p, subjects):
             raw = concatenate_raws(raws)
             e_names = [op.join(lst_dir, 'ALL_' + safe_inserter(rn[ir], subj) +
                                '-eve.lst') for ir in inv_run]
-            events = [p.pick_events_cov(read_events(e)) for e in e_names]
+            events = [read_events(e) for e in e_names]
+            old_count = sum(len(e) for e in events)
+            events = [p.pick_events_cov(e) for e in events]
+            new_count = sum(len(e) for e in events)
+            if new_count != old_count:
+                print('  Using %s instead of %s original events for '
+                      'covariance calculation' % (new_count, old_count))
             events = concatenate_events(events, first_samps,
                                         last_samps)
             picks = pick_types(raw.info, eeg=True, meg=True)
