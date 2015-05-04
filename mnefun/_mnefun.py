@@ -22,8 +22,7 @@ from mne import (compute_proj_raw, make_fixed_length_events, Epochs,
                  read_cov, write_cov, read_forward_solution,
                  compute_raw_data_covariance, compute_covariance,
                  write_proj, read_proj, setup_source_space,
-                 make_forward_solution, average_forward_solutions,
-                 write_forward_solution, get_config, write_evokeds,
+                 make_forward_solution, get_config, write_evokeds,
                  add_source_space_distances, write_source_spaces)
 from mne.preprocessing.ssp import compute_proj_ecg, compute_proj_eog
 from mne.preprocessing.maxfilter import fit_sphere_to_headshape
@@ -67,7 +66,7 @@ class Params(object):
                  epochs_type='fif', fwd_mindist=2.0,
                  bem_type='5120-5120-5120', auto_bad=None,
                  ecg_channel=None, eog_channel=None,
-                 plot_raw=False, match_fun=None):
+                 plot_raw=False, match_fun=None, hp_cut=None):
         """Make a useful parameter structure
 
         This is technically a class, but it doesn't currently have any methods
@@ -137,6 +136,8 @@ class Params(object):
             If None, standard matching will be performed. If a function,
             must_match will be ignored, and ``match_fun`` will be called
             to equalize event counts.
+        hp_cut : float | None
+            Highpass cutoff in Hz. Use None for no highpassing.
 
         Returns
         -------
@@ -161,6 +162,7 @@ class Params(object):
         self.filter_length = filter_length
         self.cont_lp = 5
         self.lp_cut = lp_cut
+        self.hp_cut = hp_cut
         self.mne_root = os.getenv('MNE_ROOT')
         self.disp_files = True
         self.plot_drop_logs = True  # plot drop logs after do_preprocessing_...
@@ -184,8 +186,6 @@ class Params(object):
         self.ecg_channel = ecg_channel
         self.eog_channel = eog_channel
         self.plot_raw = plot_raw
-        self.translate_positions = True
-        self.quat_tol = 5e-2  # not used anymore
 
         # add standard file tags
 
@@ -208,6 +208,7 @@ class Params(object):
         self.sss_fif_tag = '_raw_sss.fif'
         self.bad_tag = '_post-sss.txt'
         self.keep_orig = False
+        self.cov_method = 'empirical'
         # This is used by fix_eeg_channels to fix original files
         self.raw_fif_tag = '_raw.fif'
         # Maxfilter params
@@ -217,6 +218,8 @@ class Params(object):
         self.on_process = None
         # Use more than EXTRA points to fit headshape
         self.dig_with_eeg = False
+        # Function to pick a subset of events to use to make a covariance
+        self.pick_events_cov = lambda x: x
 
     @property
     def pca_extra(self):
@@ -533,7 +536,7 @@ def run_sss_command(fname_in, options, fname_out, host='kasga'):
         The filename to process.
     options : str
         The command-line options for Maxfilter.
-    out_fname : str | None
+    fname_out : str | None
         Output filename to use to store the result on the local machine.
         None will output to a temporary file.
     host : str
@@ -554,8 +557,8 @@ def run_sss_command(fname_in, options, fname_out, host='kasga'):
     run_subprocess(cmd, stdout=None, stderr=None)
 
     print('Running maxfilter on %s' % host)
-    cmd = ['ssh', host, 'maxfilter -f ' + remote_in + ' -o ' + remote_out
-           + ' ' + options]
+    cmd = ['ssh', host, 'maxfilter -f ' + remote_in + ' -o ' + remote_out +
+           ' ' + options]
     run_subprocess(cmd, stdout=None, stderr=None)
 
     print('Copying result to %s' % fname_out)
@@ -565,6 +568,55 @@ def run_sss_command(fname_in, options, fname_out, host='kasga'):
     print('Cleaning up %s' % host)
     cmd = ['ssh', host, 'rm %s %s' % (remote_in, remote_out)]
     run_subprocess(cmd, stdout=None, stderr=None)
+
+
+def run_sss_positions(fname_in, fname_out, host='kasga'):
+    """Run Maxfilter remotely and fetch resulting file
+
+    Parameters
+    ----------
+    fname_in : str
+        The filename to process. Additional ``-1`` files will be
+        automatically detected.
+    fname_out : str
+        Output filename to use to store the resulting head positions
+        on the local machine.
+    host : str
+        The SSH/scp host to run the command on.
+    """
+    # let's make sure we can actually write where we want
+    if not op.isfile(fname_in):
+        raise IOError('input file not found: %s' % fname_in)
+    if not op.isdir(op.dirname(op.abspath(fname_out))):
+        raise IOError('output directory for output file does not exist')
+    fnames_in = [fname_in]
+    for ii in range(1, 11):
+        next_name = op.splitext(fname_in)[0] + '-%s' % ii + '.fif'
+        if op.isfile(next_name):
+            fnames_in.append(next_name)
+        else:
+            break
+    t0 = time()
+    remote_ins = ['~/' + op.basename(fname) for fname in fnames_in]
+    remote_out = '~/temp_%s_raw_quat.fif' % t0
+    remote_hp = '~/temp_%s_hp.txt' % t0
+    print('  Copying file to %s' % host)
+    cmd = ['scp'] + fnames_in + [host + ':~/']
+    run_subprocess(cmd, stdout=None, stderr=None)
+
+    print('  Running maxfilter on %s' % host)
+    cmd = ['ssh', host, 'maxfilter -f ' + remote_ins[0] + ' -o ' + remote_out +
+           ' -headpos -format short -hp ' + remote_hp]
+    run_subprocess(cmd)
+
+    print('  Copying result to %s' % fname_out)
+    cmd = ['scp', host + ':' + remote_hp, fname_out]
+    run_subprocess(cmd)
+
+    print('  Cleaning up %s' % host)
+    cmd = ['ssh', host, 'rm -f %s %s %s'
+           % (' '.join(remote_ins), remote_hp, remote_out)]
+    run_subprocess(cmd)
 
 
 def extract_expyfun_events(fname, return_offsets=False):
@@ -743,6 +795,24 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
     for n, e in zip(in_names, in_numbers):
         old_dict[n] = e
 
+    # let's do some sanity checks
+    if len(in_names) != len(in_numbers):
+        raise RuntimeError('in_names must have same length as in_numbers')
+    if np.any(np.array(in_numbers) <= 0):
+        raise ValueError('in_numbers must all be > 0')
+    if len(out_names) != len(out_numbers):
+        raise RuntimeError('out_names must have same length as out_numbers')
+    for name, num in zip(out_names, out_numbers):
+        if len(name) != len(num):
+            raise RuntimeError('each entry in out_names must have the same '
+                               'length as each corresponding entry in '
+                               'out_numbers:\n%s\n%s' % (name, num))
+        if len(name) != len(in_names):
+            raise RuntimeError('each entry in out_names must have the same '
+                               'length as in_names')
+        if (np.array(num) == 0).any():
+            raise ValueError('no element of out_numbers can be zero')
+
     ch_namess = list()
     drop_logs = list()
     for subj in subjects:
@@ -800,22 +870,27 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
             # do matching
             numbers = np.asanyarray(numbers)
             nn = numbers[numbers >= 0]
-            new_numbers = np.unique(numbers[numbers >= 0])
+            new_numbers = np.unique(numbers[numbers > 0])
+            offset = max(epochs.events[:, 2].max(), new_numbers.max()) + 1
             in_names_match = in_names[match]
-            if not len(new_numbers) == len(names):
+            if len(new_numbers) != len(names):
                 raise ValueError('out_numbers length must match out_names '
                                  'length for analysis %s' % analysis)
             if p.match_fun is None:
                 # first, equalize trial counts (this will make a copy)
+                e = epochs[in_names[numbers > 0]]
                 if len(in_names_match) > 1:
                     e = epochs.equalize_event_counts(in_names_match)[0]
                 else:
                     e = epochs.copy()
 
-                # second, collapse types
+                # second, collapse relevant types
                 for num, name in zip(new_numbers, names):
-                    combine_event_ids(e, in_names[num == numbers], {name: num},
+                    combine_event_ids(e, in_names[num == numbers],
+                                      {name: num + offset},
                                       copy=False)
+                for num in new_numbers:
+                    e.events[e.events[:, 2] == num + offset, 2] -= offset
             else:  # custom matching
                 e = p.match_fun(epochs.copy(), analysis, nn,
                                 in_names_match, names)
@@ -960,37 +1035,19 @@ def gen_forwards(p, subjects, structurals):
             print('  Creating forward solution(s)...')
         bem_file = op.join(subjects_dir, structural, 'bem',
                            structural + '-' + p.bem_type + '-bem-sol.fif')
-        if p.translate_positions:
-            for ii, (inv_name, inv_run) in enumerate(zip(p.inv_names,
-                                                         p.inv_runs)):
-                s_name = safe_inserter(p.run_names[inv_run[0]], subj)
-                raw_name = op.join(raw_dir, s_name + p.sss_fif_tag)
-                info = read_info(raw_name)
-                fwd_name = op.join(fwd_dir, safe_inserter(inv_name, subj) +
-                                   p.inv_tag + '-fwd.fif')
-                make_forward_solution(info, mri_file, src_file, bem_file,
-                                      fname=fwd_name, n_jobs=p.n_jobs,
-                                      mindist=p.fwd_mindist, overwrite=True)
-        else:
-            # Legacy code for when runs are in different positions
-            fwds = list()
-            for ri, run_name in enumerate(p.run_names):
-                s_name = safe_inserter(run_name, subj)
-                raw_name = op.join(raw_dir, s_name + p.sss_fif_tag)
-                info = read_info(raw_name)
-                fwd_name = op.join(fwd_dir, s_name + p.inv_tag + '-fwd.fif')
-                fwd = make_forward_solution(info, mri_file, src_file, bem_file,
-                                            fname=fwd_name, n_jobs=p.n_jobs,
-                                            overwrite=True)
-                fwds.append(fwd)
-
-            for ii, (inv_name, inv_run) in enumerate(zip(p.inv_names,
-                                                         p.inv_runs)):
-                fwds_use = [f for fi, f in enumerate(fwds) if fi in inv_run]
-                fwd_name = op.join(fwd_dir, safe_inserter(inv_name, subj) +
-                                   p.inv_tag + '-fwd.fif')
-                fwd_ave = average_forward_solutions(fwds_use)
-                write_forward_solution(fwd_name, fwd_ave, overwrite=True)
+        if not getattr(p, 'translate_positions', True):
+            raise RuntimeError('Not translating positions is no longer '
+                               'supported')
+        for ii, (inv_name, inv_run) in enumerate(zip(p.inv_names,
+                                                     p.inv_runs)):
+            s_name = safe_inserter(p.run_names[inv_run[0]], subj)
+            raw_name = op.join(raw_dir, s_name + p.sss_fif_tag)
+            info = read_info(raw_name)
+            fwd_name = op.join(fwd_dir, safe_inserter(inv_name, subj) +
+                               p.inv_tag + '-fwd.fif')
+            make_forward_solution(info, mri_file, src_file, bem_file,
+                                  fname=fwd_name, n_jobs=p.n_jobs,
+                                  mindist=p.fwd_mindist, overwrite=True)
 
 
 def gen_covariances(p, subjects):
@@ -1047,7 +1104,7 @@ def gen_covariances(p, subjects):
             raw = concatenate_raws(raws)
             e_names = [op.join(lst_dir, 'ALL_' + safe_inserter(rn[ir], subj) +
                                '-eve.lst') for ir in inv_run]
-            events = [read_events(e) for e in e_names]
+            events = [p.pick_events_cov(read_events(e)) for e in e_names]
             events = concatenate_events(events, first_samps,
                                         last_samps)
             picks = pick_types(raw.info, eeg=True, meg=True)
@@ -1056,7 +1113,7 @@ def gen_covariances(p, subjects):
                             picks=picks, preload=True)
             cov_name = op.join(cov_dir, safe_inserter(inv_name, subj) +
                                ('-%d' % p.lp_cut) + p.inv_tag + '-cov.fif')
-            cov = compute_covariance(epochs)
+            cov = compute_covariance(epochs, method=p.cov_method)
             write_cov(cov_name, cov)
 
 
@@ -1306,7 +1363,7 @@ def do_preprocessing_combined(p, subjects):
         write_proj(all_proj, projs)
 
         # look at raw_orig for trial DQs now, it will be quick
-        raw_orig.filter(None, p.lp_cut, n_jobs=p.n_jobs_fir, method='fft',
+        raw_orig.filter(p.hp_cut, p.lp_cut, n_jobs=p.n_jobs_fir, method='fft',
                         filter_length=p.filter_length)
         raw_orig.add_proj(projs)
         raw_orig.apply_proj()
@@ -1360,7 +1417,7 @@ def apply_preprocessing_combined(p, subjects):
                 if p.disp_files:
                     print('    Processing erm file %d/%d.'
                           % (ii + 1, len(erm_in)))
-            raw = _raw_LRFCP(r, None, None, p.lp_cut, p.n_jobs_fir,
+            raw = _raw_LRFCP(r, None, p.hp_cut, p.lp_cut, p.n_jobs_fir,
                              p.n_jobs_resample, projs, bad_file,
                              disp_files=False, method='fft', apply_proj=False,
                              filter_length=p.filter_length, force_bads=True)
@@ -1369,7 +1426,7 @@ def apply_preprocessing_combined(p, subjects):
             if p.disp_files:
                 print('    Processing file %d/%d.'
                       % (ii + 1, len(names_in)))
-            raw = _raw_LRFCP(r, None, None, p.lp_cut, p.n_jobs_fir,
+            raw = _raw_LRFCP(r, None, p.hp_cut, p.lp_cut, p.n_jobs_fir,
                              p.n_jobs_resample, projs, bad_file,
                              disp_files=False, method='fft', apply_proj=False,
                              filter_length=p.filter_length, force_bads=False)
