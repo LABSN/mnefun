@@ -803,12 +803,13 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
     if len(out_names) != len(out_numbers):
         raise RuntimeError('out_names must have same length as out_numbers')
     for name, num in zip(out_names, out_numbers):
-        if len(name) != len(num):
-            raise RuntimeError('each entry in out_names must have the same '
-                               'length as each corresponding entry in '
-                               'out_numbers:\n%s\n%s' % (name, num))
-        if len(name) != len(in_names):
-            raise RuntimeError('each entry in out_names must have the same '
+        if len(name) != len(np.unique(num)):
+            raise RuntimeError('each entry in out_names must have length '
+                               'equal to the number of unique elements in the '
+                               'corresponding entry in out_numbers:\n%s\n%s'
+                               % (name, np.unique(num)))
+        if len(num) != len(in_names):
+            raise RuntimeError('each entry in out_numbers must have the same '
                                'length as in_names')
         if (np.array(num) == 0).any():
             raise ValueError('no element of out_numbers can be zero')
@@ -870,27 +871,36 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
             # do matching
             numbers = np.asanyarray(numbers)
             nn = numbers[numbers >= 0]
-            new_numbers = np.unique(numbers[numbers > 0])
-            offset = max(epochs.events[:, 2].max(), new_numbers.max()) + 1
+            new_numbers = []
+            for num in numbers:
+                if num > 0 and num not in new_numbers:
+                    # Eventually we could relax this requirement, but not
+                    # having it in place is likely to cause people pain...
+                    if any(num < n for n in new_numbers):
+                        raise RuntimeError('each list of new_numbers must be '
+                                           ' monotonically increasing')
+                    new_numbers.append(num)
+            new_numbers = np.array(new_numbers)
             in_names_match = in_names[match]
-            if len(new_numbers) != len(names):
-                raise ValueError('out_numbers length must match out_names '
-                                 'length for analysis %s' % analysis)
+            # use some variables to allow safe name re-use
+            offset = max(epochs.events[:, 2].max(), new_numbers.max()) + 1
+            safety_str = '__mnefun_copy__'
+            assert len(new_numbers) == len(names)  # checked above
             if p.match_fun is None:
                 # first, equalize trial counts (this will make a copy)
-                e = epochs[in_names[numbers > 0]]
+                e = epochs[list(in_names[numbers > 0])]
                 if len(in_names_match) > 1:
-                    e = epochs.equalize_event_counts(in_names_match)[0]
-                else:
-                    e = epochs.copy()
+                    e.equalize_event_counts(in_names_match, copy=False)
 
                 # second, collapse relevant types
                 for num, name in zip(new_numbers, names):
                     combine_event_ids(e, in_names[num == numbers],
-                                      {name: num + offset},
+                                      {name + safety_str: num + offset},
                                       copy=False)
-                for num in new_numbers:
+                for num, name in zip(new_numbers, names):
                     e.events[e.events[:, 2] == num + offset, 2] -= offset
+                    e.event_id[name] = num
+                    del e.event_id[name + safety_str]
             else:  # custom matching
                 e = p.match_fun(epochs.copy(), analysis, nn,
                                 in_names_match, names)
