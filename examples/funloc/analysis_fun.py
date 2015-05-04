@@ -62,6 +62,7 @@ params.runs_empty = ['%s_erm']
 params.proj_nums = [[1, 1, 0],  # ECG: grad/mag/eeg
                     [1, 1, 2],  # EOG
                     [0, 0, 0]]  # Continuous (from ERM)
+params.cov_method = 'shrunk'  # cleaner noise covariance regularization
 
 # The scoring function needs to produce an event file with these values
 params.in_names = ['Aud', 'Vis', 'AudDev', 'VisDev']

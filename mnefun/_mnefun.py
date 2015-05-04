@@ -66,7 +66,8 @@ class Params(object):
                  epochs_type='fif', fwd_mindist=2.0,
                  bem_type='5120-5120-5120', auto_bad=None,
                  ecg_channel=None, eog_channel=None,
-                 plot_raw=False, match_fun=None, hp_cut=None):
+                 plot_raw=False, match_fun=None, hp_cut=None,
+                 cov_method='empirical'):
         """Make a useful parameter structure
 
         This is technically a class, but it doesn't currently have any methods
@@ -138,6 +139,8 @@ class Params(object):
             to equalize event counts.
         hp_cut : float | None
             Highpass cutoff in Hz. Use None for no highpassing.
+        cov_method : str
+            Covariance calculation method.
 
         Returns
         -------
@@ -208,7 +211,6 @@ class Params(object):
         self.sss_fif_tag = '_raw_sss.fif'
         self.bad_tag = '_post-sss.txt'
         self.keep_orig = False
-        self.cov_method = 'empirical'
         # This is used by fix_eeg_channels to fix original files
         self.raw_fif_tag = '_raw.fif'
         # Maxfilter params
@@ -220,6 +222,12 @@ class Params(object):
         self.dig_with_eeg = False
         # Function to pick a subset of events to use to make a covariance
         self.pick_events_cov = lambda x: x
+        self.cov_method = cov_method
+        # These should be overridden by the user unless they are only doing
+        # a small subset, e.g. epoching
+        self.score = None
+        self.structurals = None
+        self.dates = None
 
     @property
     def pca_extra(self):
@@ -316,14 +324,23 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
 
     sinds = p.subject_indices
     subjects = np.array(p.subjects)[sinds].tolist()
-    structurals = np.array(p.structurals)[sinds].tolist()
-    dates = [tuple([int(dd) for dd in d]) for d in np.array(p.dates)[sinds]]
+    if p.structurals is not None:
+        structurals = np.array(p.structurals)[sinds].tolist()
+    else:
+        structurals = None
+    if p.dates is not None:
+        dates = [tuple([int(dd) for dd in d])
+                 for d in np.array(p.dates)[sinds]]
+    else:
+        dates = None
 
     outs = [None] * len(bools)
     for ii, (b, text, func) in enumerate(zip(bools, texts, funcs)):
         if b:
             t0 = time()
             print(text + '. ')
+            if func is None:
+                raise ValueError('function is None')
             if func == fix_eeg_files:
                 outs[ii] = func(p, subjects, structurals, dates)
             elif func in (gen_forwards, gen_html_report):
@@ -805,11 +822,12 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
     if len(out_names) != len(out_numbers):
         raise RuntimeError('out_names must have same length as out_numbers')
     for name, num in zip(out_names, out_numbers):
-        if len(name) != len(np.unique(num)):
+        num = np.array(num)
+        if len(name) != len(np.unique(num[num > 0])):
             raise RuntimeError('each entry in out_names must have length '
                                'equal to the number of unique elements in the '
                                'corresponding entry in out_numbers:\n%s\n%s'
-                               % (name, np.unique(num)))
+                               % (name, np.unique(num[num > 0])))
         if len(num) != len(in_names):
             raise RuntimeError('each entry in out_numbers must have the same '
                                'length as in_names')
@@ -977,6 +995,8 @@ def gen_inverses(p, subjects, use_old_rank=False):
             erm_name = op.join(cov_dir, safe_inserter(p.runs_empty[0], subj) +
                                p.pca_extra + p.inv_tag + '-cov.fif')
             empty_cov = read_cov(erm_name)
+            if empty_cov.get('method', 'empirical') == 'empirical':
+                empty_cov = regularize(empty_cov, raw.info)
         for name in p.inv_names:
             s_name = safe_inserter(name, subj)
             temp_name = s_name + ('-%d' % p.lp_cut) + p.inv_tag
@@ -986,9 +1006,8 @@ def gen_inverses(p, subjects, use_old_rank=False):
             cov_name = op.join(cov_dir, safe_inserter(name, subj) +
                                ('-%d' % p.lp_cut) + p.inv_tag + '-cov.fif')
             cov = read_cov(cov_name)
-            cov_reg = regularize(cov, raw.info)
-            if make_erm_inv:
-                empty_cov_reg = regularize(empty_cov, raw.info)
+            if cov.get('method', 'empirical') == 'empirical':
+                cov = regularize(cov, raw.info)
             for f, m, e in zip(out_flags, meg_bools, eeg_bools):
                 fwd_restricted = pick_types_forward(fwd, meg=m, eeg=e)
                 for l, s, x in zip([None, 0.2], [p.inv_fixed_tag, ''],
@@ -996,14 +1015,14 @@ def gen_inverses(p, subjects, use_old_rank=False):
                     inv_name = op.join(inv_dir,
                                        temp_name + f + s + '-inv.fif')
                     inv = make_inverse_operator(raw.info, fwd_restricted,
-                                                cov_reg, loose=l, depth=0.8,
+                                                cov, loose=l, depth=0.8,
                                                 fixed=x)
                     write_inverse_operator(inv_name, inv)
                     if (not e) and make_erm_inv:
                         inv_name = op.join(inv_dir, temp_name + f +
                                            p.inv_erm_tag + s + '-inv.fif')
                         inv = make_inverse_operator(raw.info, fwd_restricted,
-                                                    empty_cov_reg, fixed=x,
+                                                    empty_cov, fixed=x,
                                                     loose=l, depth=0.8)
                         write_inverse_operator(inv_name, inv)
 
@@ -1093,10 +1112,7 @@ def gen_covariances(p, subjects):
             empty_fif = op.join(pca_dir, new_run + p.pca_fif_tag)
             raw = Raw(empty_fif, preload=True)
             use_reject, use_flat = _restrict_reject_flat(p.reject, p.flat, raw)
-            if len(pick_types(raw.info, meg=False, eeg=True)) > 0:
-                picks = None
-            else:
-                picks = pick_types(raw.info, meg=True, eeg=False)
+            picks = pick_types(raw.info, meg=True, eeg=False, exclude='bads')
             cov = compute_raw_data_covariance(raw, reject=use_reject,
                                               flat=use_flat, picks=picks)
             write_cov(empty_cov_name, cov)
