@@ -67,7 +67,7 @@ class Params(object):
                  bem_type='5120-5120-5120', auto_bad=None,
                  ecg_channel=None, eog_channel=None,
                  plot_raw=False, match_fun=None, hp_cut=None,
-                 cov_method='empirical'):
+                 cov_method='empirical', ssp_rej=None):
         """Make a useful parameter structure
 
         This is technically a class, but it doesn't currently have any methods
@@ -141,6 +141,8 @@ class Params(object):
             Highpass cutoff in Hz. Use None for no highpassing.
         cov_method : str
             Covariance calculation method.
+        ssp_rej : dict | None
+            Amplitude rejection criteria for ExG SSP computation
 
         Returns
         -------
@@ -149,6 +151,7 @@ class Params(object):
         """
         self.reject = dict(eog=np.inf, grad=1500e-13, mag=5000e-15, eeg=150e-6)
         self.flat = dict(eog=-1, grad=1e-13, mag=1e-15, eeg=1e-6)
+        self.ssp_reject = None
         self.tmin = tmin
         self.tmax = tmax
         self.t_adjust = t_adjust
@@ -1303,6 +1306,11 @@ def do_preprocessing_combined(p, subjects):
         eog_f_lims = [0, 2]
         ecg_f_lims = [5, 35]
 
+        if p.ssp_reject is not None:
+            ssp_rej = p.ssp_reject
+        else:
+            ssp_rej = p.ssp_reject
+
         ecg_eve = op.join(pca_dir, 'preproc_ecg-eve.fif')
         ecg_proj = op.join(pca_dir, 'preproc_ecg-proj.fif')
         eog_eve = op.join(pca_dir, 'preproc_blink-eve.fif')
@@ -1362,7 +1370,8 @@ def do_preprocessing_combined(p, subjects):
                                  n_mag=proj_nums[0][1], n_eeg=proj_nums[0][2],
                                  tmin=ecg_t_lims[0], tmax=ecg_t_lims[1],
                                  l_freq=None, h_freq=None, no_proj=True,
-                                 qrs_threshold='auto', ch_name=p.ecg_channel)
+                                 qrs_threshold='auto', ch_name=p.ecg_channel,
+                                 reject=ssp_rej)
             if ecg_events.shape[0] >= 20:
                 write_events(ecg_eve, ecg_events)
                 write_proj(ecg_proj, pr)
@@ -1386,7 +1395,8 @@ def do_preprocessing_combined(p, subjects):
                                  n_mag=proj_nums[1][1], n_eeg=proj_nums[1][2],
                                  tmin=eog_t_lims[0], tmax=eog_t_lims[1],
                                  l_freq=None, h_freq=None, no_proj=True,
-                                 ch_name=p.eog_channel)
+                                 ch_name=p.eog_channel,
+                                 reject=ssp_rej)
             if eog_events.shape[0] >= 5:
                 write_events(eog_eve, eog_events)
                 write_proj(eog_proj, pr)
