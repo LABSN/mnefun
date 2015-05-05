@@ -68,7 +68,7 @@ class Params(object):
                  ecg_channel=None, eog_channel=None,
                  plot_raw=False, match_fun=None, hp_cut=None,
                  cov_method='empirical', ssp_eog_reject=None,
-                 ssp_ecg_reject=None):
+                 ssp_ecg_reject=None, baseline='individual'):
         """Make a useful parameter structure
 
         This is technically a class, but it doesn't currently have any methods
@@ -148,6 +148,13 @@ class Params(object):
         ssp_ecg_reject : dict | None
             Amplitude rejection criteria for ECG SSP computation. None will
             use the mne-python default.
+        baseline : tuple | None | str
+            Baseline to use. If "individual", use ``params.bmin`` and
+            ``params.bmax``, otherwise pass as the baseline parameter to
+            mne-python Epochs. ``params.bmin`` and ``params.bmax`` will always
+            be used for covariance calculation. This is useful e.g. when using
+            a high-pass filter and no baselining is desired (but evoked
+            covariances should still be calculated from the baseline period).
 
         Returns
         -------
@@ -167,6 +174,7 @@ class Params(object):
         self.tmin = tmin
         self.tmax = tmax
         self.t_adjust = t_adjust
+        self.baseline = baseline
         self.bmin = bmin
         self.bmax = bmax
         self.run_names = None
@@ -251,6 +259,15 @@ class Params(object):
     @property
     def pca_fif_tag(self):
         return self.pca_extra + self.sss_fif_tag
+
+
+def _get_baseline(p):
+    """Helper to extract baseline from params"""
+    if p.baseline == 'individual':
+        baseline = (p.bmin, p.bmax)
+    else:
+        baseline = p.baseline
+    return baseline
 
 
 def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
@@ -886,7 +903,7 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
             print('    Epoching data.')
         use_reject, use_flat = _restrict_reject_flat(p.reject, p.flat, raw)
         epochs = Epochs(raw, events, event_id=old_dict, tmin=p.tmin,
-                        tmax=p.tmax, baseline=(p.bmin, p.bmax),
+                        tmax=p.tmax, baseline=_get_baseline(p),
                         reject=use_reject, flat=use_flat, proj=True,
                         preload=True, decim=p.decim)
         del raw
@@ -1247,7 +1264,8 @@ def do_preprocessing_combined(p, subjects):
     drop_logs = list()
     for si, subj in enumerate(subjects):
         if p.disp_files:
-            print('  Preprocessing subject %g/%g.' % (si + 1, len(subjects)))
+            print('  Preprocessing subject %g/%g (%s).'
+                  % (si + 1, len(subjects), subj))
         pca_dir = op.join(p.work_dir, subj, p.pca_dir)
         bad_dir = op.join(p.work_dir, subj, p.bad_dir)
 
@@ -1276,7 +1294,7 @@ def do_preprocessing_combined(p, subjects):
                                exclude=[])
             assert type(p.auto_bad_reject) and type(p.auto_bad_flat) == dict
             epochs = Epochs(raw, events, None, p.tmin, p.tmax,
-                            baseline=(p.bmin, p.bmax), picks=picks,
+                            baseline=_get_baseline(p), picks=picks,
                             reject=p.auto_bad_reject, flat=p.auto_bad_flat,
                             proj=True, preload=True, decim=0)
             # channel scores from drop log
@@ -1427,7 +1445,7 @@ def do_preprocessing_combined(p, subjects):
         use_reject, use_flat = _restrict_reject_flat(p.reject, p.flat,
                                                      raw_orig)
         epochs = Epochs(raw_orig, events, None, p.tmin, p.tmax, preload=False,
-                        baseline=(p.bmin, p.bmax), reject=use_reject,
+                        baseline=_get_baseline(p), reject=use_reject,
                         flat=use_flat, proj=True)
         epochs.drop_bad_epochs()
         drop_logs.append(epochs.drop_log)
