@@ -67,7 +67,8 @@ class Params(object):
                  bem_type='5120-5120-5120', auto_bad=None,
                  ecg_channel=None, eog_channel=None,
                  plot_raw=False, match_fun=None, hp_cut=None,
-                 cov_method='empirical', ssp_rej=None):
+                 cov_method='empirical', ssp_eog_reject=None,
+                 ssp_ecg_reject=None):
         """Make a useful parameter structure
 
         This is technically a class, but it doesn't currently have any methods
@@ -141,8 +142,12 @@ class Params(object):
             Highpass cutoff in Hz. Use None for no highpassing.
         cov_method : str
             Covariance calculation method.
-        ssp_rej : dict | None
-            Amplitude rejection criteria for ExG SSP computation
+        ssp_eog_reject : dict | None
+            Amplitude rejection criteria for EOG SSP computation. None will
+            use the mne-python default.
+        ssp_ecg_reject : dict | None
+            Amplitude rejection criteria for ECG SSP computation. None will
+            use the mne-python default.
 
         Returns
         -------
@@ -151,7 +156,14 @@ class Params(object):
         """
         self.reject = dict(eog=np.inf, grad=1500e-13, mag=5000e-15, eeg=150e-6)
         self.flat = dict(eog=-1, grad=1e-13, mag=1e-15, eeg=1e-6)
-        self.ssp_reject = None
+        if ssp_eog_reject is None:
+            ssp_eog_reject = dict(grad=2000e-13, mag=3000e-15,
+                                  eeg=500e-6, eog=np.inf)
+        if ssp_ecg_reject is None:
+            ssp_ecg_reject = dict(grad=2000e-13, mag=3000e-15,
+                                  eeg=50e-6, eog=250e-6)
+        self.ssp_eog_reject = ssp_eog_reject
+        self.ssp_ecg_reject = ssp_ecg_reject
         self.tmin = tmin
         self.tmax = tmax
         self.t_adjust = t_adjust
@@ -917,7 +929,9 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
 
                 # second, collapse relevant types
                 for num, name in zip(new_numbers, names):
-                    combine_event_ids(e, in_names[num == numbers],
+                    collapse = [x for x in in_names[num == numbers]
+                                if x in e.event_id]
+                    combine_event_ids(e, collapse,
                                       {name + safety_str: num + offset},
                                       copy=False)
                 for num, name in zip(new_numbers, names):
@@ -1306,11 +1320,6 @@ def do_preprocessing_combined(p, subjects):
         eog_f_lims = [0, 2]
         ecg_f_lims = [5, 35]
 
-        if p.ssp_reject is not None:
-            ssp_rej = p.ssp_reject
-        else:
-            ssp_rej = p.ssp_reject
-
         ecg_eve = op.join(pca_dir, 'preproc_ecg-eve.fif')
         ecg_proj = op.join(pca_dir, 'preproc_ecg-proj.fif')
         eog_eve = op.join(pca_dir, 'preproc_blink-eve.fif')
@@ -1371,7 +1380,7 @@ def do_preprocessing_combined(p, subjects):
                                  tmin=ecg_t_lims[0], tmax=ecg_t_lims[1],
                                  l_freq=None, h_freq=None, no_proj=True,
                                  qrs_threshold='auto', ch_name=p.ecg_channel,
-                                 reject=ssp_rej)
+                                 reject=p.ssp_ecg_reject)
             if ecg_events.shape[0] >= 20:
                 write_events(ecg_eve, ecg_events)
                 write_proj(ecg_proj, pr)
@@ -1396,7 +1405,7 @@ def do_preprocessing_combined(p, subjects):
                                  tmin=eog_t_lims[0], tmax=eog_t_lims[1],
                                  l_freq=None, h_freq=None, no_proj=True,
                                  ch_name=p.eog_channel,
-                                 reject=ssp_rej)
+                                 reject=p.ssp_eog_reject)
             if eog_events.shape[0] >= 5:
                 write_events(eog_eve, eog_events)
                 write_proj(eog_proj, pr)
