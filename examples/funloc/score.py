@@ -20,8 +20,8 @@ from mnefun import extract_expyfun_events
 # a nicer decimal scheme
 _expyfun_dict = {
     10: 10,  # 8448  (9) + 1 = 10: auditory std, recode as 10
-    12: 20,  # 8488 (11) + 1 = 12: visual std, recode as 20
-    14: 11,  # 8848 (13) + 1 = 14: auditory dev, recode as 11
+    12: 11,  # 8488 (11) + 1 = 12: visual std, recode as 11
+    14: 20,  # 8848 (13) + 1 = 14: auditory dev, recode as 20
     16: 21,  # 8888 (15) + 1 = 16: visual dev, recode as 21
 }
 

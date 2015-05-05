@@ -51,8 +51,8 @@ params.acq_dir = '/sinuhe/data01/eric_non_space'
 params.sws_ssh = 'kasga'
 params.sws_dir = '/data06/larsoner'
 
-## set the niprov handler to deal with events:
-params.on_process = handler 
+# set the niprov handler to deal with events:
+params.on_process = handler
 
 params.run_names = ['%s_funloc']
 params.get_projs_from = np.arange(1)
@@ -62,10 +62,11 @@ params.runs_empty = ['%s_erm']
 params.proj_nums = [[1, 1, 0],  # ECG: grad/mag/eeg
                     [1, 1, 2],  # EOG
                     [0, 0, 0]]  # Continuous (from ERM)
+params.cov_method = 'shrunk'  # cleaner noise covariance regularization
 
 # The scoring function needs to produce an event file with these values
 params.in_names = ['Aud', 'Vis', 'AudDev', 'VisDev']
-params.in_numbers = [10, 20, 11, 21]
+params.in_numbers = [10, 11, 20, 21]
 
 # These lines define how to translate the above event types into evoked files
 params.analyses = [
@@ -74,15 +75,15 @@ params.analyses = [
 ]
 params.out_names = [
     ['All'],
-    ['A', 'V'],
+    params.in_names,
 ]
 params.out_numbers = [
     [1, 1, 1, 1],    # Combine all trials
-    [1, 2, -1, -1],  # Get auditory standards and visual standards
+    params.in_numbers,  # Leave events split the same way they were scored
 ]
 params.must_match = [
     [],
-    [0, 1],  # we want the same number of auditory and visual trials
+    [0, 1],  # only make the standard event counts match
 ]
 
 # Set what will run
