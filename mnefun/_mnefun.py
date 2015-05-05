@@ -251,6 +251,7 @@ class Params(object):
         self.score = None
         self.structurals = None
         self.dates = None
+        self.on_missing = 'error'  # for epochs
 
     @property
     def pca_extra(self):
@@ -905,7 +906,7 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
         epochs = Epochs(raw, events, event_id=old_dict, tmin=p.tmin,
                         tmax=p.tmax, baseline=_get_baseline(p),
                         reject=use_reject, flat=use_flat, proj=True,
-                        preload=True, decim=p.decim)
+                        preload=True, decim=p.decim, on_missing=p.on_missing)
         del raw
         drop_logs.append(epochs.drop_log)
         ch_namess.append(epochs.ch_names)
