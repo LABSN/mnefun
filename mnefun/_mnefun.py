@@ -22,8 +22,7 @@ from mne import (compute_proj_raw, make_fixed_length_events, Epochs,
                  read_cov, write_cov, read_forward_solution,
                  compute_raw_data_covariance, compute_covariance,
                  write_proj, read_proj, setup_source_space,
-                 make_forward_solution, average_forward_solutions,
-                 write_forward_solution, get_config, write_evokeds,
+                 make_forward_solution, get_config, write_evokeds,
                  add_source_space_distances, write_source_spaces)
 from mne.preprocessing.ssp import compute_proj_ecg, compute_proj_eog
 from mne.preprocessing.maxfilter import fit_sphere_to_headshape
@@ -67,7 +66,9 @@ class Params(object):
                  epochs_type='fif', fwd_mindist=2.0,
                  bem_type='5120-5120-5120', auto_bad=None,
                  ecg_channel=None, eog_channel=None,
-                 plot_raw=False, match_fun=None):
+                 plot_raw=False, match_fun=None, hp_cut=None,
+                 cov_method='empirical', ssp_eog_reject=None,
+                 ssp_ecg_reject=None, baseline='individual'):
         """Make a useful parameter structure
 
         This is technically a class, but it doesn't currently have any methods
@@ -137,6 +138,23 @@ class Params(object):
             If None, standard matching will be performed. If a function,
             must_match will be ignored, and ``match_fun`` will be called
             to equalize event counts.
+        hp_cut : float | None
+            Highpass cutoff in Hz. Use None for no highpassing.
+        cov_method : str
+            Covariance calculation method.
+        ssp_eog_reject : dict | None
+            Amplitude rejection criteria for EOG SSP computation. None will
+            use the mne-python default.
+        ssp_ecg_reject : dict | None
+            Amplitude rejection criteria for ECG SSP computation. None will
+            use the mne-python default.
+        baseline : tuple | None | str
+            Baseline to use. If "individual", use ``params.bmin`` and
+            ``params.bmax``, otherwise pass as the baseline parameter to
+            mne-python Epochs. ``params.bmin`` and ``params.bmax`` will always
+            be used for covariance calculation. This is useful e.g. when using
+            a high-pass filter and no baselining is desired (but evoked
+            covariances should still be calculated from the baseline period).
 
         Returns
         -------
@@ -145,9 +163,18 @@ class Params(object):
         """
         self.reject = dict(eog=np.inf, grad=1500e-13, mag=5000e-15, eeg=150e-6)
         self.flat = dict(eog=-1, grad=1e-13, mag=1e-15, eeg=1e-6)
+        if ssp_eog_reject is None:
+            ssp_eog_reject = dict(grad=2000e-13, mag=3000e-15,
+                                  eeg=500e-6, eog=np.inf)
+        if ssp_ecg_reject is None:
+            ssp_ecg_reject = dict(grad=2000e-13, mag=3000e-15,
+                                  eeg=50e-6, eog=250e-6)
+        self.ssp_eog_reject = ssp_eog_reject
+        self.ssp_ecg_reject = ssp_ecg_reject
         self.tmin = tmin
         self.tmax = tmax
         self.t_adjust = t_adjust
+        self.baseline = baseline
         self.bmin = bmin
         self.bmax = bmax
         self.run_names = None
@@ -161,6 +188,7 @@ class Params(object):
         self.filter_length = filter_length
         self.cont_lp = 5
         self.lp_cut = lp_cut
+        self.hp_cut = hp_cut
         self.mne_root = os.getenv('MNE_ROOT')
         self.disp_files = True
         self.plot_drop_logs = True  # plot drop logs after do_preprocessing_...
@@ -184,8 +212,6 @@ class Params(object):
         self.ecg_channel = ecg_channel
         self.eog_channel = eog_channel
         self.plot_raw = plot_raw
-        self.translate_positions = True
-        self.quat_tol = 5e-2  # not used anymore
 
         # add standard file tags
 
@@ -217,6 +243,15 @@ class Params(object):
         self.on_process = None
         # Use more than EXTRA points to fit headshape
         self.dig_with_eeg = False
+        # Function to pick a subset of events to use to make a covariance
+        self.pick_events_cov = lambda x: x
+        self.cov_method = cov_method
+        # These should be overridden by the user unless they are only doing
+        # a small subset, e.g. epoching
+        self.score = None
+        self.structurals = None
+        self.dates = None
+        self.on_missing = 'error'  # for epochs
 
     @property
     def pca_extra(self):
@@ -225,6 +260,15 @@ class Params(object):
     @property
     def pca_fif_tag(self):
         return self.pca_extra + self.sss_fif_tag
+
+
+def _get_baseline(p):
+    """Helper to extract baseline from params"""
+    if p.baseline == 'individual':
+        baseline = (p.bmin, p.bmax)
+    else:
+        baseline = p.baseline
+    return baseline
 
 
 def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
@@ -313,14 +357,23 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
 
     sinds = p.subject_indices
     subjects = np.array(p.subjects)[sinds].tolist()
-    structurals = np.array(p.structurals)[sinds].tolist()
-    dates = [tuple([int(dd) for dd in d]) for d in np.array(p.dates)[sinds]]
+    if p.structurals is not None:
+        structurals = np.array(p.structurals)[sinds].tolist()
+    else:
+        structurals = None
+    if p.dates is not None:
+        dates = [tuple([int(dd) for dd in d])
+                 for d in np.array(p.dates)[sinds]]
+    else:
+        dates = None
 
     outs = [None] * len(bools)
     for ii, (b, text, func) in enumerate(zip(bools, texts, funcs)):
         if b:
             t0 = time()
             print(text + '. ')
+            if func is None:
+                raise ValueError('function is None')
             if func == fix_eeg_files:
                 outs[ii] = func(p, subjects, structurals, dates)
             elif func in (gen_forwards, gen_html_report):
@@ -463,9 +516,11 @@ def push_raw_files(p, subjects):
                      '--include', op.join(raw_root, op.basename(out_pos)),
                      '--include', op.join(raw_root, op.basename(med_pos))]
         prebad_file = op.join(raw_dir, subj + '_prebad.txt')
-        if op.isfile(prebad_file):  # SSS prebad file
-            includes += ['--include',
-                         op.join(raw_root, op.basename(prebad_file))]
+        if not op.isfile(prebad_file):  # SSS prebad file
+            raise RuntimeError('Could not find SSS prebad file: %s'
+                               % prebad_file)
+        includes += ['--include',
+                     op.join(raw_root, op.basename(prebad_file))]
         # build local raw file finder
         finder_stem = 'find %s ' % raw_dir
         fnames = get_raw_fnames(p, subj, 'raw', True)
@@ -533,7 +588,7 @@ def run_sss_command(fname_in, options, fname_out, host='kasga'):
         The filename to process.
     options : str
         The command-line options for Maxfilter.
-    out_fname : str | None
+    fname_out : str | None
         Output filename to use to store the result on the local machine.
         None will output to a temporary file.
     host : str
@@ -554,8 +609,8 @@ def run_sss_command(fname_in, options, fname_out, host='kasga'):
     run_subprocess(cmd, stdout=None, stderr=None)
 
     print('Running maxfilter on %s' % host)
-    cmd = ['ssh', host, 'maxfilter -f ' + remote_in + ' -o ' + remote_out
-           + ' ' + options]
+    cmd = ['ssh', host, 'maxfilter -f ' + remote_in + ' -o ' + remote_out +
+           ' ' + options]
     run_subprocess(cmd, stdout=None, stderr=None)
 
     print('Copying result to %s' % fname_out)
@@ -565,6 +620,55 @@ def run_sss_command(fname_in, options, fname_out, host='kasga'):
     print('Cleaning up %s' % host)
     cmd = ['ssh', host, 'rm %s %s' % (remote_in, remote_out)]
     run_subprocess(cmd, stdout=None, stderr=None)
+
+
+def run_sss_positions(fname_in, fname_out, host='kasga'):
+    """Run Maxfilter remotely and fetch resulting file
+
+    Parameters
+    ----------
+    fname_in : str
+        The filename to process. Additional ``-1`` files will be
+        automatically detected.
+    fname_out : str
+        Output filename to use to store the resulting head positions
+        on the local machine.
+    host : str
+        The SSH/scp host to run the command on.
+    """
+    # let's make sure we can actually write where we want
+    if not op.isfile(fname_in):
+        raise IOError('input file not found: %s' % fname_in)
+    if not op.isdir(op.dirname(op.abspath(fname_out))):
+        raise IOError('output directory for output file does not exist')
+    fnames_in = [fname_in]
+    for ii in range(1, 11):
+        next_name = op.splitext(fname_in)[0] + '-%s' % ii + '.fif'
+        if op.isfile(next_name):
+            fnames_in.append(next_name)
+        else:
+            break
+    t0 = time()
+    remote_ins = ['~/' + op.basename(fname) for fname in fnames_in]
+    remote_out = '~/temp_%s_raw_quat.fif' % t0
+    remote_hp = '~/temp_%s_hp.txt' % t0
+    print('  Copying file to %s' % host)
+    cmd = ['scp'] + fnames_in + [host + ':~/']
+    run_subprocess(cmd, stdout=None, stderr=None)
+
+    print('  Running maxfilter on %s' % host)
+    cmd = ['ssh', host, 'maxfilter -f ' + remote_ins[0] + ' -o ' + remote_out +
+           ' -headpos -format short -hp ' + remote_hp]
+    run_subprocess(cmd)
+
+    print('  Copying result to %s' % fname_out)
+    cmd = ['scp', host + ':' + remote_hp, fname_out]
+    run_subprocess(cmd)
+
+    print('  Cleaning up %s' % host)
+    cmd = ['ssh', host, 'rm -f %s %s %s'
+           % (' '.join(remote_ins), remote_hp, remote_out)]
+    run_subprocess(cmd)
 
 
 def extract_expyfun_events(fname, return_offsets=False):
@@ -743,6 +847,26 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
     for n, e in zip(in_names, in_numbers):
         old_dict[n] = e
 
+    # let's do some sanity checks
+    if len(in_names) != len(in_numbers):
+        raise RuntimeError('in_names must have same length as in_numbers')
+    if np.any(np.array(in_numbers) <= 0):
+        raise ValueError('in_numbers must all be > 0')
+    if len(out_names) != len(out_numbers):
+        raise RuntimeError('out_names must have same length as out_numbers')
+    for name, num in zip(out_names, out_numbers):
+        num = np.array(num)
+        if len(name) != len(np.unique(num[num > 0])):
+            raise RuntimeError('each entry in out_names must have length '
+                               'equal to the number of unique elements in the '
+                               'corresponding entry in out_numbers:\n%s\n%s'
+                               % (name, np.unique(num[num > 0])))
+        if len(num) != len(in_names):
+            raise RuntimeError('each entry in out_numbers must have the same '
+                               'length as in_names')
+        if (np.array(num) == 0).any():
+            raise ValueError('no element of out_numbers can be zero')
+
     ch_namess = list()
     drop_logs = list()
     for subj in subjects:
@@ -780,9 +904,9 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
             print('    Epoching data.')
         use_reject, use_flat = _restrict_reject_flat(p.reject, p.flat, raw)
         epochs = Epochs(raw, events, event_id=old_dict, tmin=p.tmin,
-                        tmax=p.tmax, baseline=(p.bmin, p.bmax),
+                        tmax=p.tmax, baseline=_get_baseline(p),
                         reject=use_reject, flat=use_flat, proj=True,
-                        preload=True, decim=p.decim)
+                        preload=True, decim=p.decim, on_missing=p.on_missing)
         del raw
         drop_logs.append(epochs.drop_log)
         ch_namess.append(epochs.ch_names)
@@ -800,22 +924,38 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
             # do matching
             numbers = np.asanyarray(numbers)
             nn = numbers[numbers >= 0]
-            new_numbers = np.unique(numbers[numbers >= 0])
+            new_numbers = []
+            for num in numbers:
+                if num > 0 and num not in new_numbers:
+                    # Eventually we could relax this requirement, but not
+                    # having it in place is likely to cause people pain...
+                    if any(num < n for n in new_numbers):
+                        raise RuntimeError('each list of new_numbers must be '
+                                           ' monotonically increasing')
+                    new_numbers.append(num)
+            new_numbers = np.array(new_numbers)
             in_names_match = in_names[match]
-            if not len(new_numbers) == len(names):
-                raise ValueError('out_numbers length must match out_names '
-                                 'length for analysis %s' % analysis)
+            # use some variables to allow safe name re-use
+            offset = max(epochs.events[:, 2].max(), new_numbers.max()) + 1
+            safety_str = '__mnefun_copy__'
+            assert len(new_numbers) == len(names)  # checked above
             if p.match_fun is None:
                 # first, equalize trial counts (this will make a copy)
+                e = epochs[list(in_names[numbers > 0])]
                 if len(in_names_match) > 1:
-                    e = epochs.equalize_event_counts(in_names_match)[0]
-                else:
-                    e = epochs.copy()
+                    e.equalize_event_counts(in_names_match, copy=False)
 
-                # second, collapse types
+                # second, collapse relevant types
                 for num, name in zip(new_numbers, names):
-                    combine_event_ids(e, in_names[num == numbers], {name: num},
+                    collapse = [x for x in in_names[num == numbers]
+                                if x in e.event_id]
+                    combine_event_ids(e, collapse,
+                                      {name + safety_str: num + offset},
                                       copy=False)
+                for num, name in zip(new_numbers, names):
+                    e.events[e.events[:, 2] == num + offset, 2] -= offset
+                    e.event_id[name] = num
+                    del e.event_id[name + safety_str]
             else:  # custom matching
                 e = p.match_fun(epochs.copy(), analysis, nn,
                                 in_names_match, names)
@@ -890,6 +1030,8 @@ def gen_inverses(p, subjects, use_old_rank=False):
             erm_name = op.join(cov_dir, safe_inserter(p.runs_empty[0], subj) +
                                p.pca_extra + p.inv_tag + '-cov.fif')
             empty_cov = read_cov(erm_name)
+            if empty_cov.get('method', 'empirical') == 'empirical':
+                empty_cov = regularize(empty_cov, raw.info)
         for name in p.inv_names:
             s_name = safe_inserter(name, subj)
             temp_name = s_name + ('-%d' % p.lp_cut) + p.inv_tag
@@ -899,9 +1041,8 @@ def gen_inverses(p, subjects, use_old_rank=False):
             cov_name = op.join(cov_dir, safe_inserter(name, subj) +
                                ('-%d' % p.lp_cut) + p.inv_tag + '-cov.fif')
             cov = read_cov(cov_name)
-            cov_reg = regularize(cov, raw.info)
-            if make_erm_inv:
-                empty_cov_reg = regularize(empty_cov, raw.info)
+            if cov.get('method', 'empirical') == 'empirical':
+                cov = regularize(cov, raw.info)
             for f, m, e in zip(out_flags, meg_bools, eeg_bools):
                 fwd_restricted = pick_types_forward(fwd, meg=m, eeg=e)
                 for l, s, x in zip([None, 0.2], [p.inv_fixed_tag, ''],
@@ -909,14 +1050,14 @@ def gen_inverses(p, subjects, use_old_rank=False):
                     inv_name = op.join(inv_dir,
                                        temp_name + f + s + '-inv.fif')
                     inv = make_inverse_operator(raw.info, fwd_restricted,
-                                                cov_reg, loose=l, depth=0.8,
+                                                cov, loose=l, depth=0.8,
                                                 fixed=x)
                     write_inverse_operator(inv_name, inv)
                     if (not e) and make_erm_inv:
                         inv_name = op.join(inv_dir, temp_name + f +
                                            p.inv_erm_tag + s + '-inv.fif')
                         inv = make_inverse_operator(raw.info, fwd_restricted,
-                                                    empty_cov_reg, fixed=x,
+                                                    empty_cov, fixed=x,
                                                     loose=l, depth=0.8)
                         write_inverse_operator(inv_name, inv)
 
@@ -945,10 +1086,12 @@ def gen_forwards(p, subjects, structurals):
         subjects_dir = get_config('SUBJECTS_DIR')
         mri_file = op.join(p.work_dir, subj, p.trans_dir, subj + '-trans.fif')
         if not op.isfile(mri_file):
+            mri_file_orig = mri_file
             mri_file = op.join(p.work_dir, subj, p.trans_dir,
                                subj + '-trans_head2mri.txt')
         elif not op.isfile(mri_file):
-            raise IOError('Unable to find coordinate transformation file')
+            raise IOError('Unable to find coordinate transformation file, '
+                          'did you create e.g. %s?' % mri_file_orig)
         src_file = op.join(subjects_dir, structural, 'bem',
                            structural + '-oct-6-src.fif')
         if not op.isfile(src_file):
@@ -960,37 +1103,19 @@ def gen_forwards(p, subjects, structurals):
             print('  Creating forward solution(s)...')
         bem_file = op.join(subjects_dir, structural, 'bem',
                            structural + '-' + p.bem_type + '-bem-sol.fif')
-        if p.translate_positions:
-            for ii, (inv_name, inv_run) in enumerate(zip(p.inv_names,
-                                                         p.inv_runs)):
-                s_name = safe_inserter(p.run_names[inv_run[0]], subj)
-                raw_name = op.join(raw_dir, s_name + p.sss_fif_tag)
-                info = read_info(raw_name)
-                fwd_name = op.join(fwd_dir, safe_inserter(inv_name, subj) +
-                                   p.inv_tag + '-fwd.fif')
-                make_forward_solution(info, mri_file, src_file, bem_file,
-                                      fname=fwd_name, n_jobs=p.n_jobs,
-                                      mindist=p.fwd_mindist, overwrite=True)
-        else:
-            # Legacy code for when runs are in different positions
-            fwds = list()
-            for ri, run_name in enumerate(p.run_names):
-                s_name = safe_inserter(run_name, subj)
-                raw_name = op.join(raw_dir, s_name + p.sss_fif_tag)
-                info = read_info(raw_name)
-                fwd_name = op.join(fwd_dir, s_name + p.inv_tag + '-fwd.fif')
-                fwd = make_forward_solution(info, mri_file, src_file, bem_file,
-                                            fname=fwd_name, n_jobs=p.n_jobs,
-                                            overwrite=True)
-                fwds.append(fwd)
-
-            for ii, (inv_name, inv_run) in enumerate(zip(p.inv_names,
-                                                         p.inv_runs)):
-                fwds_use = [f for fi, f in enumerate(fwds) if fi in inv_run]
-                fwd_name = op.join(fwd_dir, safe_inserter(inv_name, subj) +
-                                   p.inv_tag + '-fwd.fif')
-                fwd_ave = average_forward_solutions(fwds_use)
-                write_forward_solution(fwd_name, fwd_ave, overwrite=True)
+        if not getattr(p, 'translate_positions', True):
+            raise RuntimeError('Not translating positions is no longer '
+                               'supported')
+        for ii, (inv_name, inv_run) in enumerate(zip(p.inv_names,
+                                                     p.inv_runs)):
+            s_name = safe_inserter(p.run_names[inv_run[0]], subj)
+            raw_name = op.join(raw_dir, s_name + p.sss_fif_tag)
+            info = read_info(raw_name)
+            fwd_name = op.join(fwd_dir, safe_inserter(inv_name, subj) +
+                               p.inv_tag + '-fwd.fif')
+            make_forward_solution(info, mri_file, src_file, bem_file,
+                                  fname=fwd_name, n_jobs=p.n_jobs,
+                                  mindist=p.fwd_mindist, overwrite=True)
 
 
 def gen_covariances(p, subjects):
@@ -1022,10 +1147,7 @@ def gen_covariances(p, subjects):
             empty_fif = op.join(pca_dir, new_run + p.pca_fif_tag)
             raw = Raw(empty_fif, preload=True)
             use_reject, use_flat = _restrict_reject_flat(p.reject, p.flat, raw)
-            if len(pick_types(raw.info, meg=False, eeg=True)) > 0:
-                picks = None
-            else:
-                picks = pick_types(raw.info, meg=True, eeg=False)
+            picks = pick_types(raw.info, meg=True, eeg=False, exclude='bads')
             cov = compute_raw_data_covariance(raw, reject=use_reject,
                                               flat=use_flat, picks=picks)
             write_cov(empty_cov_name, cov)
@@ -1048,6 +1170,12 @@ def gen_covariances(p, subjects):
             e_names = [op.join(lst_dir, 'ALL_' + safe_inserter(rn[ir], subj) +
                                '-eve.lst') for ir in inv_run]
             events = [read_events(e) for e in e_names]
+            old_count = sum(len(e) for e in events)
+            events = [p.pick_events_cov(e) for e in events]
+            new_count = sum(len(e) for e in events)
+            if new_count != old_count:
+                print('  Using %s instead of %s original events for '
+                      'covariance calculation' % (new_count, old_count))
             events = concatenate_events(events, first_samps,
                                         last_samps)
             picks = pick_types(raw.info, eeg=True, meg=True)
@@ -1056,7 +1184,7 @@ def gen_covariances(p, subjects):
                             picks=picks, preload=True)
             cov_name = op.join(cov_dir, safe_inserter(inv_name, subj) +
                                ('-%d' % p.lp_cut) + p.inv_tag + '-cov.fif')
-            cov = compute_covariance(epochs)
+            cov = compute_covariance(epochs, method=p.cov_method)
             write_cov(cov_name, cov)
 
 
@@ -1137,7 +1265,8 @@ def do_preprocessing_combined(p, subjects):
     drop_logs = list()
     for si, subj in enumerate(subjects):
         if p.disp_files:
-            print('  Preprocessing subject %g/%g.' % (si + 1, len(subjects)))
+            print('  Preprocessing subject %g/%g (%s).'
+                  % (si + 1, len(subjects), subj))
         pca_dir = op.join(p.work_dir, subj, p.pca_dir)
         bad_dir = op.join(p.work_dir, subj, p.bad_dir)
 
@@ -1166,7 +1295,7 @@ def do_preprocessing_combined(p, subjects):
                                exclude=[])
             assert type(p.auto_bad_reject) and type(p.auto_bad_flat) == dict
             epochs = Epochs(raw, events, None, p.tmin, p.tmax,
-                            baseline=(p.bmin, p.bmax), picks=picks,
+                            baseline=_get_baseline(p), picks=picks,
                             reject=p.auto_bad_reject, flat=p.auto_bad_flat,
                             proj=True, preload=True, decim=0)
             # channel scores from drop log
@@ -1269,7 +1398,8 @@ def do_preprocessing_combined(p, subjects):
                                  n_mag=proj_nums[0][1], n_eeg=proj_nums[0][2],
                                  tmin=ecg_t_lims[0], tmax=ecg_t_lims[1],
                                  l_freq=None, h_freq=None, no_proj=True,
-                                 qrs_threshold='auto', ch_name=p.ecg_channel)
+                                 qrs_threshold='auto', ch_name=p.ecg_channel,
+                                 reject=p.ssp_ecg_reject)
             if ecg_events.shape[0] >= 20:
                 write_events(ecg_eve, ecg_events)
                 write_proj(ecg_proj, pr)
@@ -1293,7 +1423,8 @@ def do_preprocessing_combined(p, subjects):
                                  n_mag=proj_nums[1][1], n_eeg=proj_nums[1][2],
                                  tmin=eog_t_lims[0], tmax=eog_t_lims[1],
                                  l_freq=None, h_freq=None, no_proj=True,
-                                 ch_name=p.eog_channel)
+                                 ch_name=p.eog_channel,
+                                 reject=p.ssp_eog_reject)
             if eog_events.shape[0] >= 5:
                 write_events(eog_eve, eog_events)
                 write_proj(eog_proj, pr)
@@ -1306,7 +1437,7 @@ def do_preprocessing_combined(p, subjects):
         write_proj(all_proj, projs)
 
         # look at raw_orig for trial DQs now, it will be quick
-        raw_orig.filter(None, p.lp_cut, n_jobs=p.n_jobs_fir, method='fft',
+        raw_orig.filter(p.hp_cut, p.lp_cut, n_jobs=p.n_jobs_fir, method='fft',
                         filter_length=p.filter_length)
         raw_orig.add_proj(projs)
         raw_orig.apply_proj()
@@ -1315,7 +1446,7 @@ def do_preprocessing_combined(p, subjects):
         use_reject, use_flat = _restrict_reject_flat(p.reject, p.flat,
                                                      raw_orig)
         epochs = Epochs(raw_orig, events, None, p.tmin, p.tmax, preload=False,
-                        baseline=(p.bmin, p.bmax), reject=use_reject,
+                        baseline=_get_baseline(p), reject=use_reject,
                         flat=use_flat, proj=True)
         epochs.drop_bad_epochs()
         drop_logs.append(epochs.drop_log)
@@ -1360,7 +1491,7 @@ def apply_preprocessing_combined(p, subjects):
                 if p.disp_files:
                     print('    Processing erm file %d/%d.'
                           % (ii + 1, len(erm_in)))
-            raw = _raw_LRFCP(r, None, None, p.lp_cut, p.n_jobs_fir,
+            raw = _raw_LRFCP(r, None, p.hp_cut, p.lp_cut, p.n_jobs_fir,
                              p.n_jobs_resample, projs, bad_file,
                              disp_files=False, method='fft', apply_proj=False,
                              filter_length=p.filter_length, force_bads=True)
@@ -1369,7 +1500,7 @@ def apply_preprocessing_combined(p, subjects):
             if p.disp_files:
                 print('    Processing file %d/%d.'
                       % (ii + 1, len(names_in)))
-            raw = _raw_LRFCP(r, None, None, p.lp_cut, p.n_jobs_fir,
+            raw = _raw_LRFCP(r, None, p.hp_cut, p.lp_cut, p.n_jobs_fir,
                              p.n_jobs_resample, projs, bad_file,
                              disp_files=False, method='fft', apply_proj=False,
                              filter_length=p.filter_length, force_bads=False)
