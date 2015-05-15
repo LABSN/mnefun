@@ -32,7 +32,7 @@ fname_pos_orig = op.join(this_dir, '%s_funloc_hp_trunc.txt' % subj)
 fname_pos_move = op.join(this_dir, 'hp_move.txt')
 fname_pos_stat = op.join(this_dir, 'hp_stat.txt')
 
-# Simulate some data
+# Set up paths
 data_dir = op.join(this_dir, 'funloc', subj)
 bem_dir = op.join(subjects_dir, subject, 'bem')
 fname_raw = op.join(data_dir, 'raw_fif', '%s_funloc_raw.fif' % subj)
@@ -42,7 +42,9 @@ bem = op.join(bem_dir, '%s-5120-5120-5120-bem-sol.fif' % subject)
 src = read_source_spaces(op.join(bem_dir, '%s-oct-6-src.fif' % subject))
 sfreq = read_info(fname_raw, verbose=False)['sfreq']
 
-# construct appropriate STC
+# ############################################################################
+# construct appropriate brain activity
+
 print('Constructing original (simulated) sources')
 tmin, tmax = -0.2, 0.8
 vertices = [s['vertno'] for s in src]
@@ -59,6 +61,10 @@ stc.data.fill(0)
 stc.data[:, np.where(np.logical_and(stc.times >= pulse_tmin,
                                     stc.times <= pulse_tmax))[0]] = 10e-9
 
+# ############################################################################
+# Simulate data
+
+"""
 # Simulate data with movement
 with warnings.catch_warnings(record=True):
     raw = Raw(fname_raw, allow_maxshield=True)
@@ -68,20 +74,23 @@ raw_movement = simulate_movement(raw, fname_pos_orig, stc, trans, src, bem,
 # Simulate data with no movement (use initial head position)
 raw_stationary = simulate_movement(raw, None, stc, trans, src, bem,
                                    interp='zero', n_jobs=6, verbose=True)
+"""
 
 # Extract positions
 trans_move, rot_move, t_move = get_chpi_positions(fname_pos_move)
 trans_stat, rot_stat, t_stat = get_chpi_positions(fname_pos_stat)
 trans_orig, rot_orig, t_orig = get_chpi_positions(fname_pos_orig)
 
+# ############################################################################
 # Let's look at the results, just translation for simplicity
+
 axes = 'XYZ'
-plt.figure()
-ts = [t_stat, t_orig, t_move]
-transs = [trans_stat, trans_orig, trans_move]
-labels = ['stationary', 'original', 'simulated']
-sizes = [5, 10, 5]
-colors = 'ykr'
+fig = plt.figure(dpi=200)
+ts = [t_orig, t_stat, t_move]
+transs = [trans_orig, trans_stat, trans_move]
+labels = ['original', 'stationary', 'simulated']
+sizes = [10, 5, 5]
+colors = 'kyr'
 for ai, axis in enumerate(axes):
     ax = plt.subplot(3, 1, ai + 1)
     lines = []
