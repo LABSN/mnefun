@@ -23,8 +23,8 @@ from mne import (compute_proj_raw, make_fixed_length_events, Epochs,
                  compute_raw_data_covariance, compute_covariance,
                  write_proj, read_proj, setup_source_space,
                  make_forward_solution, get_config, write_evokeds,
-                 add_source_space_distances, write_source_spaces,
-                 make_sphere_model, setup_volume_source_space)
+                 make_sphere_model, setup_volume_source_space,
+                 read_bem_solution)
 from mne.preprocessing.ssp import compute_proj_ecg, compute_proj_eog
 from mne.preprocessing.maxfilter import fit_sphere_to_headshape
 from mne.minimum_norm import make_inverse_operator
@@ -1099,6 +1099,7 @@ def gen_forwards(p, subjects, structurals):
             trans = {'from': FIFF.FIFFV_COORD_HEAD,
                      'to': FIFF.FIFFV_COORD_MRI,
                      'trans': np.eye(4)}
+            bem_type = 'spherical model'
         else:
             trans = op.join(p.work_dir, subj, p.trans_dir, subj + '-trans.fif')
             if not op.isfile(trans):
@@ -1113,10 +1114,13 @@ def gen_forwards(p, subjects, structurals):
                 setup_source_space(structural, src, 'oct6', n_jobs=p.n_jobs)
             bem = op.join(subjects_dir, structural, 'bem',
                           structural + '-' + p.bem_type + '-bem-sol.fif')
+            bem_type = ('%s-layer BEM' %
+                        len(read_bem_solution(bem, verbose=False)['surfs']))
         if not getattr(p, 'translate_positions', True):
             raise RuntimeError('Not translating positions is no longer '
                                'supported')
-        print('  Creating forward solution(s)...')
+        print('  Creating forward solution(s) using a %s for %s...'
+              % (bem_type, subj))
         for ii, (inv_name, inv_run) in enumerate(zip(p.inv_names,
                                                      p.inv_runs)):
             s_name = safe_inserter(p.run_names[inv_run[0]], subj)
