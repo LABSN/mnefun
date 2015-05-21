@@ -1092,11 +1092,12 @@ def gen_forwards(p, subjects, structurals):
             info = read_info(op.join(raw_dir, s_name + p.sss_fif_tag))
             bem = make_sphere_model('auto', 'auto', info, verbose=False)
             # create source space
-            sphere = tuple(bem['r0']) + (bem['layers'][0]['rad']) 
-            src = setup_volume_source_space(subj, None, sphere=sphere,
+            sphere = np.concatenate((bem['r0'], [bem['layers'][0]['rad']]))
+            sphere *= 1000.  # to mm
+            src = setup_volume_source_space(subj, None, pos=7., sphere=sphere,
                                             mindist=1.)
-            trans = {'from': FIFFV_COORD_HEAD,
-                     'to': FIFFV_COORD_MRI,
+            trans = {'from': FIFF.FIFFV_COORD_HEAD,
+                     'to': FIFF.FIFFV_COORD_MRI,
                      'trans': np.eye(4)}
         else:
             trans = op.join(p.work_dir, subj, p.trans_dir, subj + '-trans.fif')

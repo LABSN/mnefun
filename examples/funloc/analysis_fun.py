@@ -40,7 +40,7 @@ params = mnefun.Params(tmin=-0.2, tmax=0.5, t_adjust=-4e-3,
                        n_jobs_fir='cuda', n_jobs_resample='cuda',
                        decim=5, proj_sfreq=200, filter_length='5s')
 params.subjects = ['subj_01', 'subj_02']
-params.structurals = ['AKCLEE_107_slim', 'AKCLEE_110_slim']
+params.structurals = [None, 'AKCLEE_110_slim']  # None means use sphere
 params.dates = [(2014, 2, 14), (2014, 2, 10)]
 params.score = score  # scoring function to use
 params.subject_indices = np.arange(2)  # which subjects to run
