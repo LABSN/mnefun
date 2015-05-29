@@ -235,7 +235,7 @@ def run():
                 ax.set_ylabel(' - ' + 'xyz'[others[1]] + ' + ')
                 ax.set_xticks([])
                 ax.set_yticks([])
-                plt.setp(ax.spines.values(), color='none')
+                plt.setp(list(ax.spines.values()), color='none')
             plt.tight_layout()
 
     if plot_raw or plot_evoked:

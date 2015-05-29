@@ -18,6 +18,7 @@ ROOT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 ERM_RUNS=""
 HEAD_TRANS="median"
 ST_DUR="60"
+FORMAT="float"
 
 ASSERT_ISFILE () {
     if [ ! -f "$1" ] ; then
@@ -27,19 +28,22 @@ ASSERT_ISFILE () {
     fi
 }
 
-GET_PREFIX () {
-    if [ "${2: -8}" != "_raw.fif" ]; then
-        echo "ERROR: Improperly named raw file $2"
+GET_PRE_POST_FIX () {
+    local __test=`echo ${3} | sed 's/\(.*\)_raw\(-\?[0-9]*\?\).fif//'`
+    if [ "${__test}" != "" ]; then
+        echo "ERROR: Improperly named raw file $3"
         exit 1
     fi;
     local __resultvar=$1
-    local len=`expr length ${2} - 8`
-    local myresult="${2: 0:${len}}"
+    local myresult=`echo ${3} | sed 's/\(.*\)_raw\(-\?[0-9]*\?\).fif/\1/'`
+    eval $__resultvar="'$myresult'"
+    local __resultvar=$2
+    local myresult=`echo ${3} | sed 's/\(.*\)_raw\(-\?[0-9]*\?\).fif/\2/'`
     eval $__resultvar="'$myresult'"
 }
 
 #################################################### Read the options ##
-TEMP=`getopt -o s:f:e:t: --long subject:,files:,erm:,trans:,st: -n 'run_sss.sh' -- "$@"`
+TEMP=`getopt -o s:f:e:t: --long subject:,files:,erm:,trans:,format:,st: -n 'run_sss.sh' -- "$@"`
 eval set -- "$TEMP"
 
 while true ; do
@@ -58,6 +62,11 @@ while true ; do
             case "$2" in
                 "") shift 2 ;;
                 *) ERM_FILES=$2 ; shift 2 ;;
+            esac ;;
+        --format)
+            case "$2" in
+                "") shift 2 ;;
+                *) FORMAT=$2 ; shift 2 ;;
             esac ;;
         -t|--trans)
             case "$2" in
@@ -104,11 +113,17 @@ case "${HEAD_TRANS}" in
         HEAD_TRANS="${RAW_DIR}${SUBJECT}_median_pos.fif"
         echo "• Translating to the median head position"
         ;;
+    "default")
+        HEAD_TRANS="default"
+        echo "• Translating to the default head position"
+        ;;
     *)
         echo "ERROR: Unknown trans parameter: ${HEAD_TRANS}"
         exit 1
 esac
-ASSERT_ISFILE "${HEAD_TRANS}"
+if [ ${HEAD_TRANS} != "default" ]; then
+    ASSERT_ISFILE "${HEAD_TRANS}"
+fi;
 
 # Head center
 CENTER_FILE="${RAW_DIR}${SUBJECT}_center.txt"
@@ -122,22 +137,22 @@ RUN_FRAME="-frame head -origin ${RUN_CENTER}"
 
 BAD_PARAMS="-autobad 20 -force -v"
 ST_PARAMS="-in 8 -out 3 -regularize in -st ${ST_DUR}"
-MC_PARAMS="-trans ${HEAD_TRANS} -hpicons -movecomp inter"
+MC_PARAMS="-trans ${HEAD_TRANS} -hpicons -movecomp inter -format ${FORMAT}"
 
 # Run processing
 for FILE in "${ADDR[@]}"; do
     echo ""
     echo "Processing run: ${FILE}"
     RAW_FILE="${RAW_DIR}${FILE}"
-    GET_PREFIX PREFIX ${FILE}
+    GET_PRE_POST_FIX PREFIX POSTFIX ${FILE}
     THIS_POS="${RAW_DIR}${HEAD_TRANS}"
     ASSERT_ISFILE "${RAW_FILE}"
 
     # Bad channels
     echo "• Auto-detecting bad channels"
-    OUT_FILE="${SSS_DIR}${RAW_PREFIX}_raw_sss_badch.fif"
+    OUT_FILE="${SSS_DIR}${PREFIX}_raw_sss_badch${POSTFIX}.fif"
     BADCH=`maxfilter -f ${RAW_FILE} -o ${OUT_FILE} ${RUN_FRAME} ${BAD_PARAMS} \
-           | tee ${LOG_DIR}${PREFIX}_1_bads.txt \
+           | tee ${LOG_DIR}${PREFIX}_1_bads${POSTFIX}.txt \
            | sed -n  '/Static bad channels/p' \
            | cut -f 5- -d ' ' | uniq | xargs printf "%04d "`
     rm -f ${OUT_FILE}
@@ -148,14 +163,14 @@ for FILE in "${ADDR[@]}"; do
     fi
     BADCH="-autobad off ${BADCH}"
 
-    MC_LOG="-hp ${LOG_DIR}${PREFIX}_hp.txt"
-    SSS_FILE="${SSS_DIR}${PREFIX}_raw_sss.fif"
+    MC_LOG="-hp ${LOG_DIR}${PREFIX}_hp${POSTFIX}.txt"
+    SSS_FILE="${SSS_DIR}${PREFIX}_raw_sss${POSTFIX}.fif"
 
     # Singleshot SSS (+st +mc +cs transform +hpi file) procedure
     # Show user arguments, minus logging / file args
     ARGS="${RUN_FRAME} ${BADCH} ${ST_PARAMS} ${MC_PARAMS} -force -v"
     echo "• Running maxfilter ${ARGS}"
-    maxfilter -f ${RAW_FILE} -o ${SSS_FILE} ${MC_LOG} ${ARGS} &> ${LOG_DIR}${PREFIX}_sss.txt
+    maxfilter -f ${RAW_FILE} -o ${SSS_FILE} ${MC_LOG} ${ARGS} &> ${LOG_DIR}${PREFIX}_sss${POSTFIX}.txt
 done
 
 # ERM processing
@@ -164,14 +179,14 @@ for FILE in "${ADDR[@]}"; do
     echo ""
     echo "Processing empty room: ${FILE}"
     RAW_FILE="${RAW_DIR}${FILE}"
-    GET_PREFIX PREFIX ${FILE}
+    GET_PRE_POST_FIX PREFIX POSTFIX ${FILE}
     ASSERT_ISFILE "${RAW_FILE}"
 
     # Bad channels
     echo "• Auto-detecting bad channels"
-    OUT_FILE="${SSS_DIR}${RAW_PREFIX}_raw_sss_badch.fif"
+    OUT_FILE="${SSS_DIR}${PREFIX}_raw_sss_badch${POSTFIX}.fif"
     BADCH=`maxfilter -f ${RAW_FILE} -o ${OUT_FILE} ${ERM_FRAME} ${BAD_PARAMS} \
-          | tee ${LOG_DIR}${PREFIX}_1_bads.txt \
+          | tee ${LOG_DIR}${PREFIX}_1_bads${POSTFIX}.txt \
           | sed -n  '/Static bad channels/p' \
           | cut -f 5- -d ' ' | uniq | xargs printf "%04d "`
     rm -f ${OUT_FILE}
@@ -181,12 +196,12 @@ for FILE in "${ADDR[@]}"; do
         BADCH="-bad ${BADCH}${EXTRABADS}"
     fi
     BADCH="-autobad off ${BADCH}"
-    SSS_FILE="${SSS_DIR}${PREFIX}_raw_sss.fif"
+    SSS_FILE="${SSS_DIR}${PREFIX}_raw_sss${POSTFIX}.fif"
 
     # singleshot SSS procedure (no MC)
     ARGS="${ERM_FRAME} ${BADCH} ${ST_PARAMS}"
     echo "• Running maxfilter ${ARGS}"
-    maxfilter -f ${RAW_FILE} -o ${SSS_FILE} ${ARGS} -force -v &> ${LOG_DIR}${PREFIX}_sss.txt
+    maxfilter -f ${RAW_FILE} -o ${SSS_FILE} ${ARGS} -force -v &> ${LOG_DIR}${PREFIX}_sss${POSTFIX}.txt
 done
 
 echo ""

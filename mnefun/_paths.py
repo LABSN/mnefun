@@ -2,7 +2,9 @@
 # Copyright (c) 2015, LABS^N
 # Distributed under the (new) BSD License. See LICENSE.txt for more info.
 
+import os
 from os import path as op
+import re
 
 from mne.io import Raw
 
@@ -37,7 +39,12 @@ def get_event_fnames(p, subj):
     return eve_fnames
 
 
-def get_raw_fnames(p, subj, which='raw', erm=True):
+def _regex_convert(f):
+    """Helper to regex a given filename (for split file purposes)"""
+    return '.*%s-?[0-9]*.fif' % op.basename(f)[:-4]
+
+
+def get_raw_fnames(p, subj, which='raw', erm=True, add_splits=False):
     """Get raw filenames
 
     Parameters
@@ -51,6 +58,10 @@ def get_raw_fnames(p, subj, which='raw', erm=True):
     erm : bool | str
         If True, include empty-room files (appended to end). If 'only', then
         only return empty-room files.
+    add_splits : bool
+        If True, add split filenames if they exist. This should only
+        be necessary for Maxfilter-related things. Will only return files
+        that actually already exist.
 
     Returns
     -------
@@ -73,7 +84,13 @@ def get_raw_fnames(p, subj, which='raw', erm=True):
         use = p.run_names + p.runs_empty
     else:
         use = p.run_names
-    return [op.join(raw_dir, safe_inserter(r, subj) + tag) for r in use]
+    fnames = [safe_inserter(r, subj) + tag for r in use]
+    if add_splits:
+        regexs = [re.compile(_regex_convert(f)) for f in fnames]
+        fnames = [op.join(raw_dir, f) for f in os.listdir(raw_dir)
+                  if any(r.match(f) is not None for r in regexs)]
+    fnames = [op.join(raw_dir, f) for f in fnames]
+    return fnames
 
 
 def get_cov_fwd_inv_fnames(p, subj):
