@@ -43,9 +43,10 @@ from mne.report import Report
 from mne.io.constants import FIFF
 
 from ._paths import (get_raw_fnames, get_event_fnames, get_report_fnames,
-                     get_epochs_evokeds_fnames, safe_inserter)
+                     get_epochs_evokeds_fnames, safe_inserter, _regex_convert)
 from ._status import print_proc_status
 from ._reorder import fix_eeg_channels
+from ._scoring import default_score
 
 # python2/3 conversions
 try:
@@ -249,10 +250,12 @@ class Params(object):
         self.cov_method = cov_method
         # These should be overridden by the user unless they are only doing
         # a small subset, e.g. epoching
-        self.score = None
+        self.score = None  # defaults to passing events through
         self.structurals = None
         self.dates = None
         self.on_missing = 'error'  # for epochs
+        self.trans_to = 'median'  # where to transform head positions to
+        self.sss_format = 'float'  # output type for MaxFilter
 
     @property
     def pca_extra(self):
@@ -339,8 +342,9 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
              'Generating HTML Reports',
              'Status',
              ]
+    score_fun = p.score if p.score is not None else default_score
     funcs = [fetch_raw_files,
-             p.score,
+             score_fun,
              push_raw_files,
              run_sss_remotely,
              fetch_sss_files,
@@ -384,7 +388,7 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
                                 p.analyses, p.out_names, p.out_numbers,
                                 p.must_match)
             elif func == print_proc_status:
-                outs[ii] = func(p, subjects, p.analyses)
+                outs[ii] = func(p, subjects, structurals, p.analyses)
             else:
                 outs[ii] = func(p, subjects)
             print('  (' + timestring(time() - t0) + ')')
@@ -412,7 +416,9 @@ def fetch_raw_files(p, subjects):
         # build remote raw file finder
         fnames = get_raw_fnames(p, subj, 'raw', True)
         assert len(fnames) > 0
-        finder = _get_finder_cmd(fnames, finder_stem)
+        finder = (finder_stem +
+                  ' -o '.join(['-type f -regex ' + _regex_convert(f)
+                               for f in fnames]))
         stdout_ = run_subprocess(['ssh', p.acq_ssh, finder])[0]
         remote_fnames = [x.strip() for x in stdout_.splitlines()]
         assert all(fname.startswith(p.acq_dir) for fname in remote_fnames)
@@ -522,15 +528,10 @@ def push_raw_files(p, subjects):
                                % prebad_file)
         includes += ['--include',
                      op.join(raw_root, op.basename(prebad_file))]
-        # build local raw file finder
-        finder_stem = 'find %s ' % raw_dir
-        fnames = get_raw_fnames(p, subj, 'raw', True)
+        fnames = get_raw_fnames(p, subj, 'raw', True, add_splits=True)
         assert len(fnames) > 0
-        finder = _get_finder_cmd(fnames, finder_stem)
-        stdout_ = run_subprocess(finder.split())[0]
-        fnames = [x.strip() for x in stdout_.splitlines()]
         for fname in fnames:
-            assert op.isfile(op.join(fname)), fname
+            assert op.isfile(fname), fname
             includes += ['--include', op.join(raw_root, op.basename(fname))]
     assert ' ' not in p.sws_dir
     assert ' ' not in p.sws_ssh
@@ -543,20 +544,26 @@ def push_raw_files(p, subjects):
 def run_sss_remotely(p, subjects):
     """Run SSS preprocessing remotely (only designed for *nix platforms)"""
     for subj in subjects:
-        s = 'Remote output for %s:' % subj
-        print('-' * len(s))
-        print(s)
-        print('-' * len(s))
-        files = ':'.join([op.basename(f)
-                          for f in get_raw_fnames(p, subj, 'raw', False)])
-        erm = ':'.join([op.basename(f)
-                        for f in get_raw_fnames(p, subj, 'raw', 'only')])
+        files = get_raw_fnames(p, subj, 'raw', False, add_splits=True)
+        n_files = len(files)
+        files = ':'.join([op.basename(f) for f in files])
+        erm = get_raw_fnames(p, subj, 'raw', 'only', add_splits=True)
+        n_files += len(erm)
+        erm = ':'.join([op.basename(f) for f in erm])
         erm = ' --erm ' + erm if len(erm) > 0 else ''
         assert isinstance(p.tsss_dur, float) and p.tsss_dur > 0
         st = ' --st %s' % p.tsss_dur
-        run_sss = (op.join(p.sws_dir, 'run_sss.sh') + st +
+        if p.sss_format not in ('short', 'long', 'float'):
+            raise RuntimeError('format must be short, long, or float')
+        fmt = ' --format ' + p.sss_format
+        trans = ' --trans default' if p.trans_to == 'default' else ''  # median
+        run_sss = (op.join(p.sws_dir, 'run_sss.sh') + st + fmt + trans +
                    ' --subject ' + subj + ' --files ' + files + erm)
         cmd = ['ssh', p.sws_ssh, run_sss]
+        s = 'Remote output for %s on %s files:' % (subj, n_files)
+        print('-' * len(s))
+        print(s)
+        print('-' * len(s))
         run_subprocess(cmd, stdout=None, stderr=None)
         print('-' * 70, end='\n\n')
 
@@ -1681,13 +1688,6 @@ def _viz_raw_ssp_events(p, subj):
     raw.plot(events=ev, event_color={999: 'r', 998: 'b'})
     plt.draw()
     plt.show()
-
-
-def _get_finder_cmd(fnames, finder):
-    """Returns string for find command to search for split raw files"""
-    cmd = finder + ' -o '.join(['-type f -regex .*%s-?[0-9]*.fif'
-                                % op.basename(f)[:-4] for f in fnames])
-    return cmd
 
 
 def gen_html_report(p, subjects, structurals, raw=True, evoked=True,

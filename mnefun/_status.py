@@ -15,7 +15,7 @@ def _have_all(fnames):
     return all(op.isfile(fname) for fname in fnames)
 
 
-def print_proc_status(p, subjects, analyses):
+def print_proc_status(p, subjects, structurals, analyses):
     """Print status update"""
     steps_all = []
     status_mapping = dict(missing=' ',
@@ -25,7 +25,7 @@ def print_proc_status(p, subjects, analyses):
     # XXX TODO in subsequent PR:
     # * Add modified-date checks to make sure provenance is correct
 
-    for subj in subjects:
+    for subj, struc in zip(subjects, structurals):
         fetch_raw = do_score = prebads = coreg = fetch_sss = do_ch_fix = \
             do_ssp = apply_ssp = write_epochs = \
             gen_covs = gen_fwd = gen_inv = gen_report = 'missing'
@@ -43,7 +43,8 @@ def print_proc_status(p, subjects, analyses):
             prebads = 'complete'
 
         # check if coreg has been done
-        if op.isfile(op.join(subj, 'trans', subj + '-trans.fif')):
+        if struc is None or \
+                op.isfile(op.join(subj, 'trans', subj + '-trans.fif')):
             coreg = 'complete'
 
         # check if sss has been fetched (+1 is for erm)
