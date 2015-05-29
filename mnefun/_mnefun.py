@@ -61,6 +61,107 @@ except Exception:
 
 
 class Params(object):
+    """Make a parameter structure for use with `do_processing`
+
+    This is technically a class, but it doesn't currently have any methods
+    other than init.
+
+    Parameters
+    ----------
+    tmin : float
+        tmin for events.
+    tmax : float
+        tmax for events.
+    t_adjust : float
+        Adjustment for delays (e.g., -4e-3 compensates for a 4 ms delay
+        in the trigger.
+    bmin : float
+        Lower limit for baseline compensation.
+    bmax : float
+        Upper limit for baseline compensation.
+    n_jobs : int
+        Number of jobs to use in parallel operations.
+    lp_cut : float
+        Cutoff for lowpass filtering.
+    decim : int
+        Amount to decimate the data after filtering when epoching data
+        (e.g., a factor of 5 on 1000 Hz data yields 200 Hz data).
+    proj_sfreq : float | None
+        The sample freq to use for calculating projectors. Useful since
+        time points are not independent following low-pass. Also saves
+        computation to downsample.
+    n_jobs_mkl : int
+        Number of jobs to spawn in parallel for operations that can make
+        use of MKL threading. If Numpy/Scipy has been compiled with MKL
+        support, it is best to leave this at 1 or 2 since MKL will
+        automatically spawn threads. Otherwise, n_cpu is a good choice.
+    n_jobs_fir : int | str
+        Number of threads to use for FIR filtering. Can also be 'cuda'
+        if the system supports CUDA.
+    n_jobs_resample : int | str
+        Number of threads to use for resampling. Can also be 'cuda'
+        if the system supports CUDA.
+    filter_length : int
+        Filter length to use in FIR filtering. Longer filters generally
+        have better roll-off characteristics, but more ringing.
+    drop_thresh : float
+        The percentage threshold to use when deciding whether or not to
+        plot Epochs drop_log.
+    epochs_type : str | list
+        Can be 'fif', 'mat', or a list containing both.
+    fwd_mindist : float
+        Minimum distance for sources in the brain from the skull in order
+        for them to be included in the forward solution source space.
+    bem_type : str
+        Defaults to ``'5120-5120-5120'``, use ``'5120'`` for a
+        single-layer BEM.
+    auto_bad : float | None
+        If not None, bad channels will be automatically excluded if
+        they disqualify a proportion of events exceeding ``autobad``.
+    ecg_channel : str | None
+        The channel to use to detect ECG events. None will use ECG063.
+        In lieu of an ECG recording, MEG1531 may work.
+    eog_channel : str
+        The channel to use to detect EOG events. None will use EOG*.
+        In lieu of an EOG recording, MEG1411 may work.
+    plot_raw : bool
+        If True, plot the raw files with the ECG/EOG events overlaid.
+    match_fun : function | None
+        If None, standard matching will be performed. If a function,
+        must_match will be ignored, and ``match_fun`` will be called
+        to equalize event counts.
+    hp_cut : float | None
+        Highpass cutoff in Hz. Use None for no highpassing.
+    cov_method : str
+        Covariance calculation method.
+    ssp_eog_reject : dict | None
+        Amplitude rejection criteria for EOG SSP computation. None will
+        use the mne-python default.
+    ssp_ecg_reject : dict | None
+        Amplitude rejection criteria for ECG SSP computation. None will
+        use the mne-python default.
+    baseline : tuple | None | str
+        Baseline to use. If "individual", use ``params.bmin`` and
+        ``params.bmax``, otherwise pass as the baseline parameter to
+        mne-python Epochs. ``params.bmin`` and ``params.bmax`` will always
+        be used for covariance calculation. This is useful e.g. when using
+        a high-pass filter and no baselining is desired (but evoked
+        covariances should still be calculated from the baseline period).
+
+    Returns
+    -------
+    params : instance of Params
+        The parameters to use.
+
+    See also
+    --------
+    do_processing
+
+    Notes
+    -----
+    Params has additional properties. Use ``dir(params)`` to see
+    all the possible options.
+    """
     def __init__(self, tmin=None, tmax=None, t_adjust=0, bmin=-0.2, bmax=0.0,
                  n_jobs=6, lp_cut=55, decim=5, proj_sfreq=None, n_jobs_mkl=1,
                  n_jobs_fir='cuda', n_jobs_resample='cuda',
@@ -71,98 +172,6 @@ class Params(object):
                  plot_raw=False, match_fun=None, hp_cut=None,
                  cov_method='empirical', ssp_eog_reject=None,
                  ssp_ecg_reject=None, baseline='individual'):
-        """Make a useful parameter structure
-
-        This is technically a class, but it doesn't currently have any methods
-        other than init.
-
-        Parameters
-        ----------
-        tmin : float
-            tmin for events.
-        tmax : float
-            tmax for events.
-        t_adjust : float
-            Adjustment for delays (e.g., -4e-3 compensates for a 4 ms delay
-            in the trigger.
-        bmin : float
-            Lower limit for baseline compensation.
-        bmax : float
-            Upper limit for baseline compensation.
-        n_jobs : int
-            Number of jobs to use in parallel operations.
-        lp_cut : float
-            Cutoff for lowpass filtering.
-        decim : int
-            Amount to decimate the data after filtering when epoching data
-            (e.g., a factor of 5 on 1000 Hz data yields 200 Hz data).
-        proj_sfreq : float | None
-            The sample freq to use for calculating projectors. Useful since
-            time points are not independent following low-pass. Also saves
-            computation to downsample.
-        n_jobs_mkl : int
-            Number of jobs to spawn in parallel for operations that can make
-            use of MKL threading. If Numpy/Scipy has been compiled with MKL
-            support, it is best to leave this at 1 or 2 since MKL will
-            automatically spawn threads. Otherwise, n_cpu is a good choice.
-        n_jobs_fir : int | str
-            Number of threads to use for FIR filtering. Can also be 'cuda'
-            if the system supports CUDA.
-        n_jobs_resample : int | str
-            Number of threads to use for resampling. Can also be 'cuda'
-            if the system supports CUDA.
-        filter_length : int
-            Filter length to use in FIR filtering. Longer filters generally
-            have better roll-off characteristics, but more ringing.
-        drop_thresh : float
-            The percentage threshold to use when deciding whether or not to
-            plot Epochs drop_log.
-        epochs_type : str | list
-            Can be 'fif', 'mat', or a list containing both.
-        fwd_mindist : float
-            Minimum distance for sources in the brain from the skull in order
-            for them to be included in the forward solution source space.
-        bem_type : str
-            Defaults to ``'5120-5120-5120'``, use ``'5120'`` for a
-            single-layer BEM.
-        auto_bad : float | None
-            If not None, bad channels will be automatically excluded if
-            they disqualify a proportion of events exceeding ``autobad``.
-        ecg_channel : str | None
-            The channel to use to detect ECG events. None will use ECG063.
-            In lieu of an ECG recording, MEG1531 may work.
-        eog_channel : str
-            The channel to use to detect EOG events. None will use EOG*.
-            In lieu of an EOG recording, MEG1411 may work.
-        plot_raw : bool
-            If True, plot the raw files with the ECG/EOG events overlaid.
-        match_fun : function | None
-            If None, standard matching will be performed. If a function,
-            must_match will be ignored, and ``match_fun`` will be called
-            to equalize event counts.
-        hp_cut : float | None
-            Highpass cutoff in Hz. Use None for no highpassing.
-        cov_method : str
-            Covariance calculation method.
-        ssp_eog_reject : dict | None
-            Amplitude rejection criteria for EOG SSP computation. None will
-            use the mne-python default.
-        ssp_ecg_reject : dict | None
-            Amplitude rejection criteria for ECG SSP computation. None will
-            use the mne-python default.
-        baseline : tuple | None | str
-            Baseline to use. If "individual", use ``params.bmin`` and
-            ``params.bmax``, otherwise pass as the baseline parameter to
-            mne-python Epochs. ``params.bmin`` and ``params.bmax`` will always
-            be used for covariance calculation. This is useful e.g. when using
-            a high-pass filter and no baselining is desired (but evoked
-            covariances should still be calculated from the baseline period).
-
-        Returns
-        -------
-        params : instance of Params
-            The parameters to use.
-        """
         self.reject = dict(eog=np.inf, grad=1500e-13, mag=5000e-15, eeg=150e-6)
         self.flat = dict(eog=-1, grad=1e-13, mag=1e-15, eeg=1e-6)
         if ssp_eog_reject is None:
@@ -282,6 +291,10 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
                   gen_report=False, print_status=True):
     """Do M/EEG data processing
 
+    Parameters
+    ----------
+    p : instance of Params
+        The parameter structure.
     fetch_raw : bool
         Fetch raw recording files from acquisition machine.
     do_score : bool
