@@ -64,7 +64,6 @@ stc.data[:, np.where(np.logical_and(stc.times >= pulse_tmin,
 # ############################################################################
 # Simulate data
 
-"""
 # Simulate data with movement
 with warnings.catch_warnings(record=True):
     raw = Raw(fname_raw, allow_maxshield=True)
@@ -74,7 +73,6 @@ raw_movement = simulate_movement(raw, fname_pos_orig, stc, trans, src, bem,
 # Simulate data with no movement (use initial head position)
 raw_stationary = simulate_movement(raw, None, stc, trans, src, bem,
                                    interp='zero', n_jobs=6, verbose=True)
-"""
 
 # Extract positions
 trans_move, rot_move, t_move = get_chpi_positions(fname_pos_move)

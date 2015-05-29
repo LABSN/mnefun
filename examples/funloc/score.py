@@ -2,6 +2,10 @@
 # Copyright (c) 2014, LABS^N
 # Distributed under the (new) BSD License. See LICENSE.txt for more info.
 """
+----------------
+Score experiment
+----------------
+
 This sample scoring script shows how to convert the serial binary stamping
 from expyfun into meaningful event numbers using mnefun, and then write
 out the data to the location mnefun expects.

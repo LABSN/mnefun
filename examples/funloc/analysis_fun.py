@@ -2,6 +2,10 @@
 # Copyright (c) 2014, LABS^N
 # Distributed under the (new) BSD License. See LICENSE.txt for more info.
 """
+----------------------------------
+Example experiment analysis script
+----------------------------------
+
 This sample script shows how to preprocess a simple MEG experiment
 from start to finish.
 
@@ -16,11 +20,10 @@ two remote machines (acquisition/minea and SSS/kasga). Tutorial here:
 
     * https://help.ubuntu.com/community/SSH/OpenSSH/Keys
 
-The deidentified structural directories for the two subjects are needed
-to do the forward and inverse solutions, extract them into your
+The deidentified structural directories for the one subject is needed
+to do the forward and inverse solutions, extract this into your
 SUBJECTS_DIR directory:
 
-    * http://lester.ilabs.uw.edu/files/AKCLEE_107_slim.tar.gz
     * http://lester.ilabs.uw.edu/files/AKCLEE_110_slim.tar.gz
 
 """
