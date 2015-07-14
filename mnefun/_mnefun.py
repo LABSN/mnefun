@@ -36,7 +36,7 @@ from mne.io.pick import pick_types_forward, pick_types
 from mne.io.meas_info import _empty_info
 from mne.cov import regularize
 from mne.minimum_norm import write_inverse_operator
-from mne.layouts import make_eeg_layout
+from mne.channels import make_eeg_layout
 from mne.viz import plot_drop_log
 from mne.utils import run_subprocess
 from mne.report import Report
@@ -384,6 +384,14 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
                  for d in np.array(p.dates)[sinds]]
     else:
         dates = None
+    decim = p.decim
+    if not isinstance(decim, (list, tuple)):
+        decim = [decim] * len(p.subjects)
+    decim = np.array(decim)
+    assert decim.dtype == np.int64
+    assert decim.ndim == 1
+    assert decim.size == len(p.subjects)
+    decim = decim[sinds]
 
     outs = [None] * len(bools)
     for ii, (b, text, func) in enumerate(zip(bools, texts, funcs)):
@@ -399,7 +407,7 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
             elif func == save_epochs:
                 outs[ii] = func(p, subjects, p.in_names, p.in_numbers,
                                 p.analyses, p.out_names, p.out_numbers,
-                                p.must_match)
+                                p.must_match, decim)
             elif func == print_proc_status:
                 outs[ii] = func(p, subjects, structurals, p.analyses)
             else:
@@ -437,7 +445,7 @@ def fetch_raw_files(p, subjects):
         assert all(fname.startswith(p.acq_dir) for fname in remote_fnames)
         remote_fnames = [fname[len(p.acq_dir) + 1:] for fname in remote_fnames]
         want = set(op.basename(fname) for fname in fnames)
-        got = set([op.basename(fname) for fname in remote_fnames])
+        got = set(op.basename(fname) for fname in remote_fnames)
         if want != got.intersection(want):
             raise RuntimeError('Could not find all files.\nWanted: %s\nGot: %s'
                                % (want, got.intersection(want)))
@@ -643,7 +651,7 @@ def run_sss_command(fname_in, options, fname_out, host='kasga'):
     run_subprocess(cmd, stdout=None, stderr=None)
 
 
-def run_sss_positions(fname_in, fname_out, host='kasga'):
+def run_sss_positions(fname_in, fname_out, host='kasga', opts=''):
     """Run Maxfilter remotely and fetch resulting file
 
     Parameters
@@ -656,6 +664,8 @@ def run_sss_positions(fname_in, fname_out, host='kasga'):
         on the local machine.
     host : str
         The SSH/scp host to run the command on.
+    opts : str
+        Additional command-line options to pass to MaxFilter.
     """
     # let's make sure we can actually write where we want
     if not op.isfile(fname_in):
@@ -679,7 +689,7 @@ def run_sss_positions(fname_in, fname_out, host='kasga'):
 
     print('  Running maxfilter on %s' % host)
     cmd = ['ssh', host, 'maxfilter -f ' + remote_ins[0] + ' -o ' + remote_out +
-           ' -headpos -format short -hp ' + remote_hp]
+           ' -headpos -format short -hp ' + remote_hp + ' ' + opts]
     run_subprocess(cmd)
 
     print('  Copying result to %s' % fname_out)
@@ -835,7 +845,7 @@ def _restrict_reject_flat(reject, flat, raw):
 
 
 def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
-                out_numbers, must_match):
+                out_numbers, must_match, decim):
     """Generate epochs from raw data based on events
 
     Can only complete after preprocessing is complete.
@@ -862,6 +872,8 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
         Indices from the original in_names that must match in event counts
         before collapsing. Should eventually be expanded to allow for
         ratio-based collapsing.
+    decim : int | list of int
+        Amount to decimate.
     """
     in_names = np.asanyarray(in_names)
     old_dict = dict()
@@ -890,7 +902,8 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
 
     ch_namess = list()
     drop_logs = list()
-    for subj in subjects:
+    sfreqs = set()
+    for si, subj in enumerate(subjects):
         if p.disp_files:
             print('  Loading raw files for subject %s.' % subj)
         epochs_dir = op.join(p.work_dir, subj, p.epochs_dir)
@@ -921,13 +934,20 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
         t_adj = np.zeros((1, 3), dtype='int')
         t_adj[0, 0] = np.round(-p.t_adjust * raw.info['sfreq']).astype(int)
         events = events.astype(int) + t_adj
+        new_sfreq = raw.info['sfreq'] / decim[si]
         if p.disp_files:
-            print('    Epoching data.')
+            print('    Epoching data (decim=%s -> sfreq=%s Hz).'
+                  % (decim[si], new_sfreq))
+        if new_sfreq not in sfreqs:
+            if len(sfreqs) > 0:
+                warnings.warn('resulting new sampling frequency %s not equal '
+                              'to previous values %s' % (new_sfreq, sfreqs))
+            sfreqs.add(new_sfreq)
         use_reject, use_flat = _restrict_reject_flat(p.reject, p.flat, raw)
         epochs = Epochs(raw, events, event_id=old_dict, tmin=p.tmin,
                         tmax=p.tmax, baseline=_get_baseline(p),
                         reject=use_reject, flat=use_flat, proj=True,
-                        preload=True, decim=p.decim, on_missing=p.on_missing)
+                        preload=True, decim=decim[si], on_missing=p.on_missing)
         del raw
         drop_logs.append(epochs.drop_log)
         ch_namess.append(epochs.ch_names)
@@ -1165,7 +1185,8 @@ def gen_covariances(p, subjects):
     subjects : list of str
         Subject names to analyze (e.g., ['Eric_SoP_001', ...]).
     """
-    for subj in subjects:
+    for si, subj in enumerate(subjects):
+        print('  Subject %s/%s...' % (si + 1, len(subjects)))
         pca_dir = op.join(p.work_dir, subj, p.pca_dir)
         cov_dir = op.join(p.work_dir, subj, p.cov_dir)
         lst_dir = op.join(p.work_dir, subj, p.list_dir)

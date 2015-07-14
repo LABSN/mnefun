@@ -73,7 +73,7 @@ def fix_eeg_channels(raw_files, anon=None, verbose=True):
             if need_anon:
                 raw.info['subject_info'].update(anon)
             raw.info['description'] = write_key + anon_key
-            raw.save(raw_file, format=raw.orig_format, overwrite=True)
+            raw.save(raw_file, fmt=raw.orig_format, overwrite=True)
         else:
             if verbose:
                 print('    File %i already corrected' % (ri + 1))

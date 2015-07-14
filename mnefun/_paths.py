@@ -87,8 +87,8 @@ def get_raw_fnames(p, subj, which='raw', erm=True, add_splits=False):
     fnames = [safe_inserter(r, subj) + tag for r in use]
     if add_splits:
         regexs = [re.compile(_regex_convert(f)) for f in fnames]
-        fnames = [op.join(raw_dir, f) for f in os.listdir(raw_dir)
-                  if any(r.match(f) is not None for r in regexs)]
+        fnames = sorted([op.join(raw_dir, f) for f in os.listdir(raw_dir)
+                         if any(r.match(f) is not None for r in regexs)])
     fnames = [op.join(raw_dir, f) for f in fnames]
     return fnames
 
