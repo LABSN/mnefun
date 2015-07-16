@@ -19,7 +19,10 @@ from mne.forward._compute_forward import _magnetic_dipole_field_vec
 from mne.transforms import _get_mri_head_t, transform_surface_to
 from mne.source_space import (SourceSpaces, read_source_spaces,
                               _filter_source_spaces, _points_outside_surface)
-from mne.surface import _bem_find_surface
+try:
+    from mne.surface import _bem_find_surface
+except ImportError:
+    from mne.bem  import _bem_find_surface  # noqa
 from mne.io.constants import FIFF
 from mne.source_estimate import _BaseSourceEstimate
 from mne.utils import logger, verbose, check_random_state
