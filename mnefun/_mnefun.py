@@ -36,7 +36,10 @@ from mne.io.pick import pick_types_forward, pick_types
 from mne.io.meas_info import _empty_info
 from mne.cov import regularize
 from mne.minimum_norm import write_inverse_operator
-from mne.channels import make_eeg_layout
+try:
+    from mne.channels import make_eeg_layout
+except ImportError:
+    from mne.layouts import make_eeg_layout
 from mne.viz import plot_drop_log
 from mne.utils import run_subprocess
 from mne.report import Report
