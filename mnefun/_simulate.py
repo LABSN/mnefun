@@ -11,6 +11,7 @@ from mne import (pick_types, pick_info, pick_channels, VolSourceEstimate,
                  make_ad_hoc_cov)
 from mne.bem import fit_sphere_to_headshape, make_sphere_model
 from mne.io import read_info, Raw
+from mne.io.meas_info import Info
 from mne.externals.six import string_types
 from mne.forward.forward import _merge_meg_eeg_fwds, _stc_src_sel
 from mne.forward._make_forward import (_prep_channels, _setup_bem,
@@ -121,15 +122,20 @@ def _make_forward_solutions(info, mri, src, bem, bem_eog, dev_head_ts, mindist,
 
     # make a new dict with the relevant information
     mri_id = dict(machid=np.zeros(2, np.int32), version=0, secs=0, usecs=0)
-    info = dict(nchan=info['nchan'], chs=info['chs'], comps=info['comps'],
+    info = Info(nchan=info['nchan'], chs=info['chs'], comps=info['comps'],
                 ch_names=info['ch_names'],
                 mri_file='', mri_id=mri_id, meas_file='',
                 meas_id=None, working_dir=os.getcwd(),
                 command_line='', bads=info['bads'])
 
     # Only get the EEG channels here b/c we can do MEG later
-    _, _, eegels, _, eegnames, _ = \
-        _prep_channels(info, False, True, True, verbose=False)
+    if len(pick_types(info, meg=False, eeg=True)) > 0:
+        do_eeg = True
+        _, _, eegels, _, eegnames, _ = \
+            _prep_channels(info, False, True, True, verbose=False)
+    else:
+        do_eeg = False
+        eegnames = []
 
     # Transform the source spaces into the appropriate coordinates
     # (will either be HEAD or MRI)
@@ -145,16 +151,18 @@ def _make_forward_solutions(info, mri, src, bem, bem_eog, dev_head_ts, mindist,
         _filter_source_spaces(inner_skull, mindist, mri_head_t, src, n_jobs,
                               verbose=False)
 
-    # Time to do the heavy lifting: EEG first, then MEG
     rr = np.concatenate([s['rr'][s['vertno']] for s in src])
-    eegfwd = _compute_forwards(rr, bem, [eegels], [None],
-                               [None], ['eeg'], n_jobs, verbose=False)[0]
-    eegfwd = _to_forward_dict(eegfwd, None, eegnames, coord_frame,
-                              FIFF.FIFFV_MNE_FREE_ORI)
-    eegeog = _compute_forwards(eog_rrs, bem_eog, [eegels], [None],
-                               [None], ['eeg'], n_jobs, verbose=False)[0]
-    eegeog = _to_forward_dict(eegeog, None, eegnames, coord_frame,
-                              FIFF.FIFFV_MNE_FREE_ORI)
+
+    # Time to do the heavy lifting: EEG first, then MEG
+    if do_eeg:
+        eegfwd = _compute_forwards(rr, bem, [eegels], [None],
+                                   [None], ['eeg'], n_jobs, verbose=False)[0]
+        eegfwd = _to_forward_dict(eegfwd, None, eegnames, coord_frame,
+                                  FIFF.FIFFV_MNE_FREE_ORI)
+        eegeog = _compute_forwards(eog_rrs, bem_eog, [eegels], [None],
+                                   [None], ['eeg'], n_jobs, verbose=False)[0]
+        eegeog = _to_forward_dict(eegeog, None, eegnames, coord_frame,
+                                  FIFF.FIFFV_MNE_FREE_ORI)
 
     for ti, dev_head_t in enumerate(dev_head_ts):
         # could be *slightly* more efficient not to do this N times,
@@ -189,7 +197,10 @@ def _make_forward_solutions(info, mri, src, bem, bem_eog, dev_head_ts, mindist,
                                    verbose=False)[0]
         megfwd = _to_forward_dict(megfwd, None, megnames, coord_frame,
                                   FIFF.FIFFV_MNE_FREE_ORI)
-        fwd = _merge_meg_eeg_fwds(megfwd, eegfwd, verbose=False)
+        if do_eeg:
+            fwd = _merge_meg_eeg_fwds(megfwd, eegfwd, verbose=False)
+        else:
+            fwd = megfwd
 
         # pick out final dict info
         nsource = fwd['sol']['data'].shape[1] // 3
@@ -205,7 +216,10 @@ def _make_forward_solutions(info, mri, src, bem, bem_eog, dev_head_ts, mindist,
                                    verbose=False)[0]
         megeog = _to_forward_dict(megeog, None, megnames, coord_frame,
                                   FIFF.FIFFV_MNE_FREE_ORI)
-        fwd_eog = _merge_meg_eeg_fwds(megeog, eegeog, verbose=False)
+        if do_eeg:
+            fwd_eog = _merge_meg_eeg_fwds(megeog, eegeog, verbose=False)
+        else:
+            fwd_eog = megeog
         megecg = _compute_forwards(ecg_rrs, bem_eog, [megcoils], [compcoils],
                                    [meg_info], ['meg'], n_jobs,
                                    verbose=False)[0]
