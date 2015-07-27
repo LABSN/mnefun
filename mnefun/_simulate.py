@@ -331,8 +331,15 @@ def simulate_movement(raw, pos, stc, trans, src, bem, cov='simple',
         if not (ts >= 0).all():  # pathological if not
             raise RuntimeError('Cannot have t < 0 in transform file')
         tend = raw.times[-1]
-        assert not (ts < 0).any()
-        assert not (ts > tend).any()
+        bad = ts < 0
+        if bad.any():
+            raise RuntimeError('All position times must be >= 0, found %s/%s'
+                               '< 0' % (bad.sum(), len(bad)))
+        bad = ts > tend
+        if bad.any():
+            raise RuntimeError('All position times must be <= t_end (%0.1f '
+                               'sec), found %s/%s bad values (is this a split '
+                               'file?)' % (tend, bad.sum(), len(bad)))
         if ts[0] > 0:
             ts = np.r_[[0.], ts]
             dev_head_ts.insert(0, raw.info['dev_head_t']['trans'])
