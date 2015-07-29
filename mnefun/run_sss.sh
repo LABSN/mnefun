@@ -19,6 +19,7 @@ ERM_RUNS=""
 HEAD_TRANS="median"
 ST_DUR="60"
 FORMAT="float"
+EXTRA_ARGS=""
 
 ASSERT_ISFILE () {
     if [ ! -f "$1" ] ; then
@@ -43,7 +44,7 @@ GET_PRE_POST_FIX () {
 }
 
 #################################################### Read the options ##
-TEMP=`getopt -o s:f:e:t: --long subject:,files:,erm:,trans:,format:,st: -n 'run_sss.sh' -- "$@"`
+TEMP=`getopt -o s:f:e:t: --long subject:,files:,erm:,trans:,format:,st:,args: -n 'run_sss.sh' -- "$@"`
 eval set -- "$TEMP"
 
 while true ; do
@@ -77,6 +78,11 @@ while true ; do
             case "$2" in
                 "") shift 2 ;;
                 *) ST_DUR=$2 ; shift 2 ;;
+            esac ;;
+        --args)
+            case "$2" in
+                "") shift 2 ;;
+                *) EXTRA_ARGS=$2 ; shift 2 ;;
             esac ;;
         --) shift ; break ;;
         *) echo "ERROR: Internal error!" ; exit 1 ;;
@@ -118,24 +124,28 @@ case "${HEAD_TRANS}" in
         echo "• Translating to the default head position"
         ;;
     *)
-        echo "ERROR: Unknown trans parameter: ${HEAD_TRANS}"
-        exit 1
+        HEAD_TRANS="${ROOT_DIR}/${HEAD_TRANS}"
+        echo "• Translating to common head position: ${HEAD_TRANS}"
 esac
 if [ ${HEAD_TRANS} != "default" ]; then
     ASSERT_ISFILE "${HEAD_TRANS}"
 fi;
-
 # Head center
 CENTER_FILE="${RAW_DIR}${SUBJECT}_center.txt"
 ASSERT_ISFILE "${CENTER_FILE}"
 RUN_CENTER=`cat ${CENTER_FILE}`
 echo "• Using head center ${RUN_CENTER}"
 
+# Extra arguments
+if [[ ! -z ${EXTRA_ARGS} ]]; then
+    echo "• Using extra arguments '${EXTRA_ARGS}'"
+fi;
+
 # Standard SSS parameters
 ERM_FRAME="-frame device -origin 0 13 -6"
 RUN_FRAME="-frame head -origin ${RUN_CENTER}"
 
-BAD_PARAMS="-autobad 20 -force -v"
+BAD_PARAMS="-autobad 20 -force -v -format short"
 ST_PARAMS="-in 8 -out 3 -regularize in -st ${ST_DUR}"
 MC_PARAMS="-trans ${HEAD_TRANS} -hpicons -movecomp inter -format ${FORMAT}"
 
@@ -152,6 +162,7 @@ for FILE in "${ADDR[@]}"; do
     echo "• Auto-detecting bad channels"
     OUT_FILE="${SSS_DIR}${PREFIX}_raw_sss_badch${POSTFIX}.fif"
     BADCH=`maxfilter -f ${RAW_FILE} -o ${OUT_FILE} ${RUN_FRAME} ${BAD_PARAMS} \
+           2>/dev/null \
            | tee ${LOG_DIR}${PREFIX}_1_bads${POSTFIX}.txt \
            | sed -n  '/Static bad channels/p' \
            | cut -f 5- -d ' ' | uniq | xargs printf "%04d "`
@@ -168,7 +179,7 @@ for FILE in "${ADDR[@]}"; do
 
     # Singleshot SSS (+st +mc +cs transform +hpi file) procedure
     # Show user arguments, minus logging / file args
-    ARGS="${RUN_FRAME} ${BADCH} ${ST_PARAMS} ${MC_PARAMS} -force -v"
+    ARGS="${RUN_FRAME} ${BADCH} ${ST_PARAMS} ${MC_PARAMS} ${EXTRA_ARGS} -force -v"
     echo "• Running maxfilter ${ARGS}"
     maxfilter -f ${RAW_FILE} -o ${SSS_FILE} ${MC_LOG} ${ARGS} &> ${LOG_DIR}${PREFIX}_sss${POSTFIX}.txt
 done
@@ -186,6 +197,7 @@ for FILE in "${ADDR[@]}"; do
     echo "• Auto-detecting bad channels"
     OUT_FILE="${SSS_DIR}${PREFIX}_raw_sss_badch${POSTFIX}.fif"
     BADCH=`maxfilter -f ${RAW_FILE} -o ${OUT_FILE} ${ERM_FRAME} ${BAD_PARAMS} \
+          2>/dev/null \
           | tee ${LOG_DIR}${PREFIX}_1_bads${POSTFIX}.txt \
           | sed -n  '/Static bad channels/p' \
           | cut -f 5- -d ' ' | uniq | xargs printf "%04d "`
@@ -199,7 +211,7 @@ for FILE in "${ADDR[@]}"; do
     SSS_FILE="${SSS_DIR}${PREFIX}_raw_sss${POSTFIX}.fif"
 
     # singleshot SSS procedure (no MC)
-    ARGS="${ERM_FRAME} ${BADCH} ${ST_PARAMS}"
+    ARGS="${ERM_FRAME} ${BADCH} ${ST_PARAMS} ${EXTRA_ARGS}"
     echo "• Running maxfilter ${ARGS}"
     maxfilter -f ${RAW_FILE} -o ${SSS_FILE} ${ARGS} -force -v &> ${LOG_DIR}${PREFIX}_sss${POSTFIX}.txt
 done

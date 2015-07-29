@@ -251,6 +251,7 @@ class Params(object):
         # This is used by fix_eeg_channels to fix original files
         self.raw_fif_tag = '_raw.fif'
         # Maxfilter params
+        self.mf_args = ''
         self.tsss_dur = 60.
         # boolean for whether data set(s) have an individual mri
         self.mri = True
@@ -514,7 +515,10 @@ def push_raw_files(p, subjects):
     print('  Pushing raw files to SSS workstation...')
     # do all copies at once to avoid multiple logins
     copy2(op.join(op.dirname(__file__), 'run_sss.sh'), p.work_dir)
-    includes = ['--include', '/run_sss.sh']
+    includes = ['--include', op.sep + 'run_sss.sh']
+    if p.trans_to not in ('default', 'median'):
+        _check_trans_file(p)
+        includes += ['--include', op.sep + p.trans_to]
     for subj in subjects:
         subj_dir = op.join(p.work_dir, subj)
         raw_dir = op.join(subj_dir, p.raw_dir)
@@ -565,6 +569,16 @@ def push_raw_files(p, subjects):
     run_subprocess(cmd, cwd=p.work_dir)
 
 
+def _check_trans_file(p):
+    """Helper to make sure our trans_to file exists"""
+    if not isinstance(p.trans_to, string_types):
+        raise ValueError('trans_to must be a string')
+    if p.trans_to not in ('default', 'median'):
+        if not op.isfile(op.join(p.work_dir, p.trans_to)):
+            raise ValueError('Trans position file "%s" not found'
+                             % p.trans_to)
+
+
 def run_sss_remotely(p, subjects):
     """Run SSS preprocessing remotely (only designed for *nix platforms)"""
     for subj in subjects:
@@ -580,9 +594,11 @@ def run_sss_remotely(p, subjects):
         if p.sss_format not in ('short', 'long', 'float'):
             raise RuntimeError('format must be short, long, or float')
         fmt = ' --format ' + p.sss_format
-        trans = ' --trans default' if p.trans_to == 'default' else ''  # median
+        _check_trans_file(p)
+        trans = ' --trans ' + p.trans_to
         run_sss = (op.join(p.sws_dir, 'run_sss.sh') + st + fmt + trans +
-                   ' --subject ' + subj + ' --files ' + files + erm)
+                   ' --subject ' + subj + ' --files ' + files + erm +
+                   ' --args=\"%s\"' % p.mf_args)
         cmd = ['ssh', p.sws_ssh, run_sss]
         s = 'Remote output for %s on %s files:' % (subj, n_files)
         print('-' * len(s))
