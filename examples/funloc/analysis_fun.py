@@ -50,7 +50,7 @@ params.subject_indices = np.arange(2)  # which subjects to run
 params.plot_drop_logs = False  # turn off for demo or plots will block
 
 params.acq_ssh = 'minea'  # can also be e.g., "eric@minea.ilabs.uw.edu"
-params.acq_dir = '/sinuhe/data01/eric_non_space'
+params.acq_dir = '/sinuhe/data02/eric_non_space'
 params.sws_ssh = 'kasga'
 params.sws_dir = '/data06/larsoner'
 
