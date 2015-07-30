@@ -1356,7 +1356,7 @@ def do_preprocessing_combined(p, subjects):
             epochs = Epochs(raw, events, None, p.tmin, p.tmax,
                             baseline=_get_baseline(p), picks=picks,
                             reject=p.auto_bad_reject, flat=p.auto_bad_flat,
-                            proj=True, preload=True, decim=0)
+                            proj=True, preload=True, decim=1)
             # channel scores from drop log
             scores = Counter([ch for d in epochs.drop_log for ch in d])
             ch_names = np.array(list(scores.keys()))
