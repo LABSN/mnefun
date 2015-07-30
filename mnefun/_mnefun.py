@@ -719,7 +719,7 @@ def fetch_sss_files(p, subjects, run_indices):
     run_subprocess(cmd, cwd=p.work_dir)
 
 
-def run_sss_command(fname_in, options, fname_out, host='kasga'):
+def run_sss_command(fname_in, options, fname_out, host='kasga', port=22):
     """Run Maxfilter remotely and fetch resulting file
 
     Parameters
@@ -742,27 +742,28 @@ def run_sss_command(fname_in, options, fname_out, host='kasga'):
     if '-f ' in options or '-o ' in options:
         raise ValueError('options cannot contain -o or -f, these are set '
                          'automatically')
+    port = str(int(port))
     remote_in = '~/temp_%s_raw.fif' % time()
     remote_out = '~/temp_%s_raw_sss.fif' % time()
     print('Copying file to %s' % host)
-    cmd = ['scp', fname_in, host + ':' + remote_in]
+    cmd = ['scp', '-P' + port, fname_in, host + ':' + remote_in]
     run_subprocess(cmd, stdout=None, stderr=None)
 
     print('Running maxfilter on %s' % host)
-    cmd = ['ssh', host, 'maxfilter -f ' + remote_in + ' -o ' + remote_out +
-           ' ' + options]
+    cmd = ['ssh', '-p', port, host,
+           'maxfilter -f ' + remote_in + ' -o ' + remote_out + ' ' + options]
     run_subprocess(cmd, stdout=None, stderr=None)
 
     print('Copying result to %s' % fname_out)
-    cmd = ['scp', host + ':' + remote_out, fname_out]
+    cmd = ['scp', '-P' + port, host + ':' + remote_out, fname_out]
     run_subprocess(cmd, stdout=None, stderr=None)
 
     print('Cleaning up %s' % host)
-    cmd = ['ssh', host, 'rm %s %s' % (remote_in, remote_out)]
+    cmd = ['ssh', '-p', port, host, 'rm %s %s' % (remote_in, remote_out)]
     run_subprocess(cmd, stdout=None, stderr=None)
 
 
-def run_sss_positions(fname_in, fname_out, host='kasga', opts=''):
+def run_sss_positions(fname_in, fname_out, host='kasga', opts='', port=22):
     """Run Maxfilter remotely and fetch resulting file
 
     Parameters
@@ -790,25 +791,27 @@ def run_sss_positions(fname_in, fname_out, host='kasga', opts=''):
             fnames_in.append(next_name)
         else:
             break
+    port = str(int(port))
     t0 = time()
     remote_ins = ['~/' + op.basename(fname) for fname in fnames_in]
     remote_out = '~/temp_%s_raw_quat.fif' % t0
     remote_hp = '~/temp_%s_hp.txt' % t0
     print('  Copying file to %s' % host)
-    cmd = ['scp'] + fnames_in + [host + ':~/']
+    cmd = ['scp', '-P' + port] + fnames_in + [host + ':~/']
     run_subprocess(cmd, stdout=None, stderr=None)
 
     print('  Running maxfilter on %s' % host)
-    cmd = ['ssh', host, 'maxfilter -f ' + remote_ins[0] + ' -o ' + remote_out +
+    cmd = ['ssh', '-p', port, host,
+           'maxfilter -f ' + remote_ins[0] + ' -o ' + remote_out +
            ' -headpos -format short -hp ' + remote_hp + ' ' + opts]
     run_subprocess(cmd)
 
     print('  Copying result to %s' % fname_out)
-    cmd = ['scp', host + ':' + remote_hp, fname_out]
+    cmd = ['scp', '-P' + port, host + ':' + remote_hp, fname_out]
     run_subprocess(cmd)
 
     print('  Cleaning up %s' % host)
-    cmd = ['ssh', host, 'rm -f %s %s %s'
+    cmd = ['ssh', '-p', port, host, 'rm -f %s %s %s'
            % (' '.join(remote_ins), remote_hp, remote_out)]
     run_subprocess(cmd)
 

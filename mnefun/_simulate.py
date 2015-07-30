@@ -7,14 +7,13 @@ import warnings
 from copy import deepcopy
 
 from mne import (pick_types, pick_info, pick_channels, VolSourceEstimate,
-                 convert_forward_solution, get_chpi_positions, EvokedArray,
-                 make_ad_hoc_cov)
+                 convert_forward_solution, get_chpi_positions, make_ad_hoc_cov)
 from mne.bem import fit_sphere_to_headshape, make_sphere_model
 from mne.io import read_info, Raw
 from mne.io.meas_info import Info
 from mne.externals.six import string_types
 from mne.forward.forward import _merge_meg_eeg_fwds, _stc_src_sel
-from mne.forward._make_forward import (_setup_bem,
+from mne.forward._make_forward import (_prep_channels, _setup_bem,
                                        _compute_forwards, _to_forward_dict)
 from mne.forward._compute_forward import _magnetic_dipole_field_vec
 from mne.transforms import _get_mri_head_t, transform_surface_to
@@ -27,7 +26,7 @@ except ImportError:
 from mne.io.constants import FIFF
 from mne.source_estimate import _BaseSourceEstimate
 from mne.utils import logger, verbose, check_random_state
-from mne.simulation import generate_noise_evoked
+from mne.simulation.evoked import _generate_noise
 
 try:  # new form
     from mne.forward._make_forward import (_prep_eeg_channels,
@@ -469,21 +468,22 @@ def simulate_movement(raw, pos, stc, trans, src, bem, cov='simple',
     # Add to data file, then rescale for simulation
     for data, scale, exg_ch in zip([eog_data, ecg_data],
                                    [1e-3, 5e-4],
-                                   ['EOG062', 'ECG063']):
-        ch = pick_channels(raw.ch_names, [exg_ch])
-        if len(ch) == 1:
-            raw._data[ch[0], :] = data
+                                   [dict(eog=True, ecg=False),
+                                    dict(eog=False, ecg=True)]):
+        ch = pick_types(raw.info, meg=False, eeg=False, **exg_ch)
+        if len(ch) >= 1:
+            raw._data[ch[-1], :] = data
         data *= scale
 
-    evoked = EvokedArray(np.zeros((len(picks), len(stc.times))), fwd_info,
-                         stc.tmin, verbose=False)
     stc_event_idx = np.argmin(np.abs(stc.times))
     event_ch = pick_channels(raw.info['ch_names'], ['STI101'])[0]
     used = np.zeros(raw.n_times, bool)
     stc_indices = np.arange(raw.n_times) % len(stc.times)
-    raw._data[event_ch, ].fill(0)
+    raw._data[event_ch, :] = 0.
+    raw._data[picks, :] = 0.
     hpi_mag = 25e-9
     last_fwd = last_fwd_chpi = last_fwd_eog = last_fwd_ecg = src_sel = None
+    zf = None  # final filter conditions for the noise
     for fi, (fwd, fwd_eog, fwd_ecg, fwd_chpi) in \
         enumerate(_make_forward_solutions(
             fwd_info, trans, src, bem, eog_bem, dev_head_ts, mindist,
@@ -510,45 +510,66 @@ def simulate_movement(raw, pos, stc, trans, src, bem, cov='simple',
             last_fwd, last_fwd_eog, last_fwd_ecg, last_fwd_chpi = \
                 fwd, fwd_eog, fwd_ecg, fwd_chpi
             continue
-        n_time = offsets[fi] - offsets[fi-1]
 
-        time_slice = slice(offsets[fi-1], offsets[fi])
-        assert not used[time_slice].any()
-        stc_idxs = stc_indices[time_slice]
-        event_idxs = np.where(stc_idxs == stc_event_idx)[0] + offsets[fi-1]
-        used[time_slice] = True
+        # set up interpolation
+        if interp == 'zero':
+            interps = None
+        else:
+            interps = np.linspace(1, 0, offsets[fi] - offsets[fi-1],
+                                  endpoint=False)
+            interps = np.array([interps, 1 - interps])
+
+        assert not used[offsets[fi-1]:offsets[fi]].any()
+        event_idxs = np.where(stc_indices[offsets[fi-1]:offsets[fi]] ==
+                              stc_event_idx)[0] + offsets[fi-1]
+        raw._data[event_ch, event_idxs] = fi
+
         logger.info('  Simulating data for %0.3f-%0.3f sec with %s event%s'
                     % (tuple(offsets[fi-1:fi+1] / raw.info['sfreq']) +
                        (len(event_idxs), '' if len(event_idxs) == 1 else 's')))
 
-        # simulate brain data
-        stc_data = stc.data[:, stc_idxs][src_sel]
-        data = _interp(last_fwd['sol']['data'], fwd['sol']['data'],
-                       stc_data, interp)
-        simulated = EvokedArray(data, evoked.info, 0)
-        if cov is not None:
-            noise = generate_noise_evoked(simulated, cov, [1, -1, 0.2], rng)
-            simulated.data += noise.data
-        assert simulated.data.shape[0] == len(picks)
-        assert simulated.data.shape[1] == len(stc_idxs)
-        raw._data[picks, time_slice] = simulated.data
+        # Process data in large chunks to save on memory
+        chunk_size = 10000
+        chunks = np.concatenate((np.arange(offsets[fi-1], offsets[fi],
+                                           chunk_size), [offsets[fi]]))
+        for start, stop in zip(chunks[:-1], chunks[1:]):
+            assert stop - start <= chunk_size
 
-        # add ECG, EOG, and CHPI traces
-        raw._data[picks, time_slice] += \
-            _interp(last_fwd_eog, fwd_eog, eog_data[:, time_slice], interp)
-        raw._data[meg_picks, time_slice] += \
-            _interp(last_fwd_ecg, fwd_ecg, ecg_data[:, time_slice], interp)
-        this_t = np.arange(offsets[fi-1], offsets[fi]) / raw.info['sfreq']
-        sinusoids = np.zeros((n_freqs, n_time))
-        for fi, freq in enumerate(hpi_freqs):
-            sinusoids[fi] = 2 * np.pi * freq * this_t
-            sinusoids[fi] = hpi_mag * np.sin(sinusoids[fi])
-        raw._data[meg_picks, time_slice] += \
-            _interp(last_fwd_chpi, fwd_chpi, sinusoids, interp)
+            used[start:stop] = True
+            if interp == 'zero':
+                this_interp = None
+            else:
+                this_interp = interps[:, start - chunks[0]:stop - chunks[0]]
+            time_sl = slice(start, stop)
+            this_t = np.arange(start, stop) / raw.info['sfreq']
+            stc_idxs = stc_indices[time_sl]
 
-        # add events, using two samples for compat w/Elekta software
-        event_idxs = np.unique(np.concatenate([event_idxs, event_idxs + 1]))
-        raw._data[event_ch, event_idxs] = fi
+            # simulate brain data
+            raw._data[picks, time_sl] = \
+                _interp(last_fwd['sol']['data'], fwd['sol']['data'],
+                        stc.data[:, stc_idxs][src_sel], this_interp)
+
+            # add sensor noise
+            if cov is not None:
+                noise, zf = _generate_noise(fwd_info, cov, rng, [1, -1, 0.2],
+                                            len(stc_idxs), zi=zf)
+                raw._data[picks, time_sl] += noise
+
+            # add ECG, EOG, and CHPI traces
+            raw._data[picks, time_sl] += \
+                _interp(last_fwd_eog, fwd_eog, eog_data[:, time_sl],
+                        this_interp)
+            raw._data[meg_picks, time_sl] += \
+                _interp(last_fwd_ecg, fwd_ecg, ecg_data[:, time_sl],
+                        this_interp)
+            sinusoids = np.zeros((n_freqs, len(stc_idxs)))
+            for fidx, freq in enumerate(hpi_freqs):
+                sinusoids[fidx] = 2 * np.pi * freq * this_t
+                sinusoids[fidx] = hpi_mag * np.sin(sinusoids[fidx])
+            raw._data[meg_picks, time_sl] += \
+                _interp(last_fwd_chpi, fwd_chpi, sinusoids, this_interp)
+
+        assert used[offsets[fi-1]:offsets[fi]].all()
 
         # prepare for next iteration
         last_fwd, last_fwd_eog, last_fwd_ecg, last_fwd_chpi = \
@@ -558,14 +579,13 @@ def simulate_movement(raw, pos, stc, trans, src, bem, cov='simple',
     return raw
 
 
-def _interp(data_1, data_2, stc_data, interp):
+def _interp(data_1, data_2, stc_data, interps):
     """Helper to interpolate"""
-    n_time = stc_data.shape[1]
-    lin_interp_1 = np.linspace(1, 0, n_time, endpoint=False)
-    lin_interp_2 = 1 - lin_interp_1
-    if interp == 'zero':
-        return np.dot(data_1, stc_data)
-    else:  # interp == 'linear':
+    out_data = np.dot(data_1, stc_data)
+    if interps is not None:
+        out_data *= interps[0]
         data_1 = np.dot(data_1, stc_data)
-        data_2 = np.dot(data_2, stc_data)
-        return data_1 * lin_interp_1 + data_2 * lin_interp_2
+        data_1 *= interps[1]
+        out_data += data_1
+        del data_1
+    return out_data
