@@ -14,7 +14,7 @@ from mne.io import read_info, Raw
 from mne.io.meas_info import Info
 from mne.externals.six import string_types
 from mne.forward.forward import _merge_meg_eeg_fwds, _stc_src_sel
-from mne.forward._make_forward import (_prep_channels, _setup_bem,
+from mne.forward._make_forward import (_setup_bem,
                                        _compute_forwards, _to_forward_dict)
 from mne.forward._compute_forward import _magnetic_dipole_field_vec
 from mne.transforms import _get_mri_head_t, transform_surface_to
