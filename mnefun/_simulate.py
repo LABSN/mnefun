@@ -14,7 +14,7 @@ from mne.io import read_info, Raw
 from mne.io.meas_info import Info
 from mne.externals.six import string_types
 from mne.forward.forward import _merge_meg_eeg_fwds, _stc_src_sel
-from mne.forward._make_forward import (_prep_channels, _setup_bem,
+from mne.forward._make_forward import (_setup_bem,
                                        _compute_forwards, _to_forward_dict)
 from mne.forward._compute_forward import _magnetic_dipole_field_vec
 from mne.transforms import _get_mri_head_t, transform_surface_to
@@ -28,6 +28,24 @@ from mne.io.constants import FIFF
 from mne.source_estimate import _BaseSourceEstimate
 from mne.utils import logger, verbose, check_random_state
 from mne.simulation import generate_noise_evoked
+
+try:  # new form
+    from mne.forward._make_forward import (_prep_eeg_channels,
+                                           _prep_meg_channels)
+except ImportError:  # old form
+    from mne.forward._make_forward import _prep_channels
+    raise RuntimeError
+
+    def _prep_eeg_channels(info, exclude=(), verbose=None):
+        _, _, eegels, _, eegnames, _ = \
+            _prep_channels(info, False, True, True, verbose=False)
+        return eegels, eegnames
+
+    def _prep_meg_channels(info, accurate=True, exclude=(), ignore_ref=False,
+                           elekta_defs=False, verbose=None):
+        megcoils, compcoils, _, megnames, _, meg_info = \
+            _prep_channels(info, True, False, False, verbose=False)
+        return megcoils, compcoils, megnames, meg_info
 
 
 def _make_forward_solutions(info, mri, src, bem, bem_eog, dev_head_ts, mindist,
@@ -131,8 +149,7 @@ def _make_forward_solutions(info, mri, src, bem, bem_eog, dev_head_ts, mindist,
     # Only get the EEG channels here b/c we can do MEG later
     if len(pick_types(info, meg=False, eeg=True)) > 0:
         do_eeg = True
-        _, _, eegels, _, eegnames, _ = \
-            _prep_channels(info, False, True, True, verbose=False)
+        eegels, eegnames, = _prep_eeg_channels(info, [], verbose=False)
     else:
         do_eeg = False
         eegnames = []
@@ -171,8 +188,8 @@ def _make_forward_solutions(info, mri, src, bem, bem_eog, dev_head_ts, mindist,
                     % (ti + 1, len(dev_head_ts)))
         info = deepcopy(info)
         info['dev_head_t'] = dev_head_t
-        megcoils, compcoils, _, megnames, _, meg_info = \
-            _prep_channels(info, True, False, False, verbose=False)
+        megcoils, compcoils, megnames, meg_info = \
+            _prep_meg_channels(info, True, [], False, verbose=False)
 
         # make sure our sensors are all outside our BEM
         coil_rr = [coil['r0'] for coil in megcoils]
@@ -319,6 +336,8 @@ def simulate_movement(raw, pos, stc, trans, src, bem, cov='simple',
         raise TypeError('stc must be a SourceEstimate')
     if not np.allclose(raw.info['sfreq'], 1. / stc.tstep):
         raise ValueError('stc and raw must have same sample rate')
+    if len(stc.times) <= 2:  # to ensure event encoding works
+        raise ValueError('stc must have at least three time points')
     rng = check_random_state(random_state)
     if interp not in ('linear', 'zero'):
         raise ValueError('interp must be "linear" or "zero"')
@@ -528,7 +547,8 @@ def simulate_movement(raw, pos, stc, trans, src, bem, cov='simple',
         raw._data[meg_picks, time_slice] += \
             _interp(last_fwd_chpi, fwd_chpi, sinusoids, interp)
 
-        # add events
+        # add events, using two samples for compat w/Elekta software
+        event_idxs = np.unique(np.concatenate([event_idxs, event_idxs + 1]))
         raw._data[event_ch, event_idxs] = fi
 
         # prepare for next iteration
