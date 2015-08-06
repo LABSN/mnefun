@@ -54,7 +54,7 @@ print('Constructing original (simulated) sources')
 tmin, tmax = -0.2, 0.8
 vertices = [s['vertno'] for s in src]
 n_vertices = sum(s['nuse'] for s in src)
-data = np.ones((n_vertices, int((tmax - tmin) * sfreq)))
+data = np.zeros((n_vertices, int((tmax - tmin) * sfreq)))
 stc = SourceEstimate(data, vertices, -0.2, 1. / sfreq, subject)
 
 # limit activation to a square pulse in time at two vertices in space

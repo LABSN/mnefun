@@ -263,7 +263,7 @@ def _restrict_source_space_to(src, vertices):
 
 @verbose
 def simulate_movement(raw, pos, stc, trans, src, bem, cov='simple',
-                      mindist=1.0, interp='linear', random_state=None,
+                      mindist=1.0, interp='cos2', random_state=None,
                       n_jobs=1, verbose=None):
     """Simulate raw data with head movements
 
@@ -301,7 +301,7 @@ def simulate_movement(raw, pos, stc, trans, src, bem, cov='simple',
         Minimum distance between sources and the inner skull boundary
         to use during forward calculation.
     interp : str
-        Either 'linear' or 'zero', the type of forward-solution
+        Either 'cos2', 'linear', or 'zero', the type of forward-solution
         interpolation to use between provided time points.
     random_state : None | int | np.random.RandomState
         To specify the random generator state.
@@ -338,8 +338,8 @@ def simulate_movement(raw, pos, stc, trans, src, bem, cov='simple',
     if len(stc.times) <= 2:  # to ensure event encoding works
         raise ValueError('stc must have at least three time points')
     rng = check_random_state(random_state)
-    if interp not in ('linear', 'zero'):
-        raise ValueError('interp must be "linear" or "zero"')
+    if interp not in ('cos2', 'linear', 'zero'):
+        raise ValueError('interp must be "cos2", "linear", or "zero"')
 
     if pos is None:  # use pos from file
         dev_head_ts = [raw.info['dev_head_t']] * 2
@@ -425,7 +425,8 @@ def simulate_movement(raw, pos, stc, trans, src, bem, cov='simple',
     dig = raw.info['dig']
     assert all([d['coord_frame'] == FIFF.FIFFV_COORD_HEAD
                 for d in dig if d['kind'] == FIFF.FIFFV_POINT_HPI])
-    chpi_rrs = [d['r'] for d in dig if d['kind'] == FIFF.FIFFV_POINT_HPI]
+    chpi_rrs = np.array([d['r'] for d in dig
+                        if d['kind'] == FIFF.FIFFV_POINT_HPI])
     R, r0 = fit_sphere_to_headshape(raw.info, verbose=False)[:2]
     R /= 1000.
     r0 /= 1000.
@@ -449,7 +450,7 @@ def simulate_movement(raw, pos, stc, trans, src, bem, cov='simple',
     eog_data = np.convolve(blink_data, blink_kernel, 'same')[np.newaxis, :]
     eog_data += rng.randn(eog_data.shape[1]) * 0.05
     eog_data *= 100e-6
-    del blink_data,
+    del blink_data, blink_kernel
 
     max_beats = int(np.ceil(raw.times[-1] * 70. / 60.))
     cardiac_idx = np.cumsum(rng.uniform(60. / 70., 60. / 50., max_beats) *
@@ -464,7 +465,7 @@ def simulate_movement(raw, pos, stc, trans, src, bem, cov='simple',
     ecg_data = np.convolve(cardiac_data, cardiac_kernel, 'same')[np.newaxis, :]
     ecg_data += rng.randn(ecg_data.shape[1]) * 0.05
     ecg_data *= 3e-4
-    del cardiac_data
+    del cardiac_data, cardiac_kernel
 
     # Add to data file, then rescale for simulation
     for data, scale, exg_ch in zip([eog_data, ecg_data],
@@ -482,9 +483,11 @@ def simulate_movement(raw, pos, stc, trans, src, bem, cov='simple',
     stc_indices = np.arange(raw.n_times) % len(stc.times)
     raw._data[event_ch, :] = 0.
     raw._data[picks, :] = 0.
-    hpi_mag = 25e-9  # XXX should probably be 70e-9
+    hpi_mag = 70e-9
     last_fwd = last_fwd_chpi = last_fwd_eog = last_fwd_ecg = src_sel = None
     zf = None  # final filter conditions for the noise
+    chpi_nns = chpi_rrs / np.sqrt(np.sum(chpi_rrs * chpi_rrs,
+                                         axis=1))[:, np.newaxis]
     for fi, (fwd, fwd_eog, fwd_ecg, fwd_chpi) in \
         enumerate(_make_forward_solutions(
             fwd_info, trans, src, bem, eog_bem, dev_head_ts, mindist,
@@ -495,7 +498,12 @@ def simulate_movement(raw, pos, stc, trans, src, bem, cov='simple',
         # just use one arbitrary direction
         fwd_eog = fwd_eog['sol']['data'][:, ::3]
         fwd_ecg = fwd_ecg['sol']['data'][:, ::3]
-        fwd_chpi = fwd_chpi[:, ::3]
+
+        # align cHPI magnetic dipoles in approx. radial direction
+        for ii in range(len(chpi_rrs)):
+            fwd_chpi[:, ii] = np.dot(fwd_chpi[:, 3 * ii:3 * (ii + 1)],
+                                     chpi_nns[ii])
+        fwd_chpi = fwd_chpi[:, :len(chpi_rrs)].copy()
 
         if src_sel is None:
             src_sel = _stc_src_sel(fwd['src'], stc)
@@ -513,11 +521,14 @@ def simulate_movement(raw, pos, stc, trans, src, bem, cov='simple',
             continue
 
         # set up interpolation
+        n_pts = offsets[fi] - offsets[fi-1]
         if interp == 'zero':
             interps = None
         else:
-            interps = np.linspace(1, 0, offsets[fi] - offsets[fi-1],
-                                  endpoint=False)
+            if interp == 'linear':
+                interps = np.linspace(1, 0, n_pts, endpoint=False)
+            else:  # interp == 'cos2':
+                interps = np.cos(0.5 * np.pi * np.arange(n_pts)) ** 2
             interps = np.array([interps, 1 - interps])
 
         assert not used[offsets[fi-1]:offsets[fi]].any()
