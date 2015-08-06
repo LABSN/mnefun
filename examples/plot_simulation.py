@@ -8,6 +8,11 @@ This example shows how to use mnefun to simulate data with head movements.
 
 Note: you need to run the ``analysis_fun.py`` example to have the
 necessary raw data.
+
+The resulting positions were re-estimated using e.g.::
+
+    $ maxfilter -f move_raw.fif -headpos -hp hp_move.txt
+
 """
 
 import os.path as op
@@ -101,3 +106,5 @@ for ai, axis in enumerate(axes):
     if ai == 2:
         ax.set_xlabel('Time (sec)')
     ax.set_axes('tight')
+
+raw_movement.plot(lowpass=40., clipping='clamp')

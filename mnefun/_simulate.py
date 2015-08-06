@@ -13,7 +13,8 @@ from mne.io import read_info, Raw
 from mne.io.meas_info import Info
 from mne.externals.six import string_types
 from mne.forward.forward import _merge_meg_eeg_fwds, _stc_src_sel
-from mne.forward._make_forward import (_prep_channels, _setup_bem,
+from mne.forward._make_forward import (_prep_eeg_channels, _prep_meg_channels,
+                                       _setup_bem,
                                        _compute_forwards, _to_forward_dict)
 from mne.forward._compute_forward import _magnetic_dipole_field_vec
 from mne.transforms import _get_mri_head_t, transform_surface_to
@@ -481,7 +482,7 @@ def simulate_movement(raw, pos, stc, trans, src, bem, cov='simple',
     stc_indices = np.arange(raw.n_times) % len(stc.times)
     raw._data[event_ch, :] = 0.
     raw._data[picks, :] = 0.
-    hpi_mag = 25e-9
+    hpi_mag = 25e-9  # XXX should probably be 70e-9
     last_fwd = last_fwd_chpi = last_fwd_eog = last_fwd_ecg = src_sel = None
     zf = None  # final filter conditions for the noise
     for fi, (fwd, fwd_eog, fwd_ecg, fwd_chpi) in \
@@ -551,7 +552,7 @@ def simulate_movement(raw, pos, stc, trans, src, bem, cov='simple',
 
             # add sensor noise
             if cov is not None:
-                noise, zf = _generate_noise(fwd_info, cov, rng, [1, -1, 0.2],
+                noise, zf = _generate_noise(fwd_info, cov, [1, -1, 0.2], rng,
                                             len(stc_idxs), zi=zf)
                 raw._data[picks, time_sl] += noise
 
