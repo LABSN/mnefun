@@ -1803,17 +1803,11 @@ def plot_raw_psd(p, subjects, tmin=0., fmin=2, n_fft=2048):
             fname = get_raw_fnames(p, subj, which=file_type, erm=False)
             if len(fname) < 1:
                 raise Warning('Unable to find %s data file.' % file_type)
-            if file_type == 'pca':
-                raw = Raw(fname, preload=True, allow_maxshield=False)
-                raw.plot_psd(tmin=tmin, tmax=raw.times[-1], fmin=fmin,
-                             fmax=p.lp_cut, n_fft=n_fft,
-                             n_jobs=p.n_jobs, proj=False, ax=None, color=(0, 0, 1),
-                             picks=None)
-            else:
-                with warnings.catch_warnings(record=True):
-                    raw = Raw(fname, preload=True, allow_maxshield=True)
-                    raw.plot_psd(tmin=tmin, tmax=raw.times[-1], fmin=fmin,
-                                 fmax=raw.info['lowpass'] + 50, n_fft=n_fft,
-                                 n_jobs=p.n_jobs, proj=False, ax=None, color=(0, 0, 1),
-                                 picks=None)
+            with warnings.catch_warnings(record=True):
+                raw = Raw(fname, preload=True, allow_maxshield=True)
+            fmax = p.lp_cut if file_type == 'pca' else (raw.info['lowpass'] + 50)
+            raw.plot_psd(tmin=tmin, tmax=raw.times[-1], fmin=fmin,
+                         fmax=fmax, n_fft=n_fft,
+                         n_jobs=p.n_jobs, proj=False, ax=None, color=(0, 0, 1),
+                         picks=None)
             plt.savefig(fname[0][:-4] + '_psd.png')
