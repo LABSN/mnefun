@@ -1792,17 +1792,19 @@ def plot_raw_psd(p, subjects, tmin=0., fmin=2, n_fft=2048):
         Time in sec for beginning fft (defaults to 0)
     fmin : float
         Lower frequency edge for PSD (defaults to 2Hz)
+
     Notes
     -----
     tmax for psd set to last time point in raw data. fmax set
     to acquisition low pass cut off for raw and sss files, and
-    low pass cut off in analysis parameters for pca file.
+    low pass cut off in analysis parameters for pca file. n_fft
+    set to default value from mne-python.
     """
     for subj in subjects:
         for file_type in ['raw', 'sss', 'pca']:
             fname = get_raw_fnames(p, subj, which=file_type, erm=False)
             if len(fname) < 1:
-                raise Warning('Unable to find %s data file.' % file_type)
+                warnings.warn('Unable to find %s data file.' % file_type)
             with warnings.catch_warnings(record=True):
                 raw = Raw(fname, preload=True, allow_maxshield=True)
             fmax = p.lp_cut if file_type == 'pca' else (raw.info['lowpass'] + 50)
