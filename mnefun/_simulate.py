@@ -34,7 +34,6 @@ try:  # new form
                                            _prep_meg_channels)
 except ImportError:  # old form
     from mne.forward._make_forward import _prep_channels
-    raise RuntimeError
 
     def _prep_eeg_channels(info, exclude=(), verbose=None):
         _, _, eegels, _, eegnames, _ = \
