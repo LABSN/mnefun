@@ -5,10 +5,10 @@
 #          simplified bsd-3 license
 
 # TODO(ktavabi@gmail.com): Document
-'''Runs FreeSurfer recon-all on RMS combined multi echo MPRAGE volume.
+"""Runs FreeSurfer recon-all on RMS combined multi echo MPRAGE volume.
 
  example usage: python run_recon-all --subject subject --raw-dir ${SUBJECTS_DIR}/PARREC --openmp 2
-'''
+"""
 from __future__ import print_function
 
 import sys
@@ -36,8 +36,12 @@ def run():
                       help='FS Subjects directory', default=subjects_dir)
     parser.add_option('-f', '--force', dest='force', action='store_true',
                       help='Force FreeSurfer reconstruction.')
-    parser.add_option('-o', '--openmp', dest='openmp', default=2, type=int,
+    parser.add_option('-o', '--openmp', dest='openmp', default=2, type=str,
                       help='Number of CPUs to use for reconstruction routines.')
+    parser.add_option('-v', '--volume', dest='volume', default='MPRAGE', type=str,
+                      help='Input raw volume file for nii conversion. Default is MPRAGE '
+                           'it can also be MEMP_VBM.')
+
     
     options, args = parser.parse_args()
 
@@ -47,15 +51,15 @@ def run():
     if subject is None or subjects_dir is None:
         parser.print_help()
         sys.exit(1)
-    _run(subjects_dir, subject, raw_dir, options.force, options.openmp)
+    _run(subjects_dir, subject, raw_dir, options.force, options.openmp, options.volume)
 
 
-def _run(subjects_dir, subject, raw_dir, force, mp):
+def _run(subjects_dir, subject, raw_dir, force, mp, volume):
     this_env = copy.copy(os.environ)
     this_env['SUBJECTS_DIR'] = subjects_dir
     this_env['SUBJECT'] = subject
     parrec_dir = op.join(subjects_dir, raw_dir, subject)
-    
+
     if 'SUBJECTS_DIR' not in this_env:
         raise RuntimeError('The environment variable SUBJECTS_DIR should '
                            'be set')
@@ -95,7 +99,7 @@ def _run(subjects_dir, subject, raw_dir, force, mp):
             parfiles.append(op.join(root, filename))
     parfiles.sort()
     for pf in parfiles:
-        if ('MPRAGE' in pf) or ('FLASH' in pf):
+        if (volume in pf) or ('FLASH' in pf):
             print('Converting {0}'.format(pf))
             pimg = nibabel.load(pf)
             pr_hdr = pimg.header
@@ -106,7 +110,7 @@ def _run(subjects_dir, subject, raw_dir, force, mp):
             shutil.copy(nimg.get_filename(), fs_nii_dir)
 
     for ff in glob.glob(op.join(fs_nii_dir, '*.nii')):
-        if 'MPRAGE' in op.basename(ff):
+        if volume in op.basename(ff):
             os.symlink(ff, op.join(fs_nii_dir, 'MPRAGE.nii'))
         elif 'FLASH5' in op.basename(ff):
             os.symlink(ff, op.join(fs_nii_dir, 'FLASH5.nii'))
@@ -119,6 +123,8 @@ def _run(subjects_dir, subject, raw_dir, force, mp):
                     '--o', op.join(subjects_dir, subject, 'mri/orig/001.mgz')],
                    env=this_env)
     run_subprocess(['recon-all', '-openmp', mp, '-subject', subject, '-all'], env=this_env)
+    for morph_to in ['fsaverage', subject]:
+        run_subprocess(['mne_make_morph_maps', '--to', morph_to, '--from', subject], env=this_env)
 
 is_main = (__name__ == '__main__')
 if is_main:

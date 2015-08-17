@@ -33,18 +33,21 @@ def run():
                       help='Triangle decimation number for single layer bem')
     parser.add_option('-d', '--subjects-dir', dest='subjects_dir',
                       help='FS Subjects directory', default=subjects_dir)
-    
+    parser.add_option('-o', '--overwrite', dest='overwrite', action='store_true',
+                      help='Overwrite existing neuromag MRI and MNE BEM files.')
     options, args = parser.parse_args()
 
-    subject = vars(options).get('subject', os.getenv('SUBJECT'))
+    subject = options.subject
     subjects_dir = options.subjects_dir
+
     if subject is None or subjects_dir is None:
         parser.print_help()
         sys.exit(1)
-    _run(subjects_dir, subject, options.layers, options.ico)
+
+    _run(subjects_dir, subject, options.layers, options.ico, options.overwrite)
 
 
-def _run(subjects_dir, subject, layers, ico):
+def _run(subjects_dir, subject, layers, ico, overwrite):
     this_env = copy.copy(os.environ)
     this_env['SUBJECTS_DIR'] = subjects_dir
     this_env['SUBJECT'] = subject
@@ -67,9 +70,11 @@ def _run(subjects_dir, subject, layers, ico):
         raise RuntimeError('%s does not exits. Please check your subject '
                            'directory path.' % subj_path)
     
-    logger.info('1. Setting up MRI files and running watershed algorithm...')
-    run_subprocess(['mne_setup_mri', '--mri', 'T1', '--subject', subject, '--overwrite'], env=this_env)
-    run_subprocess(['mne_watershed_bem', '--subject', subject, '--overwrite'], env=this_env)
+    logger.info('1. Setting up MRI files...')
+    if overwrite:
+        run_subprocess(['mne_setup_mri', '--mri', 'T1', '--subject', subject, '--overwrite'], env=this_env)
+    else:
+        run_subprocess(['mne_setup_mri', '--mri', 'T1', '--subject', subject], env=this_env)
 
     logger.info('2. Setting up %d layer BEM...' % layers)
     if layers == 3:
@@ -81,22 +86,24 @@ def _run(subjects_dir, subject, layers, ico):
         for srf in ('inner_skull', 'outer_skull', 'outer_skin'):
             shutil.copy(op.join(subjects_dir, subject, 'bem/flash/%s.surf' % srf),
                         op.join(subjects_dir, subject, 'bem/%s.surf' % srf))
-        run_subprocess(['mne_setup_forward_model', '--subject', subject, '--ico', '%.0f' % ico, '--surf'],
-                       env=this_env)
     else:
-        os.symlink(op.join(subjects_dir, subject, 'bem/watershed/%s_inner_skull_surface' % subject),
-                   op.join(subjects_dir, subject, 'bem/%s.surf' % 'inner_skull'))
-        run_subprocess(['mne_setup_forward_model', '--subject', subject, '--ico', '%.0f' % ico, '--surf', '--homog'],
-                       env=this_env)
+        if overwrite:
+            run_subprocess(['mne', 'watershed_bem', '-s', subject, '-d', subjects_dir, '--overwrite'], env=this_env)
+        else:
+            run_subprocess(['mne', 'watershed_bem', '-s', subject, '-d', subjects_dir], env=this_env)
 
     # Create dense head surface and symbolic link to head.fif file
     logger.info('3. Creating high resolution skin surface for coregisteration...')
     run_subprocess(['mne', 'make_scalp_surfaces', '--overwrite', '--subject', subject])
     if op.isfile(op.join(subjects_dir, subject, 'bem/%s-head.fif' % subject)):
-        os.remove(op.join(subjects_dir, subject, 'bem/%s-head.fif' % subject))
+        os.rename(op.join(subjects_dir, subject, 'bem/%s-head.fif' % subject),
+                  op.join(subjects_dir, subject, 'bem/%s-head-sparse.fif' % subject))
     os.symlink((op.join(subjects_dir, subject, 'bem/%s-head-dense.fif' % subject)),
                (op.join(subjects_dir, subject, 'bem/%s-head.fif' % subject)))
 
+    # Create source space
+    run_subprocess(['mne_setup_source_space', '--subject', subject, '--spacing', '%.0f' % 5, '--cps'],
+                   env=this_env)
 is_main = (__name__ == '__main__')
 if is_main:
     run()
