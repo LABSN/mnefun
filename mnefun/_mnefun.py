@@ -1353,8 +1353,7 @@ def do_preprocessing_combined(p, subjects):
                 raise NameError('File not found (' + r + ')')
 
         bad_file = op.join(bad_dir, 'bad_ch_' + subj + p.bad_tag)
-        if isinstance(p.auto_bad, float):
-            assert type(p.auto_bad_reject) == dict
+        assert isinstance(p.auto_bad_reject, dict)
             print('    Creating bad channel file, marking bad channels:\n'
                   '        %s' % bad_file)
             if not op.isdir(bad_dir):
