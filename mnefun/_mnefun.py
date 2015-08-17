@@ -290,9 +290,9 @@ def _get_baseline(p):
 
 def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
                   do_sss=False, fetch_sss=False, do_ch_fix=False,
-                  gen_ssp=False, apply_ssp=False, write_epochs=False,
-                  gen_covs=False, gen_fwd=False, gen_inv=False,
-                  gen_report=False, print_status=True):
+                  gen_ssp=False, apply_ssp=False, plot_psd=False,
+                  write_epochs=False, gen_covs=False, gen_fwd=False,
+                  gen_inv=False, gen_report=False, print_status=True):
     """Do M/EEG data processing
 
     Parameters
@@ -315,6 +315,8 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
         Generate SSP vectors.
     apply_ssp : bool
         Apply SSP vectors and filtering.
+    plot_psd : bool
+        Plot continuous raw data power spectra
     write_epochs : bool
         Write epochs to disk.
     gen_covs : bool
@@ -337,6 +339,7 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
              do_ch_fix,
              gen_ssp,
              apply_ssp,
+             plot_psd,
              write_epochs,
              gen_covs,
              gen_fwd,
@@ -352,6 +355,7 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
              'Fixing EEG order',
              'Preprocessing files',
              'Applying preprocessing',
+             'Plotting raw data power',
              'Doing epoch EQ/DQ',
              'Generating covariances',
              'Generating forward models',
@@ -368,6 +372,7 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
              fix_eeg_files,
              do_preprocessing_combined,
              apply_preprocessing_combined,
+             plot_raw_psd,
              save_epochs,
              gen_covariances,
              gen_forwards,
@@ -1772,3 +1777,39 @@ def gen_html_report(p, subjects, structurals, raw=True, evoked=True,
                             pattern=patterns)
         report_fname = get_report_fnames(p, subj)[0]
         report.save(report_fname, open_browser=False, overwrite=True)
+
+
+def plot_raw_psd(p, subjects, tmin=0., fmin=2, n_fft=2048):
+    """Plot data power for all available raw data files for a subject
+
+    Parameters
+    ----------
+    p : instance of Parameters
+        Analysis parameters.
+    subjects : list of str
+        Subject names to analyze (e.g., ['Eric_SoP_001', ...]).
+    tmin : float
+        Time in sec for beginning fft (defaults to 0)
+    fmin : float
+        Lower frequency edge for PSD (defaults to 2Hz)
+
+    Notes
+    -----
+    tmax for psd set to last time point in raw data. fmax set
+    to acquisition low pass cut off for raw and sss files, and
+    low pass cut off in analysis parameters for pca file. n_fft
+    set to default value from mne-python.
+    """
+    for subj in subjects:
+        for file_type in ['raw', 'sss', 'pca']:
+            fname = get_raw_fnames(p, subj, which=file_type, erm=False)
+            if len(fname) < 1:
+                warnings.warn('Unable to find %s data file.' % file_type)
+            with warnings.catch_warnings(record=True):
+                raw = Raw(fname, preload=True, allow_maxshield=True)
+            fmax = p.lp_cut if file_type == 'pca' else (raw.info['lowpass'] + 50)
+            raw.plot_psd(tmin=tmin, tmax=raw.times[-1], fmin=fmin,
+                         fmax=fmax, n_fft=n_fft,
+                         n_jobs=p.n_jobs, proj=False, ax=None, color=(0, 0, 1),
+                         picks=None)
+            plt.savefig(fname[0][:-4] + '_psd.png')

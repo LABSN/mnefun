@@ -104,6 +104,7 @@ mnefun.do_processing(
     # usually only contains EEG channels, needed for preprocessing.
     gen_ssp=True,  # Generate SSP vectors
     apply_ssp=True,  # Apply SSP vectors and filtering
+    plot_psd=True,  # Plot raw data power spectra
     write_epochs=True,  # Write epochs to disk
     gen_covs=True,  # Generate covariances
     # Make SUBJ/trans/SUBJ-trans.fif file in mne_analyze, needed for fwd calc.
