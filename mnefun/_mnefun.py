@@ -1368,7 +1368,7 @@ def do_preprocessing_combined(p, subjects):
             meg, eeg = 'meg' in raw, 'eeg' in raw
             picks = pick_types(raw.info, meg=meg, eeg=eeg, eog=False,
                                exclude=[])
-            flat = p.auto_bad_flat if isinstance(p.auto_bad_flat, dict)
+            flat = p.auto_bad_flat if isinstance(p.auto_bad_flat, dict) else None
             epochs = Epochs(raw, events, None, p.tmin, p.tmax,
                             baseline=_get_baseline(p), picks=picks,
                             reject=p.auto_bad_reject, flat=flat,
