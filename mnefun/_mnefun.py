@@ -1354,6 +1354,7 @@ def do_preprocessing_combined(p, subjects):
 
         bad_file = op.join(bad_dir, 'bad_ch_' + subj + p.bad_tag)
         if isinstance(p.auto_bad, float):
+            assert type(p.auto_bad_reject) == dict
             print('    Creating bad channel file, marking bad channels:\n'
                   '        %s' % bad_file)
             if not op.isdir(bad_dir):
@@ -1368,7 +1369,10 @@ def do_preprocessing_combined(p, subjects):
             meg, eeg = 'meg' in raw, 'eeg' in raw
             picks = pick_types(raw.info, meg=meg, eeg=eeg, eog=False,
                                exclude=[])
-            assert type(p.auto_bad_reject) and type(p.auto_bad_flat) == dict
+            if p.auto_bad_flat flat = p.auto_bad_flat else flat=None
+
+            assert type(p.auto_bad_flat) == dict
+
             epochs = Epochs(raw, events, None, p.tmin, p.tmax,
                             baseline=_get_baseline(p), picks=picks,
                             reject=p.auto_bad_reject, flat=p.auto_bad_flat,
