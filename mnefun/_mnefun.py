@@ -1369,13 +1369,10 @@ def do_preprocessing_combined(p, subjects):
             meg, eeg = 'meg' in raw, 'eeg' in raw
             picks = pick_types(raw.info, meg=meg, eeg=eeg, eog=False,
                                exclude=[])
-            if p.auto_bad_flat flat = p.auto_bad_flat else flat=None
-
-            assert type(p.auto_bad_flat) == dict
-
+            flat = p.auto_bad if type(p.auto_bad_flat) == dict else None
             epochs = Epochs(raw, events, None, p.tmin, p.tmax,
                             baseline=_get_baseline(p), picks=picks,
-                            reject=p.auto_bad_reject, flat=p.auto_bad_flat,
+                            reject=p.auto_bad_reject, flat=flat,
                             proj=True, preload=True, decim=1)
             # channel scores from drop log
             scores = Counter([ch for d in epochs.drop_log for ch in d])
