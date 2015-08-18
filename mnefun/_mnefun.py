@@ -1356,7 +1356,8 @@ def _raw_LRFCP(raw_names, sfreq, l_freq, h_freq, n_jobs, n_jobs_resample,
         r = Raw(rn, preload=True)
         r.load_bad_channels(bad_file, force=force_bads)
         if sfreq is not None:
-            r.resample(sfreq, n_jobs=n_jobs_resample)
+            with warnings.catch_warnings(record=True):  # resamp of stim ch
+                r.resample(sfreq, n_jobs=n_jobs_resample)
         if l_freq is not None or h_freq is not None:
             r.filter(l_freq=l_freq, h_freq=h_freq, picks=None,
                      n_jobs=n_jobs, method=method,
