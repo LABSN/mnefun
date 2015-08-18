@@ -1358,7 +1358,7 @@ def do_preprocessing_combined(p, subjects):
                 raise NameError('File not found (' + r + ')')
 
         bad_file = op.join(bad_dir, 'bad_ch_' + subj + p.bad_tag)
-        assert isinstance(p.auto_bad_reject, dict)
+        if isinstance(p.auto_bad, float):
             print('    Creating bad channel file, marking bad channels:\n'
                   '        %s' % bad_file)
             if not op.isdir(bad_dir):
@@ -1373,10 +1373,11 @@ def do_preprocessing_combined(p, subjects):
             meg, eeg = 'meg' in raw, 'eeg' in raw
             picks = pick_types(raw.info, meg=meg, eeg=eeg, eog=False,
                                exclude=[])
-            flat = p.auto_bad_flat if isinstance(p.auto_bad_flat, dict) else None
+            assert p.auto_bad_flat is None or isinstance(p.auto_bad_flat, dict)
+            assert p.auto_bad_reject is None or isinstance(p.auto_bad_reject, dict)
             epochs = Epochs(raw, events, None, p.tmin, p.tmax,
                             baseline=_get_baseline(p), picks=picks,
-                            reject=p.auto_bad_reject, flat=flat,
+                            reject=p.auto_bad_reject, flat=p.auto_bad_flat,
                             proj=True, preload=True, decim=1)
             # channel scores from drop log
             scores = Counter([ch for d in epochs.drop_log for ch in d])
