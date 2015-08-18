@@ -719,7 +719,8 @@ def fetch_sss_files(p, subjects, run_indices):
     run_subprocess(cmd, cwd=p.work_dir)
 
 
-def run_sss_command(fname_in, options, fname_out, host='kasga', port=22):
+def run_sss_command(fname_in, options, fname_out, host='kasga', port=22,
+                    fname_pos=None):
     """Run Maxfilter remotely and fetch resulting file
 
     Parameters
@@ -733,34 +734,53 @@ def run_sss_command(fname_in, options, fname_out, host='kasga', port=22):
         None will output to a temporary file.
     host : str
         The SSH/scp host to run the command on.
+    fname_pos : str | None
+        The ``-hp fname_pos`` to use with MaxFilter.
     """
     # let's make sure we can actually write where we want
     if not op.isfile(fname_in):
         raise IOError('input file not found: %s' % fname_in)
     if not op.isdir(op.dirname(op.abspath(fname_out))):
         raise IOError('output directory for output file does not exist')
-    if '-f ' in options or '-o ' in options:
-        raise ValueError('options cannot contain -o or -f, these are set '
-                         'automatically')
+    if any(x in options for x in ('-f ', '-o ', '-hp ')):
+        raise ValueError('options cannot contain -o, -f, or -hp, these are '
+                         'set automatically')
     port = str(int(port))
-    remote_in = '~/temp_%s_raw.fif' % time()
-    remote_out = '~/temp_%s_raw_sss.fif' % time()
+    t0 = time()
+    remote_in = '~/temp_%s_raw.fif' % t0
+    remote_out = '~/temp_%s_raw_sss.fif' % t0
+    remote_pos = '~/temp_%s_raw_sss.pos' % t0
     print('Copying file to %s' % host)
     cmd = ['scp', '-P' + port, fname_in, host + ':' + remote_in]
     run_subprocess(cmd, stdout=None, stderr=None)
 
+    if fname_pos is not None:
+        options += ' -hp ' + remote_pos
+
     print('Running maxfilter on %s' % host)
     cmd = ['ssh', '-p', port, host,
            'maxfilter -f ' + remote_in + ' -o ' + remote_out + ' ' + options]
-    run_subprocess(cmd, stdout=None, stderr=None)
+    try:
+        run_subprocess(cmd, stdout=None, stderr=None)
 
-    print('Copying result to %s' % fname_out)
-    cmd = ['scp', '-P' + port, host + ':' + remote_out, fname_out]
-    run_subprocess(cmd, stdout=None, stderr=None)
-
-    print('Cleaning up %s' % host)
-    cmd = ['ssh', '-p', port, host, 'rm %s %s' % (remote_in, remote_out)]
-    run_subprocess(cmd, stdout=None, stderr=None)
+        print('Copying result to %s' % fname_out)
+        if fname_pos is not None:
+            try:
+                cmd = ['scp', '-P' + port, host + ':' + remote_pos, fname_pos]
+                run_subprocess(cmd, stdout=None, stderr=None)
+            except Exception:
+                pass
+        cmd = ['scp', '-P' + port, host + ':' + remote_out, fname_out]
+        run_subprocess(cmd, stdout=None, stderr=None)
+    finally:
+        print('Cleaning up %s' % host)
+        files = [remote_in, remote_out]
+        files += [remote_pos] if fname_pos is not None else []
+        cmd = ['ssh', '-p', port, host, 'rm -f ' + ' '.join(files)]
+        try:
+            run_subprocess(cmd, stdout=None, stderr=None)
+        except Exception:
+            pass
 
 
 def run_sss_positions(fname_in, fname_out, host='kasga', opts='', port=22):

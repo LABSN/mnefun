@@ -175,10 +175,12 @@ def _make_forward_solutions(info, mri, src, bem, bem_eog, dev_head_ts, mindist,
                                    [None], ['eeg'], n_jobs, verbose=False)[0]
         eegfwd = _to_forward_dict(eegfwd, None, eegnames, coord_frame,
                                   FIFF.FIFFV_MNE_FREE_ORI)
-        eegeog = _compute_forwards(eog_rrs, bem_eog, [eegels], [None],
-                                   [None], ['eeg'], n_jobs, verbose=False)[0]
-        eegeog = _to_forward_dict(eegeog, None, eegnames, coord_frame,
-                                  FIFF.FIFFV_MNE_FREE_ORI)
+        if eog_rrs is not None:
+            eegeog = _compute_forwards(eog_rrs, bem_eog, [eegels], [None],
+                                       [None], ['eeg'], n_jobs,
+                                       verbose=False)[0]
+            eegeog = _to_forward_dict(eegeog, None, eegnames, coord_frame,
+                                      FIFF.FIFFV_MNE_FREE_ORI)
 
     for ti, dev_head_t in enumerate(dev_head_ts):
         # could be *slightly* more efficient not to do this N times,
@@ -227,20 +229,23 @@ def _make_forward_solutions(info, mri, src, bem, bem_eog, dev_head_ts, mindist,
         fwd['info']['mri_head_t'] = mri_head_t
         fwd['info']['dev_head_t'] = dev_head_t
 
-        megeog = _compute_forwards(eog_rrs, bem_eog, [megcoils], [compcoils],
-                                   [meg_info], ['meg'], n_jobs,
-                                   verbose=False)[0]
-        megeog = _to_forward_dict(megeog, None, megnames, coord_frame,
-                                  FIFF.FIFFV_MNE_FREE_ORI)
-        if do_eeg:
-            fwd_eog = _merge_meg_eeg_fwds(megeog, eegeog, verbose=False)
-        else:
-            fwd_eog = megeog
-        megecg = _compute_forwards(ecg_rrs, bem_eog, [megcoils], [compcoils],
-                                   [meg_info], ['meg'], n_jobs,
-                                   verbose=False)[0]
-        fwd_ecg = _to_forward_dict(megecg, None, megnames, coord_frame,
-                                   FIFF.FIFFV_MNE_FREE_ORI)
+        fwd_eog = fwd_ecg = None
+        if eog_rrs is not None:
+            megeog = _compute_forwards(eog_rrs, bem_eog, [megcoils],
+                                       [compcoils], [meg_info], ['meg'],
+                                       n_jobs, verbose=False)[0]
+            megeog = _to_forward_dict(megeog, None, megnames, coord_frame,
+                                      FIFF.FIFFV_MNE_FREE_ORI)
+            if do_eeg:
+                fwd_eog = _merge_meg_eeg_fwds(megeog, eegeog, verbose=False)
+            else:
+                fwd_eog = megeog
+        if ecg_rrs is not None:
+            megecg = _compute_forwards(ecg_rrs, bem_eog, [megcoils],
+                                       [compcoils], [meg_info], ['meg'],
+                                       n_jobs, verbose=False)[0]
+            fwd_ecg = _to_forward_dict(megecg, None, megnames, coord_frame,
+                                       FIFF.FIFFV_MNE_FREE_ORI)
         fwd_chpi = _magnetic_dipole_field_vec(chpi_rrs, megcoils).T
         yield fwd, fwd_eog, fwd_ecg, fwd_chpi
 
@@ -263,8 +268,8 @@ def _restrict_source_space_to(src, vertices):
 
 @verbose
 def simulate_movement(raw, pos, stc, trans, src, bem, cov='simple',
-                      mindist=1.0, interp='cos2', random_state=None,
-                      n_jobs=1, verbose=None):
+                      blink=True, ecg=True, mindist=1.0, interp='cos2',
+                      random_state=None, n_jobs=1, verbose=None):
     """Simulate raw data with head movements
 
     Parameters
@@ -297,6 +302,10 @@ def simulate_movement(raw, pos, stc, trans, src, bem, cov='simple',
         The sensor covariance matrix used to generate noise. If None,
         no noise will be added. If 'simple', a basic (diagonal) ad-hoc
         noise covariance will be used.
+    blink : bool
+        If True, add simple blink artifacts.
+    ecg : bool
+        If True, add simple ecg artifacts.
     mindist : float
         Minimum distance between sources and the inner skull boundary
         to use during forward calculation.
@@ -430,52 +439,59 @@ def simulate_movement(raw, pos, stc, trans, src, bem, cov='simple',
     R, r0 = fit_sphere_to_headshape(raw.info, verbose=False)[:2]
     R /= 1000.
     r0 /= 1000.
-    ecg_rr = np.array([[-R, 0, -3 * R]])
-    eog_rr = [d['r'] for d in raw.info['dig']
-              if d['ident'] == FIFF.FIFFV_POINT_NASION][0]
-    eog_rr = eog_rr - r0
-    eog_rr = (eog_rr / np.sqrt(np.sum(eog_rr * eog_rr)) *
-              0.98 * R)[np.newaxis, :]
-    eog_rr += r0
-    eog_bem = make_sphere_model(r0, head_radius=R, relative_radii=(0.99, 1.),
-                                sigmas=(0.33, 0.33), verbose=False)
-    # let's oscillate between resting (17 bpm) and reading (4.5 bpm) rate
-    # http://www.ncbi.nlm.nih.gov/pubmed/9399231
-    blink_rate = np.cos(2 * np.pi * 1. / 60. * raw.times)
-    blink_rate *= 12.5 / 60.
-    blink_rate += 4.5 / 60.
-    blink_data = rng.rand(raw.n_times) < blink_rate / raw.info['sfreq']
-    blink_data = blink_data * (rng.rand(raw.n_times) + 0.5)  # vary amplitudes
-    blink_kernel = np.hanning(int(0.25 * raw.info['sfreq']))
-    eog_data = np.convolve(blink_data, blink_kernel, 'same')[np.newaxis, :]
-    eog_data += rng.randn(eog_data.shape[1]) * 0.05
-    eog_data *= 100e-6
-    del blink_data, blink_kernel
+    ecg_rr = eog_rr = eog_bem = None
+    if blink:
+        eog_rr = [d['r'] for d in raw.info['dig']
+                  if d['ident'] == FIFF.FIFFV_POINT_NASION][0]
+        eog_rr = eog_rr - r0
+        eog_rr = (eog_rr / np.sqrt(np.sum(eog_rr * eog_rr)) *
+                  0.98 * R)[np.newaxis, :]
+        eog_rr += r0
+        eog_bem = make_sphere_model(r0, head_radius=R,
+                                    relative_radii=(0.99, 1.),
+                                    sigmas=(0.33, 0.33), verbose=False)
+        # let's oscillate between resting (17 bpm) and reading (4.5 bpm) rate
+        # http://www.ncbi.nlm.nih.gov/pubmed/9399231
+        blink_rate = np.cos(2 * np.pi * 1. / 60. * raw.times)
+        blink_rate *= 12.5 / 60.
+        blink_rate += 4.5 / 60.
+        blink_data = rng.rand(raw.n_times) < blink_rate / raw.info['sfreq']
+        blink_data = blink_data * (rng.rand(raw.n_times) + 0.5)  # varying amps
+        blink_kernel = np.hanning(int(0.25 * raw.info['sfreq']))
+        eog_data = np.convolve(blink_data, blink_kernel, 'same')[np.newaxis, :]
+        eog_data += rng.randn(eog_data.shape[1]) * 0.05
+        eog_data *= 100e-6
+        del blink_data, blink_kernel, blink_rate
 
-    max_beats = int(np.ceil(raw.times[-1] * 70. / 60.))
-    cardiac_idx = np.cumsum(rng.uniform(60. / 70., 60. / 50., max_beats) *
-                            raw.info['sfreq']).astype(int)
-    cardiac_idx = cardiac_idx[cardiac_idx < raw.n_times]
-    cardiac_data = np.zeros(raw.n_times)
-    cardiac_data[cardiac_idx] = 1
-    cardiac_kernel = np.concatenate([
-        2 * np.hanning(int(0.04 * raw.info['sfreq'])),
-        -0.3 * np.hanning(int(0.05 * raw.info['sfreq'])),
-        0.2 * np.hanning(int(0.26 * raw.info['sfreq']))], axis=-1)
-    ecg_data = np.convolve(cardiac_data, cardiac_kernel, 'same')[np.newaxis, :]
-    ecg_data += rng.randn(ecg_data.shape[1]) * 0.05
-    ecg_data *= 3e-4
-    del cardiac_data, cardiac_kernel
+    if ecg:
+        ecg_rr = np.array([[-R, 0, -3 * R]])
+        max_beats = int(np.ceil(raw.times[-1] * 70. / 60.))
+        cardiac_idx = np.cumsum(rng.uniform(60. / 70., 60. / 50., max_beats) *
+                                raw.info['sfreq']).astype(int)
+        cardiac_idx = cardiac_idx[cardiac_idx < raw.n_times]
+        cardiac_data = np.zeros(raw.n_times)
+        cardiac_data[cardiac_idx] = 1
+        cardiac_kernel = np.concatenate([
+            2 * np.hanning(int(0.04 * raw.info['sfreq'])),
+            -0.3 * np.hanning(int(0.05 * raw.info['sfreq'])),
+            0.2 * np.hanning(int(0.26 * raw.info['sfreq']))], axis=-1)
+        ecg_data = np.convolve(cardiac_data, cardiac_kernel,
+                               'same')[np.newaxis, :]
+        ecg_data += rng.randn(ecg_data.shape[1]) * 0.05
+        ecg_data *= 3e-4
+        del cardiac_data, cardiac_kernel, max_beats, cardiac_idx
 
     # Add to data file, then rescale for simulation
-    for data, scale, exg_ch in zip([eog_data, ecg_data],
-                                   [1e-3, 5e-4],
-                                   [dict(eog=True, ecg=False),
-                                    dict(eog=False, ecg=True)]):
-        ch = pick_types(raw.info, meg=False, eeg=False, **exg_ch)
+    if blink:
+        ch = pick_types(raw.info, meg=False, eeg=False, eog=True)
         if len(ch) >= 1:
-            raw._data[ch[-1], :] = data
-        data *= scale
+            raw._data[ch[-1], :] = eog_data
+        eog_data *= 1e-3
+    if ecg:
+        ch = pick_types(raw.info, meg=False, eeg=False, ecg=True)
+        if len(ch) >= 1:
+            raw._data[ch[-1], :] = ecg_data
+        ecg_data *= 5e-4
 
     stc_event_idx = np.argmin(np.abs(stc.times))
     event_ch = pick_channels(raw.info['ch_names'], ['STI101'])[0]
@@ -496,8 +512,10 @@ def simulate_movement(raw, pos, stc, trans, src, bem, cov='simple',
         fwd = convert_forward_solution(fwd, surf_ori=True,
                                        force_fixed=True, verbose=False)
         # just use one arbitrary direction
-        fwd_eog = fwd_eog['sol']['data'][:, ::3]
-        fwd_ecg = fwd_ecg['sol']['data'][:, ::3]
+        if blink:
+            fwd_eog = fwd_eog['sol']['data'][:, ::3]
+        if ecg:
+            fwd_ecg = fwd_ecg['sol']['data'][:, ::3]
 
         # align cHPI magnetic dipoles in approx. radial direction
         for ii in range(len(chpi_rrs)):
@@ -561,19 +579,19 @@ def simulate_movement(raw, pos, stc, trans, src, bem, cov='simple',
                 _interp(last_fwd['sol']['data'], fwd['sol']['data'],
                         stc.data[:, stc_idxs][src_sel], this_interp)
 
-            # add sensor noise
+            # add sensor noise, ECG, EOG, cHPI
             if cov is not None:
                 noise, zf = _generate_noise(fwd_info, cov, [1, -1, 0.2], rng,
                                             len(stc_idxs), zi=zf)
                 raw._data[picks, time_sl] += noise
-
-            # add ECG, EOG, and CHPI traces
-            raw._data[picks, time_sl] += \
-                _interp(last_fwd_eog, fwd_eog, eog_data[:, time_sl],
-                        this_interp)
-            raw._data[meg_picks, time_sl] += \
-                _interp(last_fwd_ecg, fwd_ecg, ecg_data[:, time_sl],
-                        this_interp)
+            if blink:
+                raw._data[picks, time_sl] += \
+                    _interp(last_fwd_eog, fwd_eog, eog_data[:, time_sl],
+                            this_interp)
+            if ecg:
+                raw._data[meg_picks, time_sl] += \
+                    _interp(last_fwd_ecg, fwd_ecg, ecg_data[:, time_sl],
+                            this_interp)
             sinusoids = np.zeros((n_freqs, len(stc_idxs)))
             for fidx, freq in enumerate(hpi_freqs):
                 sinusoids[fidx] = 2 * np.pi * freq * this_t
