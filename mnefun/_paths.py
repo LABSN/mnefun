@@ -5,6 +5,7 @@
 import os
 from os import path as op
 import re
+import numpy as np
 
 from mne.io import Raw
 
@@ -30,13 +31,39 @@ def safe_inserter(string, inserter):
     return string
 
 
-def get_event_fnames(p, subj):
-    """Get event filenames for a subject"""
+def get_event_fnames(p, subj, run_indices=None):
+    """Get event filenames for a subject
+
+    Parameters
+    ----------
+    p : instance of Params
+        Parameters structure.
+    subj : str
+        Subject name.
+    run_indices : array-like | None
+        The run indices to include. None will include all.
+
+    Returns
+    -------
+    fnames : list
+        List of filenames.
+
+    Notes
+    -----
+    This function will create the list file output directory if it does
+    not exist.
+    """
+    if run_indices is None:
+        run_indices = np.arange(len(p.run_names))
+    run_names = [r for ri, r in enumerate(p.run_names) if ri in run_indices]
+
     lst_dir = op.join(p.work_dir, subj, p.list_dir)
-    eve_fnames = [op.join(lst_dir, 'ALL_' +
-                          safe_inserter(run_name, subj) + '-eve.lst')
-                  for run_name in p.run_names]
-    return eve_fnames
+    if not op.isdir(lst_dir):
+        os.mkdir(lst_dir)
+
+    fnames = [op.join(lst_dir, 'ALL_' + safe_inserter(r, subj) + '-eve.lst')
+              for r in run_names]
+    return fnames
 
 
 def _regex_convert(f):
@@ -44,7 +71,8 @@ def _regex_convert(f):
     return '.*%s-?[0-9]*.fif' % op.basename(f)[:-4]
 
 
-def get_raw_fnames(p, subj, which='raw', erm=True, add_splits=False):
+def get_raw_fnames(p, subj, which='raw', erm=True, add_splits=False,
+                   run_indices=None):
     """Get raw filenames
 
     Parameters
@@ -62,6 +90,8 @@ def get_raw_fnames(p, subj, which='raw', erm=True, add_splits=False):
         If True, add split filenames if they exist. This should only
         be necessary for Maxfilter-related things. Will only return files
         that actually already exist.
+    run_indices : array-like | None
+        The run indices to include. None will include all.
 
     Returns
     -------
@@ -78,12 +108,17 @@ def get_raw_fnames(p, subj, which='raw', erm=True, add_splits=False):
     elif which == 'pca':
         raw_dir = op.join(p.work_dir, subj, p.pca_dir)
         tag = p.pca_extra + p.sss_fif_tag
+
+    if run_indices is None:
+        run_indices = np.arange(len(p.run_names))
+    run_names = [r for ri, r in enumerate(p.run_names) if ri in run_indices]
+
     if erm == 'only':
         use = p.runs_empty
     elif erm:
-        use = p.run_names + p.runs_empty
+        use = run_names + p.runs_empty
     else:
-        use = p.run_names
+        use = run_names
     fnames = [safe_inserter(r, subj) + tag for r in use]
     if add_splits:
         regexs = [re.compile(_regex_convert(f)) for f in fnames]
@@ -93,7 +128,7 @@ def get_raw_fnames(p, subj, which='raw', erm=True, add_splits=False):
     return fnames
 
 
-def get_cov_fwd_inv_fnames(p, subj):
+def get_cov_fwd_inv_fnames(p, subj, run_indices):
     """Get covariance, forward, and inverse filenames for a subject"""
     cov_fnames = []
     fwd_fnames = []
@@ -104,7 +139,7 @@ def get_cov_fwd_inv_fnames(p, subj):
     make_erm_inv = len(p.runs_empty) > 0
 
     # Shouldn't matter which raw file we use
-    raw_fname = get_raw_fnames(p, subj, 'pca')[0]
+    raw_fname = get_raw_fnames(p, subj, 'pca', True, False, run_indices)[0]
     if op.isfile(raw_fname):
         raw = Raw(raw_fname)
         meg, eeg = 'meg' in raw, 'eeg' in raw

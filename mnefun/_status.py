@@ -15,7 +15,7 @@ def _have_all(fnames):
     return all(op.isfile(fname) for fname in fnames)
 
 
-def print_proc_status(p, subjects, structurals, analyses):
+def print_proc_status(p, subjects, structurals, analyses, run_indices):
     """Print status update"""
     steps_all = []
     status_mapping = dict(missing=' ',
@@ -31,7 +31,7 @@ def print_proc_status(p, subjects, structurals, analyses):
             gen_covs = gen_fwd = gen_inv = gen_report = 'missing'
 
         # check if raws fetched (+1 is for erm)
-        if _have_all(get_raw_fnames(p, subj, 'raw')):
+        if _have_all(get_raw_fnames(p, subj, 'raw', True, False, run_indices)):
             fetch_raw = 'complete'
 
         # check if scoring has been done
@@ -48,7 +48,7 @@ def print_proc_status(p, subjects, structurals, analyses):
             coreg = 'complete'
 
         # check if sss has been fetched (+1 is for erm)
-        if _have_all(get_raw_fnames(p, subj, 'sss')):
+        if _have_all(get_raw_fnames(p, subj, 'sss', True, False, run_indices)):
             fetch_sss = 'complete'
 
         # check if channel orders have been fixed_all_files_fixed
@@ -61,7 +61,7 @@ def print_proc_status(p, subjects, structurals, analyses):
             do_ssp = 'complete'
 
         # check if SSPs have been applied:
-        if _have_all(get_raw_fnames(p, subj, 'pca')):
+        if _have_all(get_raw_fnames(p, subj, 'pca', True, False, run_indices)):
             apply_ssp = 'complete'
 
         # check if epochs have been made
@@ -71,7 +71,8 @@ def print_proc_status(p, subjects, structurals, analyses):
             write_epochs = 'complete'
 
         # check if covariance has been calculated
-        cov_fnames, fwd_fnames, inv_fnames = get_cov_fwd_inv_fnames(p, subj)
+        cov_fnames, fwd_fnames, inv_fnames = \
+            get_cov_fwd_inv_fnames(p, subj, run_indices)
         if _have_all(cov_fnames):
             gen_covs = 'complete'
 
