@@ -1373,7 +1373,12 @@ def do_preprocessing_combined(p, subjects):
             meg, eeg = 'meg' in raw, 'eeg' in raw
             picks = pick_types(raw.info, meg=meg, eeg=eeg, eog=False,
                                exclude=[])
-            assert type(p.auto_bad_reject) and type(p.auto_bad_flat) == dict
+            assert p.auto_bad_flat is None or isinstance(p.auto_bad_flat, dict)
+            assert p.auto_bad_reject is None or isinstance(p.auto_bad_reject, dict)
+            if p.auto_bad_reject is None and p.auto_bad_flat is None:
+                raise RuntimeError('Auto bad channel detection active. Noisy and flat channel detection'
+                                   'parameters not defined. '
+                                   'At least one criterion must be defined.')
             epochs = Epochs(raw, events, None, p.tmin, p.tmax,
                             baseline=_get_baseline(p), picks=picks,
                             reject=p.auto_bad_reject, flat=p.auto_bad_flat,
