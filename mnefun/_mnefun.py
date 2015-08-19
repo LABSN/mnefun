@@ -1813,3 +1813,4 @@ def plot_raw_psd(p, subjects, tmin=0., fmin=2, n_fft=2048):
                          n_jobs=p.n_jobs, proj=False, ax=None, color=(0, 0, 1),
                          picks=None)
             plt.savefig(fname[0][:-4] + '_psd.png')
+            plt.close()
