@@ -41,7 +41,6 @@ fname_pos_stat = op.join(this_dir, 'hp_stat.txt')
 data_dir = op.join(this_dir, 'funloc', subj)
 bem_dir = op.join(subjects_dir, subject, 'bem')
 fname_raw = op.join(data_dir, 'raw_fif', '%s_funloc_raw.fif' % subj)
-fname_erm = op.join(data_dir, 'raw_fif', '%s_erm_raw.fif' % subj)
 trans = op.join(data_dir, 'trans', '%s-trans.fif' % subj)
 bem = op.join(bem_dir, '%s-5120-5120-5120-bem-sol.fif' % subject)
 src = read_source_spaces(op.join(bem_dir, '%s-oct-6-src.fif' % subject))
@@ -63,8 +62,7 @@ labels = [read_labels_from_annot(subject, 'aparc.a2009s', hemi,
           for hi, hemi in enumerate(('lh', 'rh'))]
 stc = stc.in_label(labels[0] + labels[1])
 stc.data.fill(0)
-stc.data[:, np.where(np.logical_and(stc.times >= pulse_tmin,
-                                    stc.times <= pulse_tmax))[0]] = 10e-9
+stc.data[:, (stc.times >= pulse_tmin) & (stc.times <= pulse_tmax)] = 10e-9
 
 # ############################################################################
 # Simulate data

@@ -30,8 +30,8 @@ from mne.utils import logger, verbose, check_random_state
 from mne.simulation.evoked import _generate_noise
 
 try:  # new form
-    from mne.forward._make_forward import (_prep_eeg_channels,
-                                           _prep_meg_channels)
+    from mne.forward._make_forward import (_prep_eeg_channels,  # noqa
+                                           _prep_meg_channels)  # noqa
 except ImportError:  # old form
     from mne.forward._make_forward import _prep_channels
 
