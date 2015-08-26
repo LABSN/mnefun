@@ -152,6 +152,14 @@ class Params(object):
         be used for covariance calculation. This is useful e.g. when using
         a high-pass filter and no baselining is desired (but evoked
         covariances should still be calculated from the baseline period).
+    reject_tmin : float | None
+        Reject minimum time to use when epoching. None will use ``tmin``.
+    reject_tmax : float | None
+        Reject maximum time to use when epoching. None will use ``tmax``.
+    lp_trans : float
+        Low-pass transition band.
+    hp_trans : float
+        High-pass transition band.
 
     Returns
     -------
@@ -176,7 +184,9 @@ class Params(object):
                  ecg_channel=None, eog_channel=None,
                  plot_raw=False, match_fun=None, hp_cut=None,
                  cov_method='empirical', ssp_eog_reject=None,
-                 ssp_ecg_reject=None, baseline='individual'):
+                 ssp_ecg_reject=None, baseline='individual',
+                 reject_tmin=None, reject_tmax=None,
+                 lp_trans=0.5, hp_trans=0.5):
         self.reject = dict(eog=np.inf, grad=1500e-13, mag=5000e-15, eeg=150e-6)
         self.flat = dict(eog=-1, grad=1e-13, mag=1e-15, eeg=1e-6)
         if ssp_eog_reject is None:
@@ -189,6 +199,8 @@ class Params(object):
         self.ssp_ecg_reject = ssp_ecg_reject
         self.tmin = tmin
         self.tmax = tmax
+        self.reject_tmin = reject_tmin
+        self.reject_tmax = reject_tmax
         self.t_adjust = t_adjust
         self.baseline = baseline
         self.bmin = bmin
@@ -205,6 +217,8 @@ class Params(object):
         self.cont_lp = 5
         self.lp_cut = lp_cut
         self.hp_cut = hp_cut
+        self.lp_trans = lp_trans
+        self.hp_trans = hp_trans
         self.mne_root = os.getenv('MNE_ROOT')
         self.disp_files = True
         self.plot_drop_logs = True  # plot drop logs after do_preprocessing_...
@@ -263,6 +277,7 @@ class Params(object):
         # Function to pick a subset of events to use to make a covariance
         self.pick_events_cov = lambda x: x
         self.cov_method = cov_method
+        self.proj_extra = None
         # These should be overridden by the user unless they are only doing
         # a small subset, e.g. epoching
         self.score = None  # defaults to passing events through
@@ -1010,7 +1025,8 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
         epochs = Epochs(raw, events, event_id=old_dict, tmin=p.tmin,
                         tmax=p.tmax, baseline=_get_baseline(p),
                         reject=use_reject, flat=use_flat, proj=True,
-                        preload=True, decim=decim[si], on_missing=p.on_missing)
+                        preload=True, decim=decim[si], on_missing=p.on_missing,
+                        reject_tmin=p.reject_tmin, reject_tmax=p.reject_tmax)
         del raw
         drop_logs.append(epochs.drop_log)
         ch_namess.append(epochs.ch_names)
@@ -1344,7 +1360,7 @@ def _cals(raw):
 def _raw_LRFCP(raw_names, sfreq, l_freq, h_freq, n_jobs, n_jobs_resample,
                projs, bad_file, disp_files=False, method='fft',
                filter_length=32768, apply_proj=True, preload=True,
-               force_bads=False):
+               force_bads=False, l_trans=0.5, h_trans=0.5):
     """Helper to load, filter, concatenate, then project raw files
     """
     if isinstance(raw_names, str):
@@ -1361,7 +1377,8 @@ def _raw_LRFCP(raw_names, sfreq, l_freq, h_freq, n_jobs, n_jobs_resample,
         if l_freq is not None or h_freq is not None:
             r.filter(l_freq=l_freq, h_freq=h_freq, picks=None,
                      n_jobs=n_jobs, method=method,
-                     filter_length=filter_length)
+                     filter_length=filter_length,
+                     l_trans_bandwidth=l_trans, h_trans_bandwidth=h_trans)
         raw.append(r)
     _fix_raw_eog_cals(raw, raw_names)
     raws_del = raw[1:]
@@ -1417,7 +1434,8 @@ def do_preprocessing_combined(p, subjects, run_indices):
             raw = _raw_LRFCP(raw_names, p.proj_sfreq, None, None, p.n_jobs_fir,
                              p.n_jobs_resample, list(), None, p.disp_files,
                              method='fft', filter_length=p.filter_length,
-                             apply_proj=False, force_bads=False)
+                             apply_proj=False, force_bads=False,
+                             l_trans=p.hp_trans, h_trans=p.lp_trans)
             events = fixed_len_events(p, raw)
             # do not mark eog channels bad
             meg, eeg = 'meg' in raw, 'eeg' in raw
@@ -1432,7 +1450,9 @@ def do_preprocessing_combined(p, subjects, run_indices):
             epochs = Epochs(raw, events, None, p.tmin, p.tmax,
                             baseline=_get_baseline(p), picks=picks,
                             reject=p.auto_bad_reject, flat=p.auto_bad_flat,
-                            proj=True, preload=True, decim=1)
+                            proj=True, preload=True, decim=1,
+                            reject_tmin=p.reject_tmin,
+                            reject_tmax=p.reject_tmax)
             # channel scores from drop log
             scores = Counter([ch for d in epochs.drop_log for ch in d])
             ch_names = np.array(list(scores.keys()))
@@ -1492,8 +1512,17 @@ def do_preprocessing_combined(p, subjects, run_indices):
         raw_orig = _raw_LRFCP(pre_list, p.proj_sfreq, None, bad_file,
                               p.n_jobs_fir, p.n_jobs_resample, projs, bad_file,
                               p.disp_files, method='fft',
-                              filter_length=p.filter_length, force_bads=False)
+                              filter_length=p.filter_length, force_bads=False,
+                              l_trans=p.hp_trans, h_trans=p.lp_trans)
 
+        # Apply any user-supplied extra projectors
+        if p.proj_extra is not None:
+            if p.disp_files:
+                print('    Adding extra projectors from "%s".' % p.proj_extra)
+            extra_proj = op.join(pca_dir, p.proj_extra)
+            projs = read_proj(extra_proj)
+
+        # Calculate and apply ERM projectors
         if any(proj_nums[2]):
             if len(empty_names) >= 1:
                 if p.disp_files:
@@ -1503,13 +1532,15 @@ def do_preprocessing_combined(p, subjects, run_indices):
                                  p.n_jobs_fir, p.n_jobs_resample, projs,
                                  bad_file, p.disp_files, method='fft',
                                  filter_length=p.filter_length,
-                                 force_bads=True)
+                                 force_bads=True,
+                                 l_trans=p.hp_trans, h_trans=p.lp_trans)
             else:
                 if p.disp_files:
                     print('    Computing continuous projectors using data.')
                 raw = raw_orig.copy()
             raw.filter(None, p.cont_lp, n_jobs=p.n_jobs_fir, method='fft',
                        filter_length=p.filter_length)
+            raw.add_proj(projs)
             raw.apply_proj()
             pr = compute_proj_raw(raw, duration=1, n_grad=proj_nums[2][0],
                                   n_mag=proj_nums[2][1], n_eeg=proj_nums[2][2],
@@ -1573,7 +1604,9 @@ def do_preprocessing_combined(p, subjects, run_indices):
 
         # look at raw_orig for trial DQs now, it will be quick
         raw_orig.filter(p.hp_cut, p.lp_cut, n_jobs=p.n_jobs_fir, method='fft',
-                        filter_length=p.filter_length)
+                        filter_length=p.filter_length,
+                        l_trans_bandwidth=p.hp_trans,
+                        h_trans_bandwidth=p.lp_trans)
         raw_orig.add_proj(projs)
         raw_orig.apply_proj()
         # now let's epoch with 1-sec windows to look for DQs
@@ -1633,7 +1666,8 @@ def apply_preprocessing_combined(p, subjects, run_indices):
             raw = _raw_LRFCP(r, None, p.hp_cut, p.lp_cut, p.n_jobs_fir,
                              p.n_jobs_resample, projs, bad_file,
                              disp_files=False, method='fft', apply_proj=False,
-                             filter_length=p.filter_length, force_bads=True)
+                             filter_length=p.filter_length, force_bads=True,
+                             l_trans=p.hp_trans, h_trans=p.lp_trans)
             raw.save(o, overwrite=True)
         for ii, (r, o) in enumerate(zip(names_in, names_out)):
             if p.disp_files:
@@ -1642,7 +1676,8 @@ def apply_preprocessing_combined(p, subjects, run_indices):
             raw = _raw_LRFCP(r, None, p.hp_cut, p.lp_cut, p.n_jobs_fir,
                              p.n_jobs_resample, projs, bad_file,
                              disp_files=False, method='fft', apply_proj=False,
-                             filter_length=p.filter_length, force_bads=False)
+                             filter_length=p.filter_length, force_bads=False,
+                             l_trans=p.hp_trans, h_trans=p.lp_trans)
             raw.save(o, overwrite=True)
         # look at raw_clean for ExG events
         if p.plot_raw:
@@ -1678,22 +1713,7 @@ class FakeEpochs():
     """Make iterable epoch-like class, convenient for MATLAB transition"""
 
     def __init__(self, data, ch_names, tmin=-0.2, sfreq=1000.0):
-        self._data = data
-        self.info = dict(ch_names=ch_names, sfreq=sfreq)
-        self.times = np.arange(data.shape[-1]) / sfreq + tmin
-        self._current = 0
-        self.ch_names = ch_names
-
-    def __iter__(self):
-        self._current = 0
-        return self
-
-    def next(self):
-        if self._current >= len(self._data):
-            raise StopIteration
-        epoch = self._data[self._current]
-        self._current += 1
-        return epoch
+        raise RuntimeError('Use mne.EpochsArray instead')
 
 
 def timestring(t):
@@ -1803,7 +1823,7 @@ def _viz_raw_ssp_events(p, subj, ridx):
     raw = _raw_LRFCP(pre_list, p.proj_sfreq, None, None, p.n_jobs_fir,
                      p.n_jobs_resample, projs, None, p.disp_files,
                      method='fft', filter_length=p.filter_length,
-                     force_bads=False)
+                     force_bads=False, l_trans=p.hp_trans, h_trans=p.lp_trans)
     raw.plot(events=ev, event_color=colors)
 
 
@@ -1875,7 +1895,10 @@ def plot_raw_psd(p, subjects, run_indices=None, tmin=0., fmin=2, n_fft=2048):
                 warnings.warn('Unable to find %s data file.' % file_type)
             with warnings.catch_warnings(record=True):
                 raw = Raw(fname, preload=True, allow_maxshield=True)
-            fmax = p.lp_cut if file_type == 'pca' else raw.info['lowpass'] + 50
+            if file_type == 'pca':
+                fmax = p.lp_cut
+            else:
+                fmax = raw.info['lowpass'] + 50
             raw.plot_psd(tmin=tmin, tmax=raw.times[-1], fmin=fmin,
                          fmax=fmax, n_fft=n_fft,
                          n_jobs=p.n_jobs, proj=False, ax=None, color=(0, 0, 1),
