@@ -6,15 +6,17 @@ from __future__ import print_function
 
 import os
 import os.path as op
-import numpy as np
-from scipy import io as spio
+import inspect
 import warnings
 from shutil import move, copy2
 import subprocess
 import glob
 from collections import Counter
-import matplotlib.pyplot as plt
 from time import time
+
+import numpy as np
+from scipy import io as spio
+import matplotlib.pyplot as plt
 from numpy.testing import assert_allclose
 
 from mne import (compute_proj_raw, make_fixed_length_events, Epochs,
@@ -269,6 +271,7 @@ class Params(object):
         self.on_missing = 'error'  # for epochs
         self.trans_to = 'median'  # where to transform head positions to
         self.sss_format = 'float'  # output type for MaxFilter
+        self.subject_run_indices = None
 
     @property
     def pca_extra(self):
@@ -364,6 +367,11 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
              'Status',
              ]
     score_fun = p.score if p.score is not None else default_score
+    if len(inspect.getargspec(score_fun).args) == 2:
+        score_fun_two = score_fun
+
+        def score_fun(p, subjects, run_indices):
+            return score_fun_two(p, subjects)
     funcs = [fetch_raw_files,
              score_fun,
              push_raw_files,
@@ -382,25 +390,46 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
              ]
     assert len(bools) == len(texts) == len(funcs)
 
+    # Only run a subset of subjects
+
+    n_subj_orig = len(p.subjects)
+
     sinds = p.subject_indices
+    if sinds is None:
+        sinds = np.arange(len(p.subjects))
+
     subjects = np.array(p.subjects)[sinds].tolist()
-    if p.structurals is not None:
-        structurals = np.array(p.structurals)[sinds].tolist()
-    else:
-        structurals = None
-    if p.dates is not None:
+
+    structurals = p.structurals
+    if structurals is not None:
+        assert len(structurals) == n_subj_orig
+        structurals = np.array(structurals)[sinds].tolist()
+
+    dates = p.dates
+    if dates is not None:
+        assert len(dates) == n_subj_orig
         dates = [tuple([int(dd) for dd in d])
                  for d in np.array(p.dates)[sinds]]
-    else:
-        dates = None
+
     decim = p.decim
     if not isinstance(decim, (list, tuple)):
         decim = [decim] * len(p.subjects)
+    assert len(decim) == n_subj_orig
     decim = np.array(decim)
     assert decim.dtype == np.int64
     assert decim.ndim == 1
     assert decim.size == len(p.subjects)
     decim = decim[sinds]
+
+    run_indices = p.subject_run_indices
+    if run_indices is None:
+        run_indices = [None] * len(p.subjects)
+    assert len(run_indices) == len(p.subjects)
+    run_indices = [r for ri, r in enumerate(run_indices) if ri in sinds]
+    assert all(r is None or np.in1d(r, np.arange(len(p.run_names))).all()
+               for r in run_indices)
+
+    # Actually do the work
 
     outs = [None] * len(bools)
     for ii, (b, text, func) in enumerate(zip(bools, texts, funcs)):
@@ -410,17 +439,18 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
             if func is None:
                 raise ValueError('function is None')
             if func == fix_eeg_files:
-                outs[ii] = func(p, subjects, structurals, dates)
+                outs[ii] = func(p, subjects, structurals, dates, run_indices)
             elif func in (gen_forwards, gen_html_report):
-                outs[ii] = func(p, subjects, structurals)
+                outs[ii] = func(p, subjects, structurals, run_indices)
             elif func == save_epochs:
                 outs[ii] = func(p, subjects, p.in_names, p.in_numbers,
                                 p.analyses, p.out_names, p.out_numbers,
-                                p.must_match, decim)
+                                p.must_match, decim, run_indices)
             elif func == print_proc_status:
-                outs[ii] = func(p, subjects, structurals, p.analyses)
+                outs[ii] = func(p, subjects, structurals, p.analyses,
+                                run_indices)
             else:
-                outs[ii] = func(p, subjects)
+                outs[ii] = func(p, subjects, run_indices)
             print('  (' + timestring(time() - t0) + ')')
             if p.on_process is not None:
                 p.on_process(text, func, outs[ii], p)
@@ -432,9 +462,9 @@ def _is_dir(d):
     return op.isdir(op.abspath(d))
 
 
-def fetch_raw_files(p, subjects):
+def fetch_raw_files(p, subjects, run_indices):
     """Fetch remote raw recording files (only designed for *nix platforms)"""
-    for subj in subjects:
+    for si, subj in enumerate(subjects):
         print('  Checking for proper remote filenames for %s...' % subj)
         subj_dir = op.join(p.work_dir, subj)
         if not _is_dir(subj_dir):
@@ -444,7 +474,7 @@ def fetch_raw_files(p, subjects):
             os.mkdir(raw_dir)
         finder_stem = 'find %s ' % p.acq_dir
         # build remote raw file finder
-        fnames = get_raw_fnames(p, subj, 'raw', True)
+        fnames = get_raw_fnames(p, subj, 'raw', True, False, run_indices[si])
         assert len(fnames) > 0
         finder = (finder_stem +
                   ' -o '.join(['-type f -regex ' + _regex_convert(f)
@@ -482,10 +512,10 @@ def fetch_raw_files(p, subjects):
                 next_ = op.split(next_)[0]
 
 
-def calc_median_hp(p, subj, out_file):
+def calc_median_hp(p, subj, out_file, ridx):
     """Calculate median head position"""
     print('    Estimating median head position for %s... ' % subj)
-    raw_files = get_raw_fnames(p, subj, 'raw', False)
+    raw_files = get_raw_fnames(p, subj, 'raw', False, False, ridx)
     ts = []
     qs = []
     info = None
@@ -513,7 +543,7 @@ def calc_median_hp(p, subj, out_file):
     write_info(out_file, info)
 
 
-def push_raw_files(p, subjects):
+def push_raw_files(p, subjects, run_indices):
     """Push raw files to SSS workstation"""
     if len(subjects) == 0:
         return
@@ -524,7 +554,7 @@ def push_raw_files(p, subjects):
     if p.trans_to not in ('default', 'median'):
         _check_trans_file(p)
         includes += ['--include', op.sep + p.trans_to]
-    for subj in subjects:
+    for si, subj in enumerate(subjects):
         subj_dir = op.join(p.work_dir, subj)
         raw_dir = op.join(subj_dir, p.raw_dir)
 
@@ -549,7 +579,7 @@ def push_raw_files(p, subjects):
 
         med_pos = op.join(raw_dir, subj + '_median_pos.fif')
         if not op.isfile(med_pos):
-            calc_median_hp(p, subj, med_pos)
+            calc_median_hp(p, subj, med_pos, run_indices[si])
         root = op.sep + subj
         raw_root = op.join(root, p.raw_dir)
         includes += ['--include', root, '--include', raw_root,
@@ -561,7 +591,7 @@ def push_raw_files(p, subjects):
                                % prebad_file)
         includes += ['--include',
                      op.join(raw_root, op.basename(prebad_file))]
-        fnames = get_raw_fnames(p, subj, 'raw', True, add_splits=True)
+        fnames = get_raw_fnames(p, subj, 'raw', True, True, run_indices[si])
         assert len(fnames) > 0
         for fname in fnames:
             assert op.isfile(fname), fname
@@ -584,13 +614,13 @@ def _check_trans_file(p):
                              % p.trans_to)
 
 
-def run_sss_remotely(p, subjects):
+def run_sss_remotely(p, subjects, run_indices):
     """Run SSS preprocessing remotely (only designed for *nix platforms)"""
-    for subj in subjects:
-        files = get_raw_fnames(p, subj, 'raw', False, add_splits=True)
+    for si, subj in enumerate(subjects):
+        files = get_raw_fnames(p, subj, 'raw', False, True, run_indices[si])
         n_files = len(files)
         files = ':'.join([op.basename(f) for f in files])
-        erm = get_raw_fnames(p, subj, 'raw', 'only', add_splits=True)
+        erm = get_raw_fnames(p, subj, 'raw', 'only', True, run_indices[si])
         n_files += len(erm)
         erm = ':'.join([op.basename(f) for f in erm])
         erm = ' --erm ' + erm if len(erm) > 0 else ''
@@ -613,7 +643,7 @@ def run_sss_remotely(p, subjects):
         print('-' * 70, end='\n\n')
 
 
-def fetch_sss_files(p, subjects):
+def fetch_sss_files(p, subjects, run_indices):
     """Pull SSS files (only designed for *nix platforms)"""
     if len(subjects) == 0:
         return
@@ -794,7 +824,7 @@ def extract_expyfun_events(fname, return_offsets=False):
     return these_events, resps, orig_events
 
 
-def fix_eeg_files(p, subjects, structurals=None, dates=None, verbose=True):
+def fix_eeg_files(p, subjects, structurals=None, dates=None, run_indices=None):
     """Reorder EEG channels based on UW cap setup and params
 
     Reorders only the SSS files based on params, to leave the raw files
@@ -810,11 +840,16 @@ def fix_eeg_files(p, subjects, structurals=None, dates=None, verbose=True):
         Subject structural names.
     dates : list of tuple
         Dates that each subject was run.
+    run_indices : array-like | None
+        Run indices to include.
     """
+    if run_indices is None:
+        run_indices = [None] * len(subjects)
     for si, subj in enumerate(subjects):
         if p.disp_files:
             print('  Fixing subject %g/%g.' % (si + 1, len(subjects)))
-        raw_names = get_raw_fnames(p, subj, 'sss', True)
+        raw_names = get_raw_fnames(p, subj, 'sss', True, False,
+                                   run_indices[si])
         # Now let's make sure we only run files that actually exist
         names = [name for name in raw_names if op.isfile(name)]
         # noinspection PyPep8
@@ -869,7 +904,7 @@ def _restrict_reject_flat(reject, flat, raw):
 
 
 def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
-                out_numbers, must_match, decim):
+                out_numbers, must_match, decim, run_indices):
     """Generate epochs from raw data based on events
 
     Can only complete after preprocessing is complete.
@@ -898,6 +933,8 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
         ratio-based collapsing.
     decim : int | list of int
         Amount to decimate.
+    run_indices : array-like | None
+        Run indices to include.
     """
     in_names = np.asanyarray(in_names)
     old_dict = dict()
@@ -938,7 +975,8 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
             os.mkdir(evoked_dir)
 
         # read in raw files
-        raw_names = get_raw_fnames(p, subj, 'pca', False)
+        raw_names = get_raw_fnames(p, subj, 'pca', False, False,
+                                   run_indices[si])
         # read in events
         first_samps = []
         last_samps = []
@@ -952,7 +990,8 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
         raw = concatenate_raws(raw)
 
         # read in events
-        events = [read_events(fname) for fname in get_event_fnames(p, subj)]
+        events = [read_events(fname) for fname in
+                  get_event_fnames(p, subj, run_indices[si])]
         events = concatenate_events(events, first_samps, last_samps)
         # do time adjustment
         t_adj = np.zeros((1, 3), dtype='int')
@@ -1050,7 +1089,7 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
             plot_drop_log(drop_log, threshold=p.drop_thresh, subject=subj)
 
 
-def gen_inverses(p, subjects, use_old_rank=False):
+def gen_inverses(p, subjects, run_indices):
     """Generate inverses
 
     Can only complete successfully following forward solution
@@ -1062,8 +1101,10 @@ def gen_inverses(p, subjects, use_old_rank=False):
         Analysis parameters.
     subjects : list of str
         Subject names to analyze (e.g., ['Eric_SoP_001', ...]).
+    run_indices : array-like | None
+        Run indices to include.
     """
-    for subj in subjects:
+    for si, subj in enumerate(subjects):
         out_flags, meg_bools, eeg_bools = [], [], []
         if p.disp_files:
             print('  Subject %s. ' % subj)
@@ -1075,7 +1116,8 @@ def gen_inverses(p, subjects, use_old_rank=False):
         make_erm_inv = len(p.runs_empty) > 0
 
         # Shouldn't matter which raw file we use
-        raw_fname = get_raw_fnames(p, subj, 'pca')[0]
+        raw_fname = get_raw_fnames(p, subj, 'pca', True, False,
+                                   run_indices[si])[0]
         raw = Raw(raw_fname)
         meg, eeg = 'meg' in raw, 'eeg' in raw
 
@@ -1127,7 +1169,7 @@ def gen_inverses(p, subjects, use_old_rank=False):
                         write_inverse_operator(inv_name, inv)
 
 
-def gen_forwards(p, subjects, structurals):
+def gen_forwards(p, subjects, structurals, run_indices):
     """Generate forward solutions
 
     Can only complete successfully once coregistration is performed
@@ -1142,18 +1184,20 @@ def gen_forwards(p, subjects, structurals):
     structurals : list (of str or None)
         The structural data names for each subject (e.g., ['AKCLEE_101', ...]).
         If None, a spherical BEM and volume grid space will be used.
+    run_indices : array-like | None
+        Run indices to include.
     """
-    for subj, structural in zip(subjects, structurals):
-        raw_dir = op.join(p.work_dir, subj, p.sss_dir)
+    for si, subj in enumerate(subjects):
         fwd_dir = op.join(p.work_dir, subj, p.forward_dir)
         if not op.isdir(fwd_dir):
             os.mkdir(fwd_dir)
+        raw_fname = get_raw_fnames(p, subj, 'sss', False, False,
+                                   run_indices[si])[0]
+        info = read_info(raw_fname)
 
         subjects_dir = get_config('SUBJECTS_DIR')
-        if structural is None:  # spherical case
+        if structurals[si] is None:  # spherical case
             # create spherical BEM
-            s_name = safe_inserter(p.run_names[0], subj)
-            info = read_info(op.join(raw_dir, s_name + p.sss_fif_tag))
             bem = make_sphere_model('auto', 'auto', info, verbose=False)
             # create source space
             sphere = np.concatenate((bem['r0'], [bem['layers'][0]['rad']]))
@@ -1171,13 +1215,14 @@ def gen_forwards(p, subjects, structurals):
                                 subj + '-trans_head2mri.txt')
                 if not op.isfile(trans):
                     raise IOError('Unable to find head<->MRI trans file')
-            src = op.join(subjects_dir, structural, 'bem',
-                          structural + '-oct-6-src.fif')
+            src = op.join(subjects_dir, structurals[si], 'bem',
+                          structurals[si] + '-oct-6-src.fif')
             if not op.isfile(src):
                 print('  Creating source space for %s...' % subj)
-                setup_source_space(structural, src, 'oct6', n_jobs=p.n_jobs)
-            bem = op.join(subjects_dir, structural, 'bem',
-                          structural + '-' + p.bem_type + '-bem-sol.fif')
+                setup_source_space(structurals[si], src, 'oct6',
+                                   n_jobs=p.n_jobs)
+            bem = op.join(subjects_dir, structurals[si], 'bem',
+                          structurals[si] + '-' + p.bem_type + '-bem-sol.fif')
             bem_type = ('%s-layer BEM' %
                         len(read_bem_solution(bem, verbose=False)['surfs']))
         if not getattr(p, 'translate_positions', True):
@@ -1185,11 +1230,11 @@ def gen_forwards(p, subjects, structurals):
                                'supported')
         print('  Creating forward solution(s) using a %s for %s...'
               % (bem_type, subj))
+        # XXX Don't actually need to generate a different fwd for each inv
+        # anymore, since all runs are included, but changing the filename
+        # would break a lot of existing pipelines :(
         for ii, (inv_name, inv_run) in enumerate(zip(p.inv_names,
                                                      p.inv_runs)):
-            s_name = safe_inserter(p.run_names[inv_run[0]], subj)
-            raw_name = op.join(raw_dir, s_name + p.sss_fif_tag)
-            info = read_info(raw_name)
             fwd_name = op.join(fwd_dir, safe_inserter(inv_name, subj) +
                                p.inv_tag + '-fwd.fif')
             make_forward_solution(info, trans, src, bem,
@@ -1197,7 +1242,7 @@ def gen_forwards(p, subjects, structurals):
                                   mindist=p.fwd_mindist, overwrite=True)
 
 
-def gen_covariances(p, subjects):
+def gen_covariances(p, subjects, run_indices):
     """Generate forward solutions
 
     Can only complete successfully once preprocessing is performed.
@@ -1208,12 +1253,12 @@ def gen_covariances(p, subjects):
         Analysis parameters.
     subjects : list of str
         Subject names to analyze (e.g., ['Eric_SoP_001', ...]).
+    run_indices : array-like | None
+        Run indices to include.
     """
     for si, subj in enumerate(subjects):
         print('  Subject %s/%s...' % (si + 1, len(subjects)))
-        pca_dir = op.join(p.work_dir, subj, p.pca_dir)
         cov_dir = op.join(p.work_dir, subj, p.cov_dir)
-        lst_dir = op.join(p.work_dir, subj, p.list_dir)
         if not op.isdir(cov_dir):
             os.mkdir(cov_dir)
 
@@ -1224,7 +1269,7 @@ def gen_covariances(p, subjects):
             new_run = safe_inserter(p.runs_empty[0], subj)
             empty_cov_name = op.join(cov_dir, new_run + p.pca_extra +
                                      p.inv_tag + '-cov.fif')
-            empty_fif = op.join(pca_dir, new_run + p.pca_fif_tag)
+            empty_fif = get_raw_fnames(p, subj, 'pca', 'only', False)[0]
             raw = Raw(empty_fif, preload=True)
             use_reject, use_flat = _restrict_reject_flat(p.reject, p.flat, raw)
             picks = pick_types(raw.info, meg=True, eeg=False, exclude='bads')
@@ -1233,23 +1278,24 @@ def gen_covariances(p, subjects):
             write_cov(empty_cov_name, cov)
 
         # Make evoked covariances
-        rn = p.run_names
         for inv_name, inv_run in zip(p.inv_names, p.inv_runs):
-            raw_fnames = [op.join(pca_dir, safe_inserter(rn[ir], subj) +
-                                  p.pca_fif_tag)
-                          for ir in inv_run]
+            if run_indices[si] is None:
+                ridx = inv_run
+            else:
+                ridx = np.intersect1d(run_indices[si], inv_run)
+            raw_fnames = get_raw_fnames(p, subj, 'pca', False, False, ridx)
+            eve_fnames = get_event_fnames(p, subj, ridx)
+
+            raws = []
             first_samps = []
             last_samps = []
             for raw_fname in raw_fnames:
-                raw = Raw(raw_fname, preload=False)
-                first_samps.append(raw._first_samps[0])
-                last_samps.append(raw._last_samps[-1])
-            raws = [Raw(fname, preload=False) for fname in raw_fnames]
+                raws.append(Raw(raw_fname, preload=False))
+                first_samps.append(raws[-1]._first_samps[0])
+                last_samps.append(raws[-1]._last_samps[-1])
             _fix_raw_eog_cals(raws, raw_fnames)  # safe b/c cov only needs MEEG
             raw = concatenate_raws(raws)
-            e_names = [op.join(lst_dir, 'ALL_' + safe_inserter(rn[ir], subj) +
-                               '-eve.lst') for ir in inv_run]
-            events = [read_events(e) for e in e_names]
+            events = [read_events(e) for e in eve_fnames]
             old_count = sum(len(e) for e in events)
             events = [p.pick_events_cov(e) for e in events]
             new_count = sum(len(e) for e in events)
@@ -1310,7 +1356,8 @@ def _raw_LRFCP(raw_names, sfreq, l_freq, h_freq, n_jobs, n_jobs_resample,
         r = Raw(rn, preload=True)
         r.load_bad_channels(bad_file, force=force_bads)
         if sfreq is not None:
-            r.resample(sfreq, n_jobs=n_jobs_resample)
+            with warnings.catch_warnings(record=True):  # resamp of stim ch
+                r.resample(sfreq, n_jobs=n_jobs_resample)
         if l_freq is not None or h_freq is not None:
             r.filter(l_freq=l_freq, h_freq=h_freq, picks=None,
                      n_jobs=n_jobs, method=method,
@@ -1330,7 +1377,7 @@ def _raw_LRFCP(raw_names, sfreq, l_freq, h_freq, n_jobs, n_jobs_resample,
     return raw
 
 
-def do_preprocessing_combined(p, subjects):
+def do_preprocessing_combined(p, subjects, run_indices):
     """Do preprocessing on all raw files together
 
     Calculates projection vectors to use to clean data.
@@ -1341,6 +1388,8 @@ def do_preprocessing_combined(p, subjects):
         Analysis parameters.
     subjects : list of str
         Subject names to analyze (e.g., ['Eric_SoP_001', ...]).
+    run_indices : array-like | None
+        Run indices to include.
     """
     drop_logs = list()
     for si, subj in enumerate(subjects):
@@ -1351,7 +1400,8 @@ def do_preprocessing_combined(p, subjects):
         bad_dir = op.join(p.work_dir, subj, p.bad_dir)
 
         # Create SSP projection vectors after marking bad channels
-        raw_names = get_raw_fnames(p, subj, 'sss', False)
+        raw_names = get_raw_fnames(p, subj, 'sss', False, False,
+                                   run_indices[si])
         empty_names = get_raw_fnames(p, subj, 'sss', 'only')
         for r in raw_names + empty_names:
             if not op.isfile(r):
@@ -1542,7 +1592,7 @@ def do_preprocessing_combined(p, subjects):
             plot_drop_log(drop_log, p.drop_thresh, subject=subj)
 
 
-def apply_preprocessing_combined(p, subjects):
+def apply_preprocessing_combined(p, subjects, run_indices):
     """Actually apply and save the preprocessing (projs, filtering)
 
     Can only run after do_preprocessing_combined is done.
@@ -1555,6 +1605,8 @@ def apply_preprocessing_combined(p, subjects):
         Analysis parameters.
     subjects : list of str
         Subject names to analyze (e.g., ['Eric_SoP_001', ...]).
+    run_indices : array-like | None
+        Run indices to include.
     """
     # Now actually save some data
     for si, subj in enumerate(subjects):
@@ -1562,8 +1614,10 @@ def apply_preprocessing_combined(p, subjects):
             print('  Applying processing to subject %g/%g.'
                   % (si + 1, len(subjects)))
         pca_dir = op.join(p.work_dir, subj, p.pca_dir)
-        names_in = get_raw_fnames(p, subj, 'sss', False)
-        names_out = get_raw_fnames(p, subj, 'pca', False)
+        names_in = get_raw_fnames(p, subj, 'sss', False, False,
+                                  run_indices[si])
+        names_out = get_raw_fnames(p, subj, 'pca', False, False,
+                                   run_indices[si])
         erm_in = get_raw_fnames(p, subj, 'sss', 'only')
         erm_out = get_raw_fnames(p, subj, 'pca', 'only')
         bad_dir = op.join(p.work_dir, subj, p.bad_dir)
@@ -1592,7 +1646,7 @@ def apply_preprocessing_combined(p, subjects):
             raw.save(o, overwrite=True)
         # look at raw_clean for ExG events
         if p.plot_raw:
-            _viz_raw_ssp_events(p, subj)
+            _viz_raw_ssp_events(p, subj, run_indices[si])
 
 
 def gen_layouts(p, subjects):
@@ -1730,10 +1784,10 @@ def fixed_len_events(p, raw):
     return events
 
 
-def _viz_raw_ssp_events(p, subj):
+def _viz_raw_ssp_events(p, subj, ridx):
     """Helper to plot filtered cleaned raw trace with ExG events"""
     pca_dir = op.join(p.work_dir, subj, p.pca_dir)
-    raw_names = get_raw_fnames(p, subj, 'sss', False)
+    raw_names = get_raw_fnames(p, subj, 'sss', False, False, ridx)
     pre_list = [r for ri, r in enumerate(raw_names)
                 if ri in p.get_projs_from]
     all_proj = op.join(pca_dir, 'preproc_all-proj.fif')
@@ -1753,13 +1807,15 @@ def _viz_raw_ssp_events(p, subj):
     plt.show()
 
 
-def gen_html_report(p, subjects, structurals, raw=True, evoked=True,
-                    cov=True, trans=True, epochs=True):
+def gen_html_report(p, subjects, structurals, run_indices=None,
+                    raw=True, evoked=True, cov=True, trans=True, epochs=True):
     """Generates HTML reports"""
     types = ['filtered raw', 'evoked', 'covariance', 'trans', 'epochs']
     texts = ['*fil%d*sss.fif' % p.lp_cut, '*ave.fif',
              '*cov.fif', '*trans.fif', '*epo.fif']
-    for subj, structural in zip(subjects, structurals):
+    if run_indices is None:
+        run_indices = [None] * len(subjects)
+    for si, subj in enumerate(subjects):
         bools = [raw, evoked, cov, trans, epochs]
         path = op.join(p.work_dir, subj)
         files = []
@@ -1771,12 +1827,12 @@ def gen_html_report(p, subjects, structurals, raw=True, evoked=True,
             print('    For %s no reports generated for:\n        %s'
                   % (subj, missing))
         patterns = [t for t, b in zip(texts, bools) if b]
-        fnames = get_raw_fnames(p, subj, 'pca', False)
+        fnames = get_raw_fnames(p, subj, 'pca', False, False, run_indices[si])
         if not fnames:
             raise RuntimeError('Could not find any processed files for '
                                'reporting.')
         info_fname = op.join(path, fnames[0])
-        struc = structural if p.mri else None
+        struc = structurals[si] if p.mri else None
         report = Report(info_fname=info_fname, subject=struc)
         report.parse_folder(data_path=path, mri_decim=10, n_jobs=p.n_jobs,
                             pattern=patterns)
@@ -1784,7 +1840,7 @@ def gen_html_report(p, subjects, structurals, raw=True, evoked=True,
         report.save(report_fname, open_browser=False, overwrite=True)
 
 
-def plot_raw_psd(p, subjects, tmin=0., fmin=2, n_fft=2048):
+def plot_raw_psd(p, subjects, run_indices=None, tmin=0., fmin=2, n_fft=2048):
     """Plot data power for all available raw data files for a subject
 
     Parameters
@@ -1793,10 +1849,14 @@ def plot_raw_psd(p, subjects, tmin=0., fmin=2, n_fft=2048):
         Analysis parameters.
     subjects : list of str
         Subject names to analyze (e.g., ['Eric_SoP_001', ...]).
+    run_indices : array-like | None
+        Run indices to include.
     tmin : float
         Time in sec for beginning fft (defaults to 0)
     fmin : float
         Lower frequency edge for PSD (defaults to 2Hz)
+    n_fft : int
+        Number of points in the FFT.
 
     Notes
     -----
@@ -1805,14 +1865,17 @@ def plot_raw_psd(p, subjects, tmin=0., fmin=2, n_fft=2048):
     low pass cut off in analysis parameters for pca file. n_fft
     set to default value from mne-python.
     """
-    for subj in subjects:
+    if run_indices is None:
+        run_indices = [None] * len(subjects)
+    for si, subj in enumerate(subjects):
         for file_type in ['raw', 'sss', 'pca']:
-            fname = get_raw_fnames(p, subj, which=file_type, erm=False)
+            fname = get_raw_fnames(p, subj, file_type, False, False,
+                                   run_indices[si])
             if len(fname) < 1:
                 warnings.warn('Unable to find %s data file.' % file_type)
             with warnings.catch_warnings(record=True):
                 raw = Raw(fname, preload=True, allow_maxshield=True)
-            fmax = p.lp_cut if file_type == 'pca' else (raw.info['lowpass'] + 50)
+            fmax = p.lp_cut if file_type == 'pca' else raw.info['lowpass'] + 50
             raw.plot_psd(tmin=tmin, tmax=raw.times[-1], fmin=fmin,
                          fmax=fmax, n_fft=n_fft,
                          n_jobs=p.n_jobs, proj=False, ax=None, color=(0, 0, 1),
