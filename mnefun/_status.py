@@ -25,13 +25,13 @@ def print_proc_status(p, subjects, structurals, analyses, run_indices):
     # XXX TODO in subsequent PR:
     # * Add modified-date checks to make sure provenance is correct
 
-    for subj, struc in zip(subjects, structurals):
+    for subj, struc, runs in zip(subjects, structurals, run_indices):
         fetch_raw = do_score = prebads = coreg = fetch_sss = do_ch_fix = \
             do_ssp = apply_ssp = write_epochs = \
             gen_covs = gen_fwd = gen_inv = gen_report = 'missing'
 
         # check if raws fetched (+1 is for erm)
-        if _have_all(get_raw_fnames(p, subj, 'raw', True, False, run_indices)):
+        if _have_all(get_raw_fnames(p, subj, 'raw', True, False, runs)):
             fetch_raw = 'complete'
 
         # check if scoring has been done
@@ -48,7 +48,7 @@ def print_proc_status(p, subjects, structurals, analyses, run_indices):
             coreg = 'complete'
 
         # check if sss has been fetched (+1 is for erm)
-        if _have_all(get_raw_fnames(p, subj, 'sss', True, False, run_indices)):
+        if _have_all(get_raw_fnames(p, subj, 'sss', True, False, runs)):
             fetch_sss = 'complete'
 
         # check if channel orders have been fixed_all_files_fixed
@@ -61,7 +61,7 @@ def print_proc_status(p, subjects, structurals, analyses, run_indices):
             do_ssp = 'complete'
 
         # check if SSPs have been applied:
-        if _have_all(get_raw_fnames(p, subj, 'pca', True, False, run_indices)):
+        if _have_all(get_raw_fnames(p, subj, 'pca', True, False, runs)):
             apply_ssp = 'complete'
 
         # check if epochs have been made
@@ -72,7 +72,7 @@ def print_proc_status(p, subjects, structurals, analyses, run_indices):
 
         # check if covariance has been calculated
         cov_fnames, fwd_fnames, inv_fnames = \
-            get_cov_fwd_inv_fnames(p, subj, run_indices)
+            get_cov_fwd_inv_fnames(p, subj, runs)
         if _have_all(cov_fnames):
             gen_covs = 'complete'
 
