@@ -259,6 +259,8 @@ class Params(object):
         self.epochs_tag = '-epo'
         self.inv_tag = '-sss'
         self.inv_fixed_tag = '-fixed'
+        self.inv_loose_tag = ''
+        self.inv_free_tag = '-free'
         self.inv_erm_tag = '-erm'
         self.eq_tag = 'eq'
         self.sss_fif_tag = '_raw_sss.fif'
@@ -1164,7 +1166,15 @@ def gen_inverses(p, subjects, run_indices):
             temp_name = s_name + ('-%d' % p.lp_cut) + p.inv_tag
             fwd_name = op.join(fwd_dir, s_name + p.inv_tag + '-fwd.fif')
             fwd = read_forward_solution(fwd_name, surf_ori=True)
-
+            looses = [None]
+            tags = [p.inv_free_tag]
+            fixeds = [False]
+            depths = [0.8]
+            if fwd['src'][0]['type'] == 'surf':
+                looses += [None, 0.2]
+                tags += [p.inv_fixed_tag, p.inv_loose_tag]
+                fixeds += [True, False]
+                depths += [0.8, 0.8]
             cov_name = op.join(cov_dir, safe_inserter(name, subj) +
                                ('-%d' % p.lp_cut) + p.inv_tag + '-cov.fif')
             cov = read_cov(cov_name)
@@ -1172,20 +1182,17 @@ def gen_inverses(p, subjects, run_indices):
                 cov = regularize(cov, raw.info)
             for f, m, e in zip(out_flags, meg_bools, eeg_bools):
                 fwd_restricted = pick_types_forward(fwd, meg=m, eeg=e)
-                for l, s, x in zip([None, 0.2], [p.inv_fixed_tag, ''],
-                                   [True, False]):
-                    inv_name = op.join(inv_dir,
-                                       temp_name + f + s + '-inv.fif')
-                    inv = make_inverse_operator(raw.info, fwd_restricted,
-                                                cov, loose=l, depth=0.8,
-                                                fixed=x)
+                for l, s, x, d in zip(looses, tags, fixeds, depths):
+                    inv_name = op.join(inv_dir, temp_name + f + s + '-inv.fif')
+                    inv = make_inverse_operator(raw.info, fwd_restricted, cov,
+                                                loose=l, depth=d, fixed=x)
                     write_inverse_operator(inv_name, inv)
                     if (not e) and make_erm_inv:
                         inv_name = op.join(inv_dir, temp_name + f +
                                            p.inv_erm_tag + s + '-inv.fif')
                         inv = make_inverse_operator(raw.info, fwd_restricted,
-                                                    empty_cov, fixed=x,
-                                                    loose=l, depth=0.8)
+                                                    empty_cov, loose=l,
+                                                    depth=d, fixed=x)
                         write_inverse_operator(inv_name, inv)
 
 
