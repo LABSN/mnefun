@@ -287,6 +287,8 @@ class Params(object):
         self.trans_to = 'median'  # where to transform head positions to
         self.sss_format = 'float'  # output type for MaxFilter
         self.subject_run_indices = None
+        self.sws_port = 22
+        self.acq_port = 22
 
     @property
     def pca_extra(self):
@@ -494,7 +496,8 @@ def fetch_raw_files(p, subjects, run_indices):
         finder = (finder_stem +
                   ' -o '.join(['-type f -regex ' + _regex_convert(f)
                                for f in fnames]))
-        stdout_ = run_subprocess(['ssh', p.acq_ssh, finder])[0]
+        stdout_ = run_subprocess(['ssh', '-p', str(p.acq_port),
+                                  p.acq_ssh, finder])[0]
         remote_fnames = [x.strip() for x in stdout_.splitlines()]
         assert all(fname.startswith(p.acq_dir) for fname in remote_fnames)
         remote_fnames = [fname[len(p.acq_dir) + 1:] for fname in remote_fnames]
@@ -508,7 +511,8 @@ def fetch_raw_files(p, subjects, run_indices):
                           'Likely split files were found. Please confirm '
                           'results.')
         print('  Pulling %s files for %s...' % (len(remote_fnames), subj))
-        cmd = ['rsync', '-ave', 'ssh', '--prune-empty-dirs', '--partial',
+        cmd = ['rsync', '-ave', 'ssh -p %s' % p.sws_port,
+               '--prune-empty-dirs', '--partial',
                '--include', '*/']
         for fname in remote_fnames:
             cmd += ['--include', op.basename(fname)]
@@ -613,8 +617,8 @@ def push_raw_files(p, subjects, run_indices):
             includes += ['--include', op.join(raw_root, op.basename(fname))]
     assert ' ' not in p.sws_dir
     assert ' ' not in p.sws_ssh
-    cmd = (['rsync', '-aLve', 'ssh', '--partial'] + includes +
-           ['--exclude', '*'])
+    cmd = (['rsync', '-aLve', 'ssh -p %s' % p.sws_port, '--partial'] +
+           includes + ['--exclude', '*'])
     cmd += ['.', '%s:%s' % (p.sws_ssh, op.join(p.sws_dir, ''))]
     run_subprocess(cmd, cwd=p.work_dir)
 
@@ -649,7 +653,7 @@ def run_sss_remotely(p, subjects, run_indices):
         run_sss = (op.join(p.sws_dir, 'run_sss.sh') + st + fmt + trans +
                    ' --subject ' + subj + ' --files ' + files + erm +
                    ' --args=\"%s\"' % p.mf_args)
-        cmd = ['ssh', p.sws_ssh, run_sss]
+        cmd = ['ssh', '-p', str(p.sws_port), p.sws_ssh, run_sss]
         s = 'Remote output for %s on %s files:' % (subj, n_files)
         print('-' * len(s))
         print(s)
@@ -671,8 +675,8 @@ def fetch_sss_files(p, subjects, run_indices):
                      '--include', op.join(subj, 'sss_log', '*')]
     assert ' ' not in p.sws_dir
     assert ' ' not in p.sws_ssh
-    cmd = (['rsync', '-ave', 'ssh', '--partial', '-K'] + includes +
-           ['--exclude', '*'])
+    cmd = (['rsync', '-ave', '"ssh -p %s"' % p.sws_port, '--partial', '-K'] +
+           includes + ['--exclude', '*'])
     cmd += ['%s:%s' % (p.sws_ssh, op.join(p.sws_dir, '*')), '.']
     run_subprocess(cmd, cwd=p.work_dir)
 
