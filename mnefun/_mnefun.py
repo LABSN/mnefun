@@ -1792,8 +1792,11 @@ def _viz_raw_ssp_events(p, subj, ridx):
                 if ri in p.get_projs_from]
     all_proj = op.join(pca_dir, 'preproc_all-proj.fif')
     projs = read_proj(all_proj)
-    ev_names = glob.glob(op.join(pca_dir, 'preproc*-eve.fif'))
-    ev = [read_events(e) for e in ev_names]
+    ev = []
+    for n in ['ecg', 'blink']:
+        fname = op.join(pca_dir, 'preproc_%s-eve.fif' % n)
+        if op.isfile(fname):
+            ev.append(read_events(fname))
     if len(ev) == 2:
         ev = np.concatenate((ev[0], ev[1]))
         ev = ev[np.argsort(ev[:, 0], axis=0)]
@@ -1805,7 +1808,10 @@ def _viz_raw_ssp_events(p, subj, ridx):
                      p.n_jobs_resample, projs, None, p.disp_files,
                      method='fft', filter_length=p.filter_length,
                      force_bads=False)
-    raw.plot(events=ev, event_color=colors, show=True)
+    if len(colors) == 0:
+        raw.plot(show=True)
+    else:
+        raw.plot(events=ev, event_color=colors, show=True)
 
 
 def gen_html_report(p, subjects, structurals, run_indices=None,
