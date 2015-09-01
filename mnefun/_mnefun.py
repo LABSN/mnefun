@@ -1792,26 +1792,19 @@ def _viz_raw_ssp_events(p, subj, ridx):
                 if ri in p.get_projs_from]
     all_proj = op.join(pca_dir, 'preproc_all-proj.fif')
     projs = read_proj(all_proj)
-    ev = []
-    for n in ['ecg', 'blink']:
+    colors = dict()
+    ev = np.zeros((0, 3), int)
+    for n, c, cid in zip(['ecg', 'blink'], ['r', 'b'], [999, 998]):
         fname = op.join(pca_dir, 'preproc_%s-eve.fif' % n)
         if op.isfile(fname):
-            ev.append(read_events(fname))
-    if len(ev) == 2:
-        ev = np.concatenate((ev[0], ev[1]))
-        ev = ev[np.argsort(ev[:, 0], axis=0)]
-        colors = {int(idd): c for c, idd in zip(['r', 'b'], np.unique(ev[:, 2]))}
-    else:
-        ev = ev[0]
-        colors = {int(np.unique(ev[:, 2])[0]): 'r'}
+            ev = np.concatenate((ev, read_events(fname)))
+            colors[cid] = c
+    ev = ev[np.argsort(ev[:, 0], axis=0)]
     raw = _raw_LRFCP(pre_list, p.proj_sfreq, None, None, p.n_jobs_fir,
                      p.n_jobs_resample, projs, None, p.disp_files,
                      method='fft', filter_length=p.filter_length,
                      force_bads=False)
-    if len(colors) == 0:
-        raw.plot(show=True)
-    else:
-        raw.plot(events=ev, event_color=colors, show=True)
+    raw.plot(events=ev, event_color=colors)
 
 
 def gen_html_report(p, subjects, structurals, run_indices=None,
