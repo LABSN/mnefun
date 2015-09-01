@@ -677,7 +677,7 @@ def fetch_sss_files(p, subjects, run_indices):
                      '--include', op.join(subj, 'sss_log', '*')]
     assert ' ' not in p.sws_dir
     assert ' ' not in p.sws_ssh
-    cmd = (['rsync', '-ave', '"ssh -p %s"' % p.sws_port, '--partial', '-K'] +
+    cmd = (['rsync', '-ave', 'ssh -p %s' % p.sws_port, '--partial', '-K'] +
            includes + ['--exclude', '*'])
     cmd += ['%s:%s' % (p.sws_ssh, op.join(p.sws_dir, '*')), '.']
     run_subprocess(cmd, cwd=p.work_dir)
@@ -1030,7 +1030,7 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
         use_reject, use_flat = _restrict_reject_flat(p.reject, p.flat, raw)
         epochs = Epochs(raw, events, event_id=old_dict, tmin=p.tmin,
                         tmax=p.tmax, baseline=_get_baseline(p),
-                        reject=use_reject, flat=use_flat, proj=True,
+                        reject=use_reject, flat=use_flat, proj='delayed',
                         preload=True, decim=decim[si], on_missing=p.on_missing,
                         reject_tmin=p.reject_tmin, reject_tmax=p.reject_tmax)
         del raw
@@ -1331,10 +1331,11 @@ def gen_covariances(p, subjects, run_indices):
                       'covariance calculation' % (new_count, old_count))
             events = concatenate_events(events, first_samps,
                                         last_samps)
-            picks = pick_types(raw.info, eeg=True, meg=True)
+            use_reject, use_flat = _restrict_reject_flat(p.reject, p.flat, raw)
             epochs = Epochs(raw, events, event_id=None, tmin=p.bmin,
-                            tmax=p.bmax, baseline=(None, None),
-                            picks=picks, preload=True)
+                            tmax=p.bmax, baseline=(None, None), proj=False,
+                            reject=use_reject, flat=use_flat, preload=True)
+            epochs.pick_types(meg=True, eeg=True, exclude=[])
             cov_name = op.join(cov_dir, safe_inserter(inv_name, subj) +
                                ('-%d' % p.lp_cut) + p.inv_tag + '-cov.fif')
             cov = compute_covariance(epochs, method=p.cov_method)
