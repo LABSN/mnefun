@@ -1792,19 +1792,19 @@ def _viz_raw_ssp_events(p, subj, ridx):
                 if ri in p.get_projs_from]
     all_proj = op.join(pca_dir, 'preproc_all-proj.fif')
     projs = read_proj(all_proj)
-    ev_names = [op.join(pca_dir + '/' + ii) for ii in
-                ['preproc_ecg-eve.fif', 'preproc_blink-eve.fif']]
-    ev = [read_events(e) for e in ev_names]
-    assert len(ev) == 2
-    ev = np.concatenate((ev[0], ev[1]))
+    colors = dict()
+    ev = np.zeros((0, 3), int)
+    for n, c, cid in zip(['ecg', 'blink'], ['r', 'b'], [999, 998]):
+        fname = op.join(pca_dir, 'preproc_%s-eve.fif' % n)
+        if op.isfile(fname):
+            ev = np.concatenate((ev, read_events(fname)))
+            colors[cid] = c
     ev = ev[np.argsort(ev[:, 0], axis=0)]
     raw = _raw_LRFCP(pre_list, p.proj_sfreq, None, None, p.n_jobs_fir,
                      p.n_jobs_resample, projs, None, p.disp_files,
                      method='fft', filter_length=p.filter_length,
                      force_bads=False)
-    raw.plot(events=ev, event_color={999: 'r', 998: 'b'})
-    plt.draw()
-    plt.show()
+    raw.plot(events=ev, event_color=colors)
 
 
 def gen_html_report(p, subjects, structurals, run_indices=None,
