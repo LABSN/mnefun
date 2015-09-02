@@ -1804,7 +1804,7 @@ def _viz_raw_ssp_events(p, subj, ridx):
                      p.n_jobs_resample, projs, None, p.disp_files,
                      method='fft', filter_length=p.filter_length,
                      force_bads=False)
-    raw.plot(events=ev, event_color=colors)
+    raw.plot(events=ev, event_color=colors, block=True)
 
 
 def gen_html_report(p, subjects, structurals, run_indices=None,
