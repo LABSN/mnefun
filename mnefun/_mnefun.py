@@ -38,10 +38,6 @@ from mne.io.pick import pick_types_forward, pick_types
 from mne.io.meas_info import _empty_info
 from mne.cov import regularize
 from mne.minimum_norm import write_inverse_operator
-try:
-    from mne.channels import make_eeg_layout
-except ImportError:
-    from mne.layouts import make_eeg_layout
 from mne.viz import plot_drop_log
 from mne.utils import run_subprocess
 from mne.report import Report
@@ -65,7 +61,29 @@ except Exception:
     pass
 
 
-class Params(object):
+# Class adapted from:
+# http://stackoverflow.com/questions/3603502/
+
+class Frozen(object):
+    __isfrozen = False
+
+    def __setattr__(self, key, value):
+        if self.__isfrozen and not hasattr(self, key):
+            raise AttributeError('%r is not an attribute of class %s. Call '
+                                 '"unfreeze()" to allow addition of new '
+                                 'attributes' % (key, self))
+        object.__setattr__(self, key, value)
+
+    def freeze(self):
+        """Freeze the object so that only existing properties can be set"""
+        self.__isfrozen = True
+
+    def unfreeze(self):
+        """Unfreeze the object so that additional properties can be added"""
+        self.__isfrozen = False
+
+
+class Params(Frozen):
     """Make a parameter structure for use with `do_processing`
 
     This is technically a class, but it doesn't currently have any methods
@@ -160,6 +178,8 @@ class Params(object):
         Low-pass transition band.
     hp_trans : float
         High-pass transition band.
+    movecomp : str | None
+        Movement compensation to use. Can be 'inter' or None.
 
     Returns
     -------
@@ -186,7 +206,7 @@ class Params(object):
                  cov_method='empirical', ssp_eog_reject=None,
                  ssp_ecg_reject=None, baseline='individual',
                  reject_tmin=None, reject_tmax=None,
-                 lp_trans=0.5, hp_trans=0.5):
+                 lp_trans=0.5, hp_trans=0.5, movecomp='inter'):
         self.reject = dict(eog=np.inf, grad=1500e-13, mag=5000e-15, eeg=150e-6)
         self.flat = dict(eog=-1, grad=1e-13, mag=1e-15, eeg=1e-6)
         if ssp_eog_reject is None:
@@ -219,7 +239,6 @@ class Params(object):
         self.hp_cut = hp_cut
         self.lp_trans = lp_trans
         self.hp_trans = hp_trans
-        self.mne_root = os.getenv('MNE_ROOT')
         self.disp_files = True
         self.plot_drop_logs = True  # plot drop logs after do_preprocessing_...
         self.proj_sfreq = proj_sfreq
@@ -272,7 +291,6 @@ class Params(object):
         self.mf_args = ''
         self.tsss_dur = 60.
         # boolean for whether data set(s) have an individual mri
-        self.mri = True
         self.on_process = None
         # Use more than EXTRA points to fit headshape
         self.dig_with_eeg = False
@@ -282,15 +300,31 @@ class Params(object):
         self.proj_extra = None
         # These should be overridden by the user unless they are only doing
         # a small subset, e.g. epoching
-        self.score = None  # defaults to passing events through
+        self.subjects = []
         self.structurals = None
         self.dates = None
+        self.score = None  # defaults to passing events through
+        self.acq_ssh = self.acq_dir = None
+        self.acq_port = 22
+        self.sws_ssh = self.sws_dir = None
+        self.sws_port = 22
+        self.subject_indices = []
+        self.get_projs_from = []
+        self.runs_empty = []
+        self.proj_nums = [[0] * 3] * 3
+        self.in_names = []
+        self.in_numbers = []
+        self.analyses = []
+        self.out_names = []
+        self.out_numbers = []
+        self.must_match = []
         self.on_missing = 'error'  # for epochs
         self.trans_to = 'median'  # where to transform head positions to
         self.sss_format = 'float'  # output type for MaxFilter
         self.subject_run_indices = None
-        self.sws_port = 22
-        self.acq_port = 22
+        self.movecomp = movecomp
+        assert self.movecomp in ('inter', None)
+        self.freeze()
 
     @property
     def pca_extra(self):
@@ -650,10 +684,12 @@ def run_sss_remotely(p, subjects, run_indices):
         if p.sss_format not in ('short', 'long', 'float'):
             raise RuntimeError('format must be short, long, or float')
         fmt = ' --format ' + p.sss_format
+        assert p.movecomp in ['inter', None]
+        mc = ' --mc %s' % str(p.movecomp).lower()
         _check_trans_file(p)
         trans = ' --trans ' + p.trans_to
         run_sss = (op.join(p.sws_dir, 'run_sss.sh') + st + fmt + trans +
-                   ' --subject ' + subj + ' --files ' + files + erm +
+                   ' --subject ' + subj + ' --files ' + files + erm + mc +
                    ' --args=\"%s\"' % p.mf_args)
         cmd = ['ssh', '-p', str(p.sws_port), p.sws_ssh, run_sss]
         s = 'Remote output for %s on %s files:' % (subj, n_files)
@@ -1696,31 +1732,6 @@ def apply_preprocessing_combined(p, subjects, run_indices):
             _viz_raw_ssp_events(p, subj, run_indices[si])
 
 
-def gen_layouts(p, subjects):
-    """Generate .lout files for each subject
-
-    Parameters
-    ----------
-    p : instance of Parameters
-        Analysis parameters.
-    subjects : list of str
-        Subject names to analyze (e.g., ['Eric_SoP_001', ...]).
-    """
-    lout_dir = op.join(p.mne_root, 'share', 'mne', 'mne_analyze', 'lout')
-    for si in range(len(subjects)):
-        ri = 1
-        new_run = safe_inserter(p.run_names[ri], subjects[si])
-        in_fif = op.join(p.work_dir, subjects[si], p.sss_dir,
-                         new_run + p.sss_fif_tag)
-        out_lout = op.join(lout_dir, subjects[si] + '_eeg.lout')
-        if op.isfile(out_lout):
-            os.remove(out_lout)
-
-        raw = Raw(in_fif)
-        make_eeg_layout(raw.info).save(out_lout)
-        raw.close()
-
-
 class FakeEpochs():
     """Make iterable epoch-like class, convenient for MATLAB transition"""
 
@@ -1864,7 +1875,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None,
             raise RuntimeError('Could not find any processed files for '
                                'reporting.')
         info_fname = op.join(path, fnames[0])
-        struc = structurals[si] if p.mri else None
+        struc = structurals[si]
         report = Report(info_fname=info_fname, subject=struc)
         report.parse_folder(data_path=path, mri_decim=10, n_jobs=p.n_jobs,
                             pattern=patterns)
