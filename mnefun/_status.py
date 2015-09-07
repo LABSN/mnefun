@@ -9,6 +9,9 @@ from ._paths import (get_raw_fnames, get_event_fnames, get_cov_fwd_inv_fnames,
                      get_epochs_evokeds_fnames, get_report_fnames)
 from ._reorder import _all_files_fixed
 
+# make our table tighter
+tabulate.MIN_PADDING = 0
+
 
 def _have_all(fnames):
     """Check to make sure all files exist"""
@@ -102,11 +105,11 @@ def print_proc_status(p, subjects, structurals, analyses, run_indices):
             these_steps.append('missing')
         steps_all.append(these_steps)
 
-    steps = ['raw', 'sco', 'pbd', 'coreg',
+    steps = ['raw', 'sco', 'pbd', 'cor',
              'sss',
-             'chfx', 'genssp', 'appssp', 'epevo',
+             'chf', 'gsp', 'asp', 'epv',
              'cov', 'fwd', 'inv',
-             'rep', 'done']
+             'rep', 'don']
     assert all(len(steps) == len(s) for s in steps_all)
 
     # Print it out in a tabular manner

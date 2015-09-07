@@ -38,10 +38,6 @@ from mne.io.pick import pick_types_forward, pick_types
 from mne.io.meas_info import _empty_info
 from mne.cov import regularize
 from mne.minimum_norm import write_inverse_operator
-try:
-    from mne.channels import make_eeg_layout
-except ImportError:
-    from mne.layouts import make_eeg_layout
 from mne.viz import plot_drop_log
 from mne.utils import run_subprocess
 from mne.report import Report
@@ -65,7 +61,29 @@ except Exception:
     pass
 
 
-class Params(object):
+# Class adapted from:
+# http://stackoverflow.com/questions/3603502/
+
+class Frozen(object):
+    __isfrozen = False
+
+    def __setattr__(self, key, value):
+        if self.__isfrozen and not hasattr(self, key):
+            raise AttributeError('%r is not an attribute of class %s. Call '
+                                 '"unfreeze()" to allow addition of new '
+                                 'attributes' % (key, self))
+        object.__setattr__(self, key, value)
+
+    def freeze(self):
+        """Freeze the object so that only existing properties can be set"""
+        self.__isfrozen = True
+
+    def unfreeze(self):
+        """Unfreeze the object so that additional properties can be added"""
+        self.__isfrozen = False
+
+
+class Params(Frozen):
     """Make a parameter structure for use with `do_processing`
 
     This is technically a class, but it doesn't currently have any methods
@@ -152,6 +170,16 @@ class Params(object):
         be used for covariance calculation. This is useful e.g. when using
         a high-pass filter and no baselining is desired (but evoked
         covariances should still be calculated from the baseline period).
+    reject_tmin : float | None
+        Reject minimum time to use when epoching. None will use ``tmin``.
+    reject_tmax : float | None
+        Reject maximum time to use when epoching. None will use ``tmax``.
+    lp_trans : float
+        Low-pass transition band.
+    hp_trans : float
+        High-pass transition band.
+    movecomp : str | None
+        Movement compensation to use. Can be 'inter' or None.
 
     Returns
     -------
@@ -176,7 +204,9 @@ class Params(object):
                  ecg_channel=None, eog_channel=None,
                  plot_raw=False, match_fun=None, hp_cut=None,
                  cov_method='empirical', ssp_eog_reject=None,
-                 ssp_ecg_reject=None, baseline='individual'):
+                 ssp_ecg_reject=None, baseline='individual',
+                 reject_tmin=None, reject_tmax=None,
+                 lp_trans=0.5, hp_trans=0.5, movecomp='inter'):
         self.reject = dict(eog=np.inf, grad=1500e-13, mag=5000e-15, eeg=150e-6)
         self.flat = dict(eog=-1, grad=1e-13, mag=1e-15, eeg=1e-6)
         if ssp_eog_reject is None:
@@ -189,6 +219,8 @@ class Params(object):
         self.ssp_ecg_reject = ssp_ecg_reject
         self.tmin = tmin
         self.tmax = tmax
+        self.reject_tmin = reject_tmin
+        self.reject_tmax = reject_tmax
         self.t_adjust = t_adjust
         self.baseline = baseline
         self.bmin = bmin
@@ -205,7 +237,8 @@ class Params(object):
         self.cont_lp = 5
         self.lp_cut = lp_cut
         self.hp_cut = hp_cut
-        self.mne_root = os.getenv('MNE_ROOT')
+        self.lp_trans = lp_trans
+        self.hp_trans = hp_trans
         self.disp_files = True
         self.plot_drop_logs = True  # plot drop logs after do_preprocessing_...
         self.proj_sfreq = proj_sfreq
@@ -245,6 +278,8 @@ class Params(object):
         self.epochs_tag = '-epo'
         self.inv_tag = '-sss'
         self.inv_fixed_tag = '-fixed'
+        self.inv_loose_tag = ''
+        self.inv_free_tag = '-free'
         self.inv_erm_tag = '-erm'
         self.eq_tag = 'eq'
         self.sss_fif_tag = '_raw_sss.fif'
@@ -256,22 +291,40 @@ class Params(object):
         self.mf_args = ''
         self.tsss_dur = 60.
         # boolean for whether data set(s) have an individual mri
-        self.mri = True
         self.on_process = None
         # Use more than EXTRA points to fit headshape
         self.dig_with_eeg = False
         # Function to pick a subset of events to use to make a covariance
         self.pick_events_cov = lambda x: x
         self.cov_method = cov_method
+        self.proj_extra = None
         # These should be overridden by the user unless they are only doing
         # a small subset, e.g. epoching
-        self.score = None  # defaults to passing events through
+        self.subjects = []
         self.structurals = None
         self.dates = None
+        self.score = None  # defaults to passing events through
+        self.acq_ssh = self.acq_dir = None
+        self.acq_port = 22
+        self.sws_ssh = self.sws_dir = None
+        self.sws_port = 22
+        self.subject_indices = []
+        self.get_projs_from = []
+        self.runs_empty = []
+        self.proj_nums = [[0] * 3] * 3
+        self.in_names = []
+        self.in_numbers = []
+        self.analyses = []
+        self.out_names = []
+        self.out_numbers = []
+        self.must_match = []
         self.on_missing = 'error'  # for epochs
         self.trans_to = 'median'  # where to transform head positions to
         self.sss_format = 'float'  # output type for MaxFilter
         self.subject_run_indices = None
+        self.movecomp = movecomp
+        assert self.movecomp in ('inter', None)
+        self.freeze()
 
     @property
     def pca_extra(self):
@@ -479,7 +532,8 @@ def fetch_raw_files(p, subjects, run_indices):
         finder = (finder_stem +
                   ' -o '.join(['-type f -regex ' + _regex_convert(f)
                                for f in fnames]))
-        stdout_ = run_subprocess(['ssh', p.acq_ssh, finder])[0]
+        stdout_ = run_subprocess(['ssh', '-p', str(p.acq_port),
+                                  p.acq_ssh, finder])[0]
         remote_fnames = [x.strip() for x in stdout_.splitlines()]
         assert all(fname.startswith(p.acq_dir) for fname in remote_fnames)
         remote_fnames = [fname[len(p.acq_dir) + 1:] for fname in remote_fnames]
@@ -493,7 +547,8 @@ def fetch_raw_files(p, subjects, run_indices):
                           'Likely split files were found. Please confirm '
                           'results.')
         print('  Pulling %s files for %s...' % (len(remote_fnames), subj))
-        cmd = ['rsync', '-ave', 'ssh', '--prune-empty-dirs', '--partial',
+        cmd = ['rsync', '-ave', 'ssh -p %s' % p.sws_port,
+               '--prune-empty-dirs', '--partial',
                '--include', '*/']
         for fname in remote_fnames:
             cmd += ['--include', op.basename(fname)]
@@ -598,8 +653,8 @@ def push_raw_files(p, subjects, run_indices):
             includes += ['--include', op.join(raw_root, op.basename(fname))]
     assert ' ' not in p.sws_dir
     assert ' ' not in p.sws_ssh
-    cmd = (['rsync', '-aLve', 'ssh', '--partial'] + includes +
-           ['--exclude', '*'])
+    cmd = (['rsync', '-aLve', 'ssh -p %s' % p.sws_port, '--partial'] +
+           includes + ['--exclude', '*'])
     cmd += ['.', '%s:%s' % (p.sws_ssh, op.join(p.sws_dir, ''))]
     run_subprocess(cmd, cwd=p.work_dir)
 
@@ -629,12 +684,14 @@ def run_sss_remotely(p, subjects, run_indices):
         if p.sss_format not in ('short', 'long', 'float'):
             raise RuntimeError('format must be short, long, or float')
         fmt = ' --format ' + p.sss_format
+        assert p.movecomp in ['inter', None]
+        mc = ' --mc %s' % str(p.movecomp).lower()
         _check_trans_file(p)
         trans = ' --trans ' + p.trans_to
         run_sss = (op.join(p.sws_dir, 'run_sss.sh') + st + fmt + trans +
-                   ' --subject ' + subj + ' --files ' + files + erm +
+                   ' --subject ' + subj + ' --files ' + files + erm + mc +
                    ' --args=\"%s\"' % p.mf_args)
-        cmd = ['ssh', p.sws_ssh, run_sss]
+        cmd = ['ssh', '-p', str(p.sws_port), p.sws_ssh, run_sss]
         s = 'Remote output for %s on %s files:' % (subj, n_files)
         print('-' * len(s))
         print(s)
@@ -656,8 +713,8 @@ def fetch_sss_files(p, subjects, run_indices):
                      '--include', op.join(subj, 'sss_log', '*')]
     assert ' ' not in p.sws_dir
     assert ' ' not in p.sws_ssh
-    cmd = (['rsync', '-ave', 'ssh', '--partial', '-K'] + includes +
-           ['--exclude', '*'])
+    cmd = (['rsync', '-ave', 'ssh -p %s' % p.sws_port, '--partial', '-K'] +
+           includes + ['--exclude', '*'])
     cmd += ['%s:%s' % (p.sws_ssh, op.join(p.sws_dir, '*')), '.']
     run_subprocess(cmd, cwd=p.work_dir)
 
@@ -1009,8 +1066,9 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
         use_reject, use_flat = _restrict_reject_flat(p.reject, p.flat, raw)
         epochs = Epochs(raw, events, event_id=old_dict, tmin=p.tmin,
                         tmax=p.tmax, baseline=_get_baseline(p),
-                        reject=use_reject, flat=use_flat, proj=True,
-                        preload=True, decim=decim[si], on_missing=p.on_missing)
+                        reject=use_reject, flat=use_flat, proj='delayed',
+                        preload=True, decim=decim[si], on_missing=p.on_missing,
+                        reject_tmin=p.reject_tmin, reject_tmax=p.reject_tmax)
         del raw
         drop_logs.append(epochs.drop_log)
         ch_namess.append(epochs.ch_names)
@@ -1144,7 +1202,15 @@ def gen_inverses(p, subjects, run_indices):
             temp_name = s_name + ('-%d' % p.lp_cut) + p.inv_tag
             fwd_name = op.join(fwd_dir, s_name + p.inv_tag + '-fwd.fif')
             fwd = read_forward_solution(fwd_name, surf_ori=True)
-
+            looses = [None]
+            tags = [p.inv_free_tag]
+            fixeds = [False]
+            depths = [0.8]
+            if fwd['src'][0]['type'] == 'surf':
+                looses += [None, 0.2]
+                tags += [p.inv_fixed_tag, p.inv_loose_tag]
+                fixeds += [True, False]
+                depths += [0.8, 0.8]
             cov_name = op.join(cov_dir, safe_inserter(name, subj) +
                                ('-%d' % p.lp_cut) + p.inv_tag + '-cov.fif')
             cov = read_cov(cov_name)
@@ -1152,20 +1218,17 @@ def gen_inverses(p, subjects, run_indices):
                 cov = regularize(cov, raw.info)
             for f, m, e in zip(out_flags, meg_bools, eeg_bools):
                 fwd_restricted = pick_types_forward(fwd, meg=m, eeg=e)
-                for l, s, x in zip([None, 0.2], [p.inv_fixed_tag, ''],
-                                   [True, False]):
-                    inv_name = op.join(inv_dir,
-                                       temp_name + f + s + '-inv.fif')
-                    inv = make_inverse_operator(raw.info, fwd_restricted,
-                                                cov, loose=l, depth=0.8,
-                                                fixed=x)
+                for l, s, x, d in zip(looses, tags, fixeds, depths):
+                    inv_name = op.join(inv_dir, temp_name + f + s + '-inv.fif')
+                    inv = make_inverse_operator(raw.info, fwd_restricted, cov,
+                                                loose=l, depth=d, fixed=x)
                     write_inverse_operator(inv_name, inv)
                     if (not e) and make_erm_inv:
                         inv_name = op.join(inv_dir, temp_name + f +
                                            p.inv_erm_tag + s + '-inv.fif')
                         inv = make_inverse_operator(raw.info, fwd_restricted,
-                                                    empty_cov, fixed=x,
-                                                    loose=l, depth=0.8)
+                                                    empty_cov, loose=l,
+                                                    depth=d, fixed=x)
                         write_inverse_operator(inv_name, inv)
 
 
@@ -1304,10 +1367,11 @@ def gen_covariances(p, subjects, run_indices):
                       'covariance calculation' % (new_count, old_count))
             events = concatenate_events(events, first_samps,
                                         last_samps)
-            picks = pick_types(raw.info, eeg=True, meg=True)
+            use_reject, use_flat = _restrict_reject_flat(p.reject, p.flat, raw)
             epochs = Epochs(raw, events, event_id=None, tmin=p.bmin,
-                            tmax=p.bmax, baseline=(None, None),
-                            picks=picks, preload=True)
+                            tmax=p.bmax, baseline=(None, None), proj=False,
+                            reject=use_reject, flat=use_flat, preload=True)
+            epochs.pick_types(meg=True, eeg=True, exclude=[])
             cov_name = op.join(cov_dir, safe_inserter(inv_name, subj) +
                                ('-%d' % p.lp_cut) + p.inv_tag + '-cov.fif')
             cov = compute_covariance(epochs, method=p.cov_method)
@@ -1344,7 +1408,7 @@ def _cals(raw):
 def _raw_LRFCP(raw_names, sfreq, l_freq, h_freq, n_jobs, n_jobs_resample,
                projs, bad_file, disp_files=False, method='fft',
                filter_length=32768, apply_proj=True, preload=True,
-               force_bads=False):
+               force_bads=False, l_trans=0.5, h_trans=0.5):
     """Helper to load, filter, concatenate, then project raw files
     """
     if isinstance(raw_names, str):
@@ -1361,7 +1425,8 @@ def _raw_LRFCP(raw_names, sfreq, l_freq, h_freq, n_jobs, n_jobs_resample,
         if l_freq is not None or h_freq is not None:
             r.filter(l_freq=l_freq, h_freq=h_freq, picks=None,
                      n_jobs=n_jobs, method=method,
-                     filter_length=filter_length)
+                     filter_length=filter_length,
+                     l_trans_bandwidth=l_trans, h_trans_bandwidth=h_trans)
         raw.append(r)
     _fix_raw_eog_cals(raw, raw_names)
     raws_del = raw[1:]
@@ -1417,7 +1482,8 @@ def do_preprocessing_combined(p, subjects, run_indices):
             raw = _raw_LRFCP(raw_names, p.proj_sfreq, None, None, p.n_jobs_fir,
                              p.n_jobs_resample, list(), None, p.disp_files,
                              method='fft', filter_length=p.filter_length,
-                             apply_proj=False, force_bads=False)
+                             apply_proj=False, force_bads=False,
+                             l_trans=p.hp_trans, h_trans=p.lp_trans)
             events = fixed_len_events(p, raw)
             # do not mark eog channels bad
             meg, eeg = 'meg' in raw, 'eeg' in raw
@@ -1432,7 +1498,9 @@ def do_preprocessing_combined(p, subjects, run_indices):
             epochs = Epochs(raw, events, None, p.tmin, p.tmax,
                             baseline=_get_baseline(p), picks=picks,
                             reject=p.auto_bad_reject, flat=p.auto_bad_flat,
-                            proj=True, preload=True, decim=1)
+                            proj=True, preload=True, decim=1,
+                            reject_tmin=p.reject_tmin,
+                            reject_tmax=p.reject_tmax)
             # channel scores from drop log
             scores = Counter([ch for d in epochs.drop_log for ch in d])
             ch_names = np.array(list(scores.keys()))
@@ -1492,8 +1560,17 @@ def do_preprocessing_combined(p, subjects, run_indices):
         raw_orig = _raw_LRFCP(pre_list, p.proj_sfreq, None, bad_file,
                               p.n_jobs_fir, p.n_jobs_resample, projs, bad_file,
                               p.disp_files, method='fft',
-                              filter_length=p.filter_length, force_bads=False)
+                              filter_length=p.filter_length, force_bads=False,
+                              l_trans=p.hp_trans, h_trans=p.lp_trans)
 
+        # Apply any user-supplied extra projectors
+        if p.proj_extra is not None:
+            if p.disp_files:
+                print('    Adding extra projectors from "%s".' % p.proj_extra)
+            extra_proj = op.join(pca_dir, p.proj_extra)
+            projs = read_proj(extra_proj)
+
+        # Calculate and apply ERM projectors
         if any(proj_nums[2]):
             if len(empty_names) >= 1:
                 if p.disp_files:
@@ -1503,13 +1580,15 @@ def do_preprocessing_combined(p, subjects, run_indices):
                                  p.n_jobs_fir, p.n_jobs_resample, projs,
                                  bad_file, p.disp_files, method='fft',
                                  filter_length=p.filter_length,
-                                 force_bads=True)
+                                 force_bads=True,
+                                 l_trans=p.hp_trans, h_trans=p.lp_trans)
             else:
                 if p.disp_files:
                     print('    Computing continuous projectors using data.')
                 raw = raw_orig.copy()
             raw.filter(None, p.cont_lp, n_jobs=p.n_jobs_fir, method='fft',
                        filter_length=p.filter_length)
+            raw.add_proj(projs)
             raw.apply_proj()
             pr = compute_proj_raw(raw, duration=1, n_grad=proj_nums[2][0],
                                   n_mag=proj_nums[2][1], n_eeg=proj_nums[2][2],
@@ -1573,7 +1652,9 @@ def do_preprocessing_combined(p, subjects, run_indices):
 
         # look at raw_orig for trial DQs now, it will be quick
         raw_orig.filter(p.hp_cut, p.lp_cut, n_jobs=p.n_jobs_fir, method='fft',
-                        filter_length=p.filter_length)
+                        filter_length=p.filter_length,
+                        l_trans_bandwidth=p.hp_trans,
+                        h_trans_bandwidth=p.lp_trans)
         raw_orig.add_proj(projs)
         raw_orig.apply_proj()
         # now let's epoch with 1-sec windows to look for DQs
@@ -1633,7 +1714,8 @@ def apply_preprocessing_combined(p, subjects, run_indices):
             raw = _raw_LRFCP(r, None, p.hp_cut, p.lp_cut, p.n_jobs_fir,
                              p.n_jobs_resample, projs, bad_file,
                              disp_files=False, method='fft', apply_proj=False,
-                             filter_length=p.filter_length, force_bads=True)
+                             filter_length=p.filter_length, force_bads=True,
+                             l_trans=p.hp_trans, h_trans=p.lp_trans)
             raw.save(o, overwrite=True)
         for ii, (r, o) in enumerate(zip(names_in, names_out)):
             if p.disp_files:
@@ -1642,58 +1724,19 @@ def apply_preprocessing_combined(p, subjects, run_indices):
             raw = _raw_LRFCP(r, None, p.hp_cut, p.lp_cut, p.n_jobs_fir,
                              p.n_jobs_resample, projs, bad_file,
                              disp_files=False, method='fft', apply_proj=False,
-                             filter_length=p.filter_length, force_bads=False)
+                             filter_length=p.filter_length, force_bads=False,
+                             l_trans=p.hp_trans, h_trans=p.lp_trans)
             raw.save(o, overwrite=True)
         # look at raw_clean for ExG events
         if p.plot_raw:
             _viz_raw_ssp_events(p, subj, run_indices[si])
 
 
-def gen_layouts(p, subjects):
-    """Generate .lout files for each subject
-
-    Parameters
-    ----------
-    p : instance of Parameters
-        Analysis parameters.
-    subjects : list of str
-        Subject names to analyze (e.g., ['Eric_SoP_001', ...]).
-    """
-    lout_dir = op.join(p.mne_root, 'share', 'mne', 'mne_analyze', 'lout')
-    for si in range(len(subjects)):
-        ri = 1
-        new_run = safe_inserter(p.run_names[ri], subjects[si])
-        in_fif = op.join(p.work_dir, subjects[si], p.sss_dir,
-                         new_run + p.sss_fif_tag)
-        out_lout = op.join(lout_dir, subjects[si] + '_eeg.lout')
-        if op.isfile(out_lout):
-            os.remove(out_lout)
-
-        raw = Raw(in_fif)
-        make_eeg_layout(raw.info).save(out_lout)
-        raw.close()
-
-
 class FakeEpochs():
     """Make iterable epoch-like class, convenient for MATLAB transition"""
 
     def __init__(self, data, ch_names, tmin=-0.2, sfreq=1000.0):
-        self._data = data
-        self.info = dict(ch_names=ch_names, sfreq=sfreq)
-        self.times = np.arange(data.shape[-1]) / sfreq + tmin
-        self._current = 0
-        self.ch_names = ch_names
-
-    def __iter__(self):
-        self._current = 0
-        return self
-
-    def next(self):
-        if self._current >= len(self._data):
-            raise StopIteration
-        epoch = self._data[self._current]
-        self._current += 1
-        return epoch
+        raise RuntimeError('Use mne.EpochsArray instead')
 
 
 def timestring(t):
@@ -1803,7 +1846,7 @@ def _viz_raw_ssp_events(p, subj, ridx):
     raw = _raw_LRFCP(pre_list, p.proj_sfreq, None, None, p.n_jobs_fir,
                      p.n_jobs_resample, projs, None, p.disp_files,
                      method='fft', filter_length=p.filter_length,
-                     force_bads=False)
+                     force_bads=False, l_trans=p.hp_trans, h_trans=p.lp_trans)
     raw.plot(events=ev, event_color=colors)
 
 
@@ -1832,7 +1875,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None,
             raise RuntimeError('Could not find any processed files for '
                                'reporting.')
         info_fname = op.join(path, fnames[0])
-        struc = structurals[si] if p.mri else None
+        struc = structurals[si]
         report = Report(info_fname=info_fname, subject=struc)
         report.parse_folder(data_path=path, mri_decim=10, n_jobs=p.n_jobs,
                             pattern=patterns)
@@ -1875,7 +1918,10 @@ def plot_raw_psd(p, subjects, run_indices=None, tmin=0., fmin=2, n_fft=2048):
                 warnings.warn('Unable to find %s data file.' % file_type)
             with warnings.catch_warnings(record=True):
                 raw = Raw(fname, preload=True, allow_maxshield=True)
-            fmax = p.lp_cut if file_type == 'pca' else raw.info['lowpass'] + 50
+            if file_type == 'pca':
+                fmax = p.lp_cut
+            else:
+                fmax = raw.info['lowpass'] + 50
             raw.plot_psd(tmin=tmin, tmax=raw.times[-1], fmin=fmin,
                          fmax=fmax, n_fft=n_fft,
                          n_jobs=p.n_jobs, proj=False, ax=None, color=(0, 0, 1),

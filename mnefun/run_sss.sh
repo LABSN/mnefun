@@ -20,6 +20,7 @@ HEAD_TRANS="median"
 ST_DUR="60"
 FORMAT="float"
 EXTRA_ARGS=""
+MOVECOMP="inter"
 
 ASSERT_ISFILE () {
     if [ ! -f "$1" ] ; then
@@ -44,7 +45,7 @@ GET_PRE_POST_FIX () {
 }
 
 #################################################### Read the options ##
-TEMP=`getopt -o s:f:e:t: --long subject:,files:,erm:,trans:,format:,st:,args: -n 'run_sss.sh' -- "$@"`
+TEMP=`getopt -o s:f:e:t:m: --long subject:,files:,erm:,trans:,format:,st:,mc:,args: -n 'run_sss.sh' -- "$@"`
 eval set -- "$TEMP"
 
 while true ; do
@@ -78,6 +79,11 @@ while true ; do
             case "$2" in
                 "") shift 2 ;;
                 *) ST_DUR=$2 ; shift 2 ;;
+            esac ;;
+        -m|--mc)
+            case "$2" in
+                "") shift 2 ;;
+                *) MOVECOMP=$2 ; shift 2 ;;
             esac ;;
         --args)
             case "$2" in
@@ -134,7 +140,7 @@ fi;
 CENTER_FILE="${RAW_DIR}${SUBJECT}_center.txt"
 ASSERT_ISFILE "${CENTER_FILE}"
 RUN_CENTER=`cat ${CENTER_FILE}`
-echo "• Using head center ${RUN_CENTER}"
+echo "• Using head center (${RUN_CENTER})"
 
 # Extra arguments
 if [[ ! -z ${EXTRA_ARGS} ]]; then
@@ -147,7 +153,16 @@ RUN_FRAME="-frame head -origin ${RUN_CENTER}"
 
 BAD_PARAMS="-autobad 20 -force -v -format short"
 ST_PARAMS="-in 8 -out 3 -regularize in -st ${ST_DUR}"
-MC_PARAMS="-trans ${HEAD_TRANS} -hpicons -movecomp inter -format ${FORMAT}"
+MC_PARAMS="-trans ${HEAD_TRANS} -hpicons -format ${FORMAT}"
+if [ "$MOVECOMP" == "inter" ]; then
+    MC_PARAMS="${MC_PARAMS} -movecomp inter"
+    echo "• Movement compensation (inter) enabled"
+elif [ "$MOVECOMP" != "none" ]; then
+    echo "Unknown movecomp '$MOVECOMP', must be 'none' or 'inter'"
+    exit 1
+else
+    echo "• Movement compensation disabled"
+fi
 
 # Run processing
 for FILE in "${ADDR[@]}"; do
