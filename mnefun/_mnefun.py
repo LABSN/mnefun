@@ -1739,7 +1739,7 @@ def apply_preprocessing_combined(p, subjects, run_indices):
                              disp_files=False, method='fft', apply_proj=False,
                              filter_length=p.filter_length, force_bads=True,
                              l_trans=p.hp_trans, h_trans=p.lp_trans)
-            raw.save(o, overwrite=True)
+            raw.save(o, overwrite=True, buffer_size_sec=None)
         for ii, (r, o) in enumerate(zip(names_in, names_out)):
             if p.disp_files:
                 print('    Processing file %d/%d.'
@@ -1749,7 +1749,7 @@ def apply_preprocessing_combined(p, subjects, run_indices):
                              disp_files=False, method='fft', apply_proj=False,
                              filter_length=p.filter_length, force_bads=False,
                              l_trans=p.hp_trans, h_trans=p.lp_trans)
-            raw.save(o, overwrite=True)
+            raw.save(o, overwrite=True, buffer_size_sec=None)
         # look at raw_clean for ExG events
         if p.plot_raw:
             _viz_raw_ssp_events(p, subj, run_indices[si])
