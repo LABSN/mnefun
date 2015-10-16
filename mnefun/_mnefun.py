@@ -32,8 +32,11 @@ from mne.preprocessing.maxfilter import fit_sphere_to_headshape
 from mne.minimum_norm import make_inverse_operator
 from mne.label import read_label
 from mne.epochs import combine_event_ids
+try:
+    from mne.chpi import _quat_to_rot, _rot_to_quat
+except ImportError:
+    from mne.io.chpi import _quat_to_rot, _rot_to_quat
 from mne.io import Raw, concatenate_raws, read_info, write_info
-from mne.io.chpi import _quat_to_rot, _rot_to_quat
 from mne.io.pick import pick_types_forward, pick_types
 from mne.io.meas_info import _empty_info
 from mne.cov import regularize
@@ -579,11 +582,10 @@ def calc_median_hp(p, subj, out_file, ridx):
         trans = info['dev_head_t']['trans']
         ts.append(trans[:3, 3])
         m = trans[:3, :3]
-        # make sure we are orthogonal and special
+        # make sure we are a rotation matrix
         assert_allclose(np.dot(m, m.T), np.eye(3), atol=1e-5)
+        assert_allclose(np.linalg.trace(m), 1., atol=1e-5)
         qs.append(_rot_to_quat(m))
-        assert_allclose(_quat_to_rot(np.array([qs[-1]]))[0],
-                        m, rtol=1e-5, atol=1e-5)
     assert info is not None
     if len(raw_files) == 1:  # only one head position
         dev_head_t = info['dev_head_t']
@@ -1513,9 +1515,11 @@ def do_preprocessing_combined(p, subjects, run_indices):
             picks = pick_types(raw.info, meg=meg, eeg=eeg, eog=False,
                                exclude=[])
             assert p.auto_bad_flat is None or isinstance(p.auto_bad_flat, dict)
-            assert p.auto_bad_reject is None or isinstance(p.auto_bad_reject, dict)
+            assert p.auto_bad_reject is None or isinstance(p.auto_bad_reject,
+                                                           dict)
             if p.auto_bad_reject is None and p.auto_bad_flat is None:
-                raise RuntimeError('Auto bad channel detection active. Noisy and flat channel detection'
+                raise RuntimeError('Auto bad channel detection active. Noisy '
+                                   'and flat channel detection '
                                    'parameters not defined. '
                                    'At least one criterion must be defined.')
             epochs = Epochs(raw, events, None, p.tmin, p.tmax,
