@@ -28,7 +28,7 @@ import matplotlib.pyplot as plt
 import mne
 from mne.io.constants import FIFF
 from mne.commands.utils import get_optparser
-from mnefun import simulate_movement
+from mne.simulation import simulate_raw
 
 
 class printer(object):
@@ -194,8 +194,8 @@ def run():
 
     # do the simulation
     print('')
-    raw_mv = simulate_movement(raw, pos, stc, trans, src, bem, cov,
-                               n_jobs=n_jobs, verbose=True)
+    raw_mv = simulate_raw(raw, stc, trans, src, bem, cov=cov, head_pos=pos,
+                          chpi=True, n_jobs=n_jobs, verbose=True)
     print('')
 
     if raw_out:

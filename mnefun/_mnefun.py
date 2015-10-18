@@ -32,8 +32,11 @@ from mne.preprocessing.maxfilter import fit_sphere_to_headshape
 from mne.minimum_norm import make_inverse_operator
 from mne.label import read_label
 from mne.epochs import combine_event_ids
+try:
+    from mne.chpi import _quat_to_rot, _rot_to_quat
+except ImportError:
+    from mne.io.chpi import _quat_to_rot, _rot_to_quat
 from mne.io import Raw, concatenate_raws, read_info, write_info
-from mne.io.chpi import _quat_to_rot, _rot_to_quat
 from mne.io.pick import pick_types_forward, pick_types
 from mne.io.meas_info import _empty_info
 from mne.cov import regularize
@@ -579,11 +582,10 @@ def calc_median_hp(p, subj, out_file, ridx):
         trans = info['dev_head_t']['trans']
         ts.append(trans[:3, 3])
         m = trans[:3, :3]
-        # make sure we are orthogonal and special
+        # make sure we are a rotation matrix
         assert_allclose(np.dot(m, m.T), np.eye(3), atol=1e-5)
+        assert_allclose(np.linalg.trace(m), 1., atol=1e-5)
         qs.append(_rot_to_quat(m))
-        assert_allclose(_quat_to_rot(np.array([qs[-1]]))[0],
-                        m, rtol=1e-5, atol=1e-5)
     assert info is not None
     if len(raw_files) == 1:  # only one head position
         dev_head_t = info['dev_head_t']
@@ -719,7 +721,8 @@ def fetch_sss_files(p, subjects, run_indices):
     run_subprocess(cmd, cwd=p.work_dir)
 
 
-def run_sss_command(fname_in, options, fname_out, host='kasga'):
+def run_sss_command(fname_in, options, fname_out, host='kasga', port=22,
+                    fname_pos=None):
     """Run Maxfilter remotely and fetch resulting file
 
     Parameters
@@ -733,36 +736,56 @@ def run_sss_command(fname_in, options, fname_out, host='kasga'):
         None will output to a temporary file.
     host : str
         The SSH/scp host to run the command on.
+    fname_pos : str | None
+        The ``-hp fname_pos`` to use with MaxFilter.
     """
     # let's make sure we can actually write where we want
     if not op.isfile(fname_in):
         raise IOError('input file not found: %s' % fname_in)
     if not op.isdir(op.dirname(op.abspath(fname_out))):
         raise IOError('output directory for output file does not exist')
-    if '-f ' in options or '-o ' in options:
-        raise ValueError('options cannot contain -o or -f, these are set '
-                         'automatically')
-    remote_in = '~/temp_%s_raw.fif' % time()
-    remote_out = '~/temp_%s_raw_sss.fif' % time()
+    if any(x in options for x in ('-f ', '-o ', '-hp ')):
+        raise ValueError('options cannot contain -o, -f, or -hp, these are '
+                         'set automatically')
+    port = str(int(port))
+    t0 = time()
+    remote_in = '~/temp_%s_raw.fif' % t0
+    remote_out = '~/temp_%s_raw_sss.fif' % t0
+    remote_pos = '~/temp_%s_raw_sss.pos' % t0
     print('Copying file to %s' % host)
-    cmd = ['scp', fname_in, host + ':' + remote_in]
+    cmd = ['scp', '-P' + port, fname_in, host + ':' + remote_in]
     run_subprocess(cmd, stdout=None, stderr=None)
+
+    if fname_pos is not None:
+        options += ' -hp ' + remote_pos
 
     print('Running maxfilter on %s' % host)
-    cmd = ['ssh', host, 'maxfilter -f ' + remote_in + ' -o ' + remote_out +
-           ' ' + options]
-    run_subprocess(cmd, stdout=None, stderr=None)
+    cmd = ['ssh', '-p', port, host,
+           'maxfilter -f ' + remote_in + ' -o ' + remote_out + ' ' + options]
+    try:
+        run_subprocess(cmd, stdout=None, stderr=None)
 
-    print('Copying result to %s' % fname_out)
-    cmd = ['scp', host + ':' + remote_out, fname_out]
-    run_subprocess(cmd, stdout=None, stderr=None)
+        print('Copying result to %s' % fname_out)
+        if fname_pos is not None:
+            try:
+                cmd = ['scp', '-P' + port, host + ':' + remote_pos, fname_pos]
+                run_subprocess(cmd, stdout=None, stderr=None)
+            except Exception:
+                pass
+        cmd = ['scp', '-P' + port, host + ':' + remote_out, fname_out]
+        run_subprocess(cmd, stdout=None, stderr=None)
+    finally:
+        print('Cleaning up %s' % host)
+        files = [remote_in, remote_out]
+        files += [remote_pos] if fname_pos is not None else []
+        cmd = ['ssh', '-p', port, host, 'rm -f ' + ' '.join(files)]
+        try:
+            run_subprocess(cmd, stdout=None, stderr=None)
+        except Exception:
+            pass
 
-    print('Cleaning up %s' % host)
-    cmd = ['ssh', host, 'rm %s %s' % (remote_in, remote_out)]
-    run_subprocess(cmd, stdout=None, stderr=None)
 
-
-def run_sss_positions(fname_in, fname_out, host='kasga', opts=''):
+def run_sss_positions(fname_in, fname_out, host='kasga', opts='', port=22):
     """Run Maxfilter remotely and fetch resulting file
 
     Parameters
@@ -790,25 +813,27 @@ def run_sss_positions(fname_in, fname_out, host='kasga', opts=''):
             fnames_in.append(next_name)
         else:
             break
+    port = str(int(port))
     t0 = time()
     remote_ins = ['~/' + op.basename(fname) for fname in fnames_in]
     remote_out = '~/temp_%s_raw_quat.fif' % t0
     remote_hp = '~/temp_%s_hp.txt' % t0
     print('  Copying file to %s' % host)
-    cmd = ['scp'] + fnames_in + [host + ':~/']
+    cmd = ['scp', '-P' + port] + fnames_in + [host + ':~/']
     run_subprocess(cmd, stdout=None, stderr=None)
 
     print('  Running maxfilter on %s' % host)
-    cmd = ['ssh', host, 'maxfilter -f ' + remote_ins[0] + ' -o ' + remote_out +
+    cmd = ['ssh', '-p', port, host,
+           'maxfilter -f ' + remote_ins[0] + ' -o ' + remote_out +
            ' -headpos -format short -hp ' + remote_hp + ' ' + opts]
     run_subprocess(cmd)
 
     print('  Copying result to %s' % fname_out)
-    cmd = ['scp', host + ':' + remote_hp, fname_out]
+    cmd = ['scp', '-P' + port, host + ':' + remote_hp, fname_out]
     run_subprocess(cmd)
 
     print('  Cleaning up %s' % host)
-    cmd = ['ssh', host, 'rm -f %s %s %s'
+    cmd = ['ssh', '-p', port, host, 'rm -f %s %s %s'
            % (' '.join(remote_ins), remote_hp, remote_out)]
     run_subprocess(cmd)
 
@@ -1490,9 +1515,11 @@ def do_preprocessing_combined(p, subjects, run_indices):
             picks = pick_types(raw.info, meg=meg, eeg=eeg, eog=False,
                                exclude=[])
             assert p.auto_bad_flat is None or isinstance(p.auto_bad_flat, dict)
-            assert p.auto_bad_reject is None or isinstance(p.auto_bad_reject, dict)
+            assert p.auto_bad_reject is None or isinstance(p.auto_bad_reject,
+                                                           dict)
             if p.auto_bad_reject is None and p.auto_bad_flat is None:
-                raise RuntimeError('Auto bad channel detection active. Noisy and flat channel detection'
+                raise RuntimeError('Auto bad channel detection active. Noisy '
+                                   'and flat channel detection '
                                    'parameters not defined. '
                                    'At least one criterion must be defined.')
             epochs = Epochs(raw, events, None, p.tmin, p.tmax,
@@ -1716,7 +1743,7 @@ def apply_preprocessing_combined(p, subjects, run_indices):
                              disp_files=False, method='fft', apply_proj=False,
                              filter_length=p.filter_length, force_bads=True,
                              l_trans=p.hp_trans, h_trans=p.lp_trans)
-            raw.save(o, overwrite=True)
+            raw.save(o, overwrite=True, buffer_size_sec=None)
         for ii, (r, o) in enumerate(zip(names_in, names_out)):
             if p.disp_files:
                 print('    Processing file %d/%d.'
@@ -1726,7 +1753,7 @@ def apply_preprocessing_combined(p, subjects, run_indices):
                              disp_files=False, method='fft', apply_proj=False,
                              filter_length=p.filter_length, force_bads=False,
                              l_trans=p.hp_trans, h_trans=p.lp_trans)
-            raw.save(o, overwrite=True)
+            raw.save(o, overwrite=True, buffer_size_sec=None)
         # look at raw_clean for ExG events
         if p.plot_raw:
             _viz_raw_ssp_events(p, subj, run_indices[si])
