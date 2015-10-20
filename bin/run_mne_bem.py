@@ -4,10 +4,10 @@
 example usage: python run_mne_bem --subject subject --layers 1
 Executes (1) mne_setup_mri,(2) mne-python flash-bem or fs watershed scripts depending
   on the number of BEM layers desired (3) Calculates forward solution using mne_setup_forward
-  using BEM surface (4) creates symlink to high density skin surface for data coregisteration
-  (5) creates an individual source space on default pial surface with 5mm grid point spacing
-  using mne_setup_source_space, and (6) computes transformation from individual source space
-  to fsaverage for group level analysis.
+  using BEM surface (4) creates scalp surface using mne-python make_scalp_surfaces and linking
+  high density skin surface to head.fif for data coregisteration (5) creates an individual
+  source space on default pial surface with 5mm grid point spacing using mne_setup_source_space,
+  and (6) computes transformation from individual source space to fsaverage for group level analysis.
 """
 from __future__ import print_function
 
