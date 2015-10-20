@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
+"""Script to create MNE forward solution using FreeSurfer surface files
 
-# Authors: Kambiz Tavabi <ktavabi@gmail.com>
-#
-#          simplified bsd-3 license
-
-# TODO(ktavabi@gmail.com): Document
-"""Runs FreeSurfer recon-all on RMS combined multi echo MPRAGE volume.
-
- example usage: python run_mneBEM --subject subject --layers 1
+example usage: python run_mne_bem --subject subject --layers 1
+Executes (1) mne_setup_mri,(2) mne-python flash-bem or fs watershed scripts depending
+  on the number of BEM layers desired (3) Calculates forward solution using mne_setup_forward
+  using BEM surface (4) creates symlink to high density skin surface for data coregisteration
+  (5) creates an individual source space on default pial surface with 5mm grid point spacing
+  using mne_setup_source_space, and (6) computes transformation from individual source space
+  to fsaverage for group level analysis.
 """
 from __future__ import print_function
 
@@ -19,6 +19,7 @@ from os import path as op
 import copy
 import shutil
 
+
 def run():
     from mne.commands.utils import get_optparser
     
@@ -26,15 +27,15 @@ def run():
     subjects_dir = mne.get_config('SUBJECTS_DIR')
     
     parser.add_option('-s', '--subject', dest='subject',
-                      help='Freesurfer subject id', type='str')
+                      help='Freesurfer subject identifier', type='str')
     parser.add_option('-l', '--layers', dest='layers', default=1, type=int,
-                      help='Number BEM layers.')
+                      help='Number BEM layers. Defaults to single layer homogenous for MEG data.')
     parser.add_option('-i', '--ico', dest='ico', default=4, type=int,
-                      help='Triangle decimation number for single layer bem')
+                      help='Triangle decimation factor for BEM. Defaults to 4.')
     parser.add_option('-d', '--subjects-dir', dest='subjects_dir',
-                      help='FS Subjects directory', default=subjects_dir)
+                      help='location of freesurfer subjects directory', default=subjects_dir)
     parser.add_option('-o', '--overwrite', dest='overwrite', action='store_true',
-                      help='Overwrite existing neuromag MRI and MNE BEM files.')
+                      help='Overwrite existing neuromag MRI and watershed BEM files.')
     options, args = parser.parse_args()
 
     subject = options.subject
@@ -92,8 +93,17 @@ def _run(subjects_dir, subject, layers, ico, overwrite):
         else:
             run_subprocess(['mne', 'watershed_bem', '-s', subject, '-d', subjects_dir], env=this_env)
 
+    # mne setup forward model
+    logger.info('3. Calculating forward solution...')
+    if layers == 1:
+        run_subprocess(['mne_setup_forward_model', '--subject', subject, '--surf', '--ico', ico, '--homog'],
+                       env=this_env)
+    else:
+        run_subprocess(['mne_setup_forward_model', '--subject', subject, '--surf', '--ico', ico],
+                       env=this_env)
+
     # Create dense head surface and symbolic link to head.fif file
-    logger.info('3. Creating high resolution skin surface for coregisteration...')
+    logger.info('4. Creating high resolution skin surface for coregisteration...')
     run_subprocess(['mne', 'make_scalp_surfaces', '--overwrite', '--subject', subject])
     if op.isfile(op.join(subjects_dir, subject, 'bem/%s-head.fif' % subject)):
         os.rename(op.join(subjects_dir, subject, 'bem/%s-head.fif' % subject),
@@ -102,8 +112,13 @@ def _run(subjects_dir, subject, layers, ico, overwrite):
                (op.join(subjects_dir, subject, 'bem/%s-head.fif' % subject)))
 
     # Create source space
+    logger.info('5. Creating source space...')
     run_subprocess(['mne_setup_source_space', '--subject', subject, '--spacing', '%.0f' % 5, '--cps'],
                    env=this_env)
+
+    logger.info('6. Creating morph map to fsaverage...')
+    # Create morph maps to fsaverage
+    run_subprocess(['mne_make_morph_maps', '--from', subject, '--to', 'fsaverage'], env=this_env)
 is_main = (__name__ == '__main__')
 if is_main:
     run()
