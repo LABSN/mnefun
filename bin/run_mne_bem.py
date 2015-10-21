@@ -96,10 +96,10 @@ def _run(subjects_dir, subject, layers, ico, overwrite):
     # mne setup forward model
     logger.info('3. Calculating forward solution...')
     if layers == 1:
-        run_subprocess(['mne_setup_forward_model', '--subject', subject, '--surf', '--ico', ico, '--homog'],
+        run_subprocess(['mne_setup_forward_model', '--subject', subject, '--surf', '--ico', '%.0f' % ico, '--homog'],
                        env=this_env)
     else:
-        run_subprocess(['mne_setup_forward_model', '--subject', subject, '--surf', '--ico', ico],
+        run_subprocess(['mne_setup_forward_model', '--subject', subject, '--surf', '--ico', '%.0f' % ico],
                        env=this_env)
 
     # Create dense head surface and symbolic link to head.fif file
