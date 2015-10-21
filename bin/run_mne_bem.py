@@ -22,16 +22,18 @@ import shutil
 
 def run():
     from mne.commands.utils import get_optparser
-    
+
     parser = get_optparser(__file__)
     subjects_dir = mne.get_config('SUBJECTS_DIR')
-    
+
     parser.add_option('-s', '--subject', dest='subject',
                       help='Freesurfer subject identifier', type='str')
     parser.add_option('-l', '--layers', dest='layers', default=1, type=int,
                       help='Number BEM layers. Defaults to single layer homogenous for MEG data.')
     parser.add_option('-i', '--ico', dest='ico', default=4, type=int,
                       help='Triangle decimation factor for BEM. Defaults to 4.')
+    parser.add_option('--spacing', dest='spacing', default=7, type=int,
+                      help='grid point spacing on surface source space. Defaults to 7mm.')
     parser.add_option('-d', '--subjects-dir', dest='subjects_dir',
                       help='location of freesurfer subjects directory', default=subjects_dir)
     parser.add_option('-o', '--overwrite', dest='overwrite', action='store_true',
@@ -45,10 +47,10 @@ def run():
         parser.print_help()
         sys.exit(1)
 
-    _run(subjects_dir, subject, options.layers, options.ico, options.overwrite)
+    _run(subjects_dir, subject, options.layers, options.ico, options.overwrite, options.spacing)
 
 
-def _run(subjects_dir, subject, layers, ico, overwrite):
+def _run(subjects_dir, subject, layers, ico, overwrite, spacing):
     this_env = copy.copy(os.environ)
     this_env['SUBJECTS_DIR'] = subjects_dir
     this_env['SUBJECT'] = subject
@@ -70,7 +72,7 @@ def _run(subjects_dir, subject, layers, ico, overwrite):
     if not op.exists(subj_path):
         raise RuntimeError('%s does not exits. Please check your subject '
                            'directory path.' % subj_path)
-    
+
     logger.info('1. Setting up MRI files...')
     if overwrite:
         run_subprocess(['mne_setup_mri', '--mri', 'T1', '--subject', subject, '--overwrite'], env=this_env)
@@ -93,7 +95,7 @@ def _run(subjects_dir, subject, layers, ico, overwrite):
         else:
             run_subprocess(['mne', 'watershed_bem', '-s', subject, '-d', subjects_dir], env=this_env)
         shutil.copy(op.join(subjects_dir, subject, 'bem/watershed/%s_inner_skull_surface' % subject),
-                        op.join(subjects_dir, subject, 'bem/inner_skull.surf'))
+                    op.join(subjects_dir, subject, 'bem/inner_skull.surf'))
 
     # mne setup forward model
     logger.info('3. Calculating forward solution...')
@@ -115,12 +117,15 @@ def _run(subjects_dir, subject, layers, ico, overwrite):
 
     # Create source space
     logger.info('5. Creating source space...')
-    run_subprocess(['mne_setup_source_space', '--subject', subject, '--spacing', '%.0f' % 5, '--cps'],
-                   env=this_env)
+    run_subprocess(
+        ['mne_setup_source_space', '--subject', subject, '--spacing', '%.0f' % spacing, '--cps', '--overwrite'],
+        env=this_env)
 
     logger.info('6. Creating morph map to fsaverage...')
     # Create morph maps to fsaverage
     run_subprocess(['mne_make_morph_maps', '--from', subject, '--to', 'fsaverage', '--redo'], env=this_env)
+
+
 is_main = (__name__ == '__main__')
 if is_main:
     run()
