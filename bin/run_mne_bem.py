@@ -118,7 +118,7 @@ def _run(subjects_dir, subject, layers, ico, overwrite):
 
     logger.info('6. Creating morph map to fsaverage...')
     # Create morph maps to fsaverage
-    run_subprocess(['mne_make_morph_maps', '--from', subject, '--to', 'fsaverage'], env=this_env)
+    run_subprocess(['mne_make_morph_maps', '--from', subject, '--to', 'fsaverage', '--redo'], env=this_env)
 is_main = (__name__ == '__main__')
 if is_main:
     run()
