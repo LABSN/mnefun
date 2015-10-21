@@ -92,6 +92,8 @@ def _run(subjects_dir, subject, layers, ico, overwrite):
             run_subprocess(['mne', 'watershed_bem', '-s', subject, '-d', subjects_dir, '--overwrite'], env=this_env)
         else:
             run_subprocess(['mne', 'watershed_bem', '-s', subject, '-d', subjects_dir], env=this_env)
+        shutil.copy(op.join(subjects_dir, subject, 'bem/watershed/%s_inner_skull_surface' % subject),
+                        op.join(subjects_dir, subject, 'bem/inner_skull.surf'))
 
     # mne setup forward model
     logger.info('3. Calculating forward solution...')
