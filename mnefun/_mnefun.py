@@ -584,7 +584,7 @@ def calc_median_hp(p, subj, out_file, ridx):
         m = trans[:3, :3]
         # make sure we are a rotation matrix
         assert_allclose(np.dot(m, m.T), np.eye(3), atol=1e-5)
-        assert_allclose(np.linalg.trace(m), 1., atol=1e-5)
+        assert_allclose(np.linalg.det(m), 1., atol=1e-5) #for the determinant
         qs.append(_rot_to_quat(m))
     assert info is not None
     if len(raw_files) == 1:  # only one head position
