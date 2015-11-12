@@ -938,7 +938,7 @@ def fix_eeg_files(p, subjects, structurals=None, dates=None, run_indices=None):
         names = [name for name in raw_names if op.isfile(name)]
         # noinspection PyPep8
         if structurals is not None and structurals[si] is not None and \
-                        dates is not None:
+                dates is not None:
             assert isinstance(structurals[si], str)
             assert isinstance(dates[si], tuple) and len(dates[si]) == 3
             assert all([isinstance(d, int) for d in dates[si]])
