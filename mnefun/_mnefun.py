@@ -22,11 +22,14 @@ from numpy.testing import assert_allclose
 from mne import (compute_proj_raw, make_fixed_length_events, Epochs,
                  find_events, read_events, write_events, concatenate_events,
                  read_cov, write_cov, read_forward_solution,
-                 compute_raw_data_covariance, compute_covariance,
                  write_proj, read_proj, setup_source_space,
                  make_forward_solution, get_config, write_evokeds,
                  make_sphere_model, setup_volume_source_space,
                  read_bem_solution)
+try:
+    from mne import compute_raw_covariance  # up-to-date mne-python
+except ImportError:  # oldmne-python
+    from mne import compute_raw_data_covariance as compute_raw_covariance
 from mne.preprocessing.ssp import compute_proj_ecg, compute_proj_eog
 from mne.preprocessing.maxfilter import fit_sphere_to_headshape
 from mne.minimum_norm import make_inverse_operator
@@ -198,6 +201,7 @@ class Params(Frozen):
     Params has additional properties. Use ``dir(params)`` to see
     all the possible options.
     """
+
     def __init__(self, tmin=None, tmax=None, t_adjust=0, bmin=-0.2, bmax=0.0,
                  n_jobs=6, lp_cut=55, decim=5, proj_sfreq=None, n_jobs_mkl=1,
                  n_jobs_fir='cuda', n_jobs_resample='cuda',
@@ -1361,8 +1365,8 @@ def gen_covariances(p, subjects, run_indices):
             raw = Raw(empty_fif, preload=True)
             use_reject, use_flat = _restrict_reject_flat(p.reject, p.flat, raw)
             picks = pick_types(raw.info, meg=True, eeg=False, exclude='bads')
-            cov = compute_raw_data_covariance(raw, reject=use_reject,
-                                              flat=use_flat, picks=picks)
+            cov = compute_raw_covariance(raw, reject=use_reject,
+                                         flat=use_flat, picks=picks)
             write_cov(empty_cov_name, cov)
 
         # Make evoked covariances
@@ -1778,8 +1782,10 @@ def timestring(t):
     time : str
         The time in HH:MM:SS.
     """
+
     def rediv(ll, b):
         return list(divmod(ll[0], b)) + ll[1:]
+
     return "%d:%02d:%02d.%03d" % tuple(reduce(rediv, [[t * 1000, ], 1000, 60,
                                                       60]))
 
