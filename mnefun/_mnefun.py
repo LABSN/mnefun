@@ -3,6 +3,7 @@
 # Distributed under the (new) BSD License. See LICENSE.txt for more info.
 
 from __future__ import print_function
+
 import os
 import os.path as op
 import inspect
@@ -12,10 +13,12 @@ import subprocess
 import glob
 from collections import Counter
 from time import time
+
 import numpy as np
 from scipy import io as spio
 import matplotlib.pyplot as plt
 from numpy.testing import assert_allclose
+
 from mne import (compute_proj_raw, make_fixed_length_events, Epochs,
                  find_events, read_events, write_events, concatenate_events,
                  read_cov, write_cov, read_forward_solution,
@@ -23,7 +26,6 @@ from mne import (compute_proj_raw, make_fixed_length_events, Epochs,
                  make_forward_solution, get_config, write_evokeds,
                  make_sphere_model, setup_volume_source_space,
                  read_bem_solution)
-
 try:
     from mne import compute_raw_covariance  # up-to-date mne-python
 except ImportError:  # oldmne-python
@@ -33,7 +35,6 @@ from mne.preprocessing.maxfilter import fit_sphere_to_headshape
 from mne.minimum_norm import make_inverse_operator
 from mne.label import read_label
 from mne.epochs import combine_event_ids
-
 try:
     from mne.chpi import _quat_to_rot, _rot_to_quat
 except ImportError:
@@ -47,6 +48,7 @@ from mne.viz import plot_drop_log
 from mne.utils import run_subprocess
 from mne.report import Report
 from mne.io.constants import FIFF
+
 from ._paths import (get_raw_fnames, get_event_fnames, get_report_fnames,
                      get_epochs_evokeds_fnames, safe_inserter, _regex_convert)
 from ._status import print_proc_status
