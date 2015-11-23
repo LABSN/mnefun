@@ -21,7 +21,7 @@ from numpy.testing import assert_allclose
 
 from mne import (compute_proj_raw, make_fixed_length_events, Epochs,
                  find_events, read_events, write_events, concatenate_events,
-                 read_cov, write_cov, read_forward_solution,
+                 read_cov, compute_covariance, write_cov, read_forward_solution,
                  write_proj, read_proj, setup_source_space,
                  make_forward_solution, get_config, write_evokeds,
                  make_sphere_model, setup_volume_source_space,
