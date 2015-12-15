@@ -7,10 +7,9 @@
 # TODO(ktavabi@gmail.com): Document
 """Runs FreeSurfer recon-all on RMS combined multi echo MPRAGE volume.
 
- example usage: python run_recon-all --subject subject --raw-dir ${SUBJECTS_DIR}/PARREC --openmp 2
+ example usage: python run_fs_recon --subject subject --raw-dir ${SUBJECTS_DIR}/PARREC --openmp 2
 """
 from __future__ import print_function
-
 import sys
 import mne
 from mne.utils import run_subprocess, logger
@@ -22,12 +21,13 @@ import copy
 import shutil
 import nibabel
 
+
 def run():
     from mne.commands.utils import get_optparser
-    
+
     parser = get_optparser(__file__)
     subjects_dir = mne.get_config('SUBJECTS_DIR')
-    
+
     parser.add_option('-s', '--subject', dest='subject',
                       help='Freesurfer subject id', type='str')
     parser.add_option('-r', '--raw-dir', dest='raw_dir',
@@ -40,9 +40,8 @@ def run():
                       help='Number of CPUs to use for reconstruction routines.')
     parser.add_option('-v', '--volume', dest='volume', default='MPRAGE', type=str,
                       help='Input raw volume file for nii conversion. Default is MPRAGE '
-                           'it can also be MEMP_VBM.')
+                           'it can also be MEMP.')
 
-    
     options, args = parser.parse_args()
 
     subject = vars(options).get('subject', os.getenv('SUBJECT'))
@@ -68,7 +67,7 @@ def _run(subjects_dir, subject, raw_dir, force, mp, volume):
         raise RuntimeError('subjects directory %s not found, specify using '
                            'the environment variable SUBJECTS_DIR or '
                            'the command line option --subjects-dir')
-    
+
     if not op.isdir(parrec_dir):
         raise RuntimeError('%s directory not found, specify using '
                            'the command line option --raw-dir' % parrec_dir)
@@ -122,9 +121,10 @@ def _run(subjects_dir, subject, raw_dir, force, mp, volume):
     run_subprocess(['mri_concat', '--rms', '--i', mri,
                     '--o', op.join(subjects_dir, subject, 'mri/orig/001.mgz')],
                    env=this_env)
-    run_subprocess(['recon-all', '-openmp', mp, '-subject', subject, '-all'], env=this_env)
+    run_subprocess(['recon-all', '-openmp', '%.0f' % mp, '-subject', subject, '-all'], env=this_env)
     for morph_to in ['fsaverage', subject]:
         run_subprocess(['mne_make_morph_maps', '--to', morph_to, '--from', subject], env=this_env)
+
 
 is_main = (__name__ == '__main__')
 if is_main:
