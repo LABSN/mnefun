@@ -36,7 +36,7 @@ def run():
                       help='FS Subjects directory', default=subjects_dir)
     parser.add_option('-f', '--force', dest='force', action='store_true',
                       help='Force FreeSurfer reconstruction.')
-    parser.add_option('-o', '--openmp', dest='openmp', default=2, type=str,
+    parser.add_option('-o', '--openmp', dest='openmp', default=2, type=int,
                       help='Number of CPUs to use for reconstruction routines.')
     parser.add_option('-v', '--volume', dest='volume', default='MPRAGE', type=str,
                       help='Input raw volume file for nii conversion. Default is MPRAGE '
