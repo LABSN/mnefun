@@ -588,7 +588,7 @@ def calc_median_hp(p, subj, out_file, ridx):
         m = trans[:3, :3]
         # make sure we are a rotation matrix
         assert_allclose(np.dot(m, m.T), np.eye(3), atol=1e-5)
-        assert_allclose(np.linalg.det(m), 1., atol=1e-5) #for the determinant
+        assert_allclose(np.linalg.trace(m), 1., atol=1e-5)
         qs.append(_rot_to_quat(m))
     assert info is not None
     if len(raw_files) == 1:  # only one head position
@@ -599,7 +599,7 @@ def calc_median_hp(p, subj, out_file, ridx):
         trans = np.r_[np.c_[rot, t[:, np.newaxis]],
                       np.array([0, 0, 0, 1], t.dtype)[np.newaxis, :]]
         dev_head_t = {'to': 4, 'from': 1, 'trans': trans}
-    info = _empty_info(info['sfreq'])
+    info = _empty_info()
     info['dev_head_t'] = dev_head_t
     write_info(out_file, info)
 
@@ -726,7 +726,7 @@ def fetch_sss_files(p, subjects, run_indices):
 
 
 def run_sss_command(fname_in, options, fname_out, host='kasga', port=22,
-                    fname_pos=None):
+                    fname_pos=None, stdout=None, stderr=None, prefix=''):
     """Run Maxfilter remotely and fetch resulting file
 
     Parameters
@@ -742,6 +742,12 @@ def run_sss_command(fname_in, options, fname_out, host='kasga', port=22,
         The SSH/scp host to run the command on.
     fname_pos : str | None
         The ``-hp fname_pos`` to use with MaxFilter.
+    stdout : file-like | None
+        Where to send stdout.
+    stderr : file-like | None
+        Where to send stderr.
+    prefix : str
+        The text to prefix to messages.
     """
     # let's make sure we can actually write where we want
     if not op.isfile(fname_in):
@@ -756,35 +762,35 @@ def run_sss_command(fname_in, options, fname_out, host='kasga', port=22,
     remote_in = '~/temp_%s_raw.fif' % t0
     remote_out = '~/temp_%s_raw_sss.fif' % t0
     remote_pos = '~/temp_%s_raw_sss.pos' % t0
-    print('Copying file to %s' % host)
+    print(prefix + 'Copying file to %s' % host)
     cmd = ['scp', '-P' + port, fname_in, host + ':' + remote_in]
-    run_subprocess(cmd, stdout=None, stderr=None)
+    run_subprocess(cmd, stdout=stdout, stderr=stderr)
 
     if fname_pos is not None:
         options += ' -hp ' + remote_pos
 
-    print('Running maxfilter on %s' % host)
+    print(prefix + 'Running maxfilter on %s' % host)
     cmd = ['ssh', '-p', port, host,
            'maxfilter -f ' + remote_in + ' -o ' + remote_out + ' ' + options]
     try:
-        run_subprocess(cmd, stdout=None, stderr=None)
+        run_subprocess(cmd, stdout=stdout, stderr=stderr)
 
-        print('Copying result to %s' % fname_out)
+        print(prefix + 'Copying result to %s' % fname_out)
         if fname_pos is not None:
             try:
                 cmd = ['scp', '-P' + port, host + ':' + remote_pos, fname_pos]
-                run_subprocess(cmd, stdout=None, stderr=None)
+                run_subprocess(cmd, stdout=stdout, stderr=stderr)
             except Exception:
                 pass
         cmd = ['scp', '-P' + port, host + ':' + remote_out, fname_out]
-        run_subprocess(cmd, stdout=None, stderr=None)
+        run_subprocess(cmd, stdout=stdout, stderr=stderr)
     finally:
-        print('Cleaning up %s' % host)
+        print(prefix + 'Cleaning up %s' % host)
         files = [remote_in, remote_out]
         files += [remote_pos] if fname_pos is not None else []
         cmd = ['ssh', '-p', port, host, 'rm -f ' + ' '.join(files)]
         try:
-            run_subprocess(cmd, stdout=None, stderr=None)
+            run_subprocess(cmd, stdout=stdout, stderr=stderr)
         except Exception:
             pass
 
@@ -1782,10 +1788,8 @@ def timestring(t):
     time : str
         The time in HH:MM:SS.
     """
-
     def rediv(ll, b):
         return list(divmod(ll[0], b)) + ll[1:]
-
     return "%d:%02d:%02d.%03d" % tuple(reduce(rediv, [[t * 1000, ], 1000, 60,
                                                       60]))
 
