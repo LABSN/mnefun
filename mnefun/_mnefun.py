@@ -1961,3 +1961,6 @@ def plot_raw_psd(p, subjects, run_indices=None, tmin=0., fmin=2, n_fft=2048):
                          picks=None, show=False)
             plt.savefig(fname[0][:-4] + '_psd.png')
             plt.close()
+
+
+def avr_movecomp(p, subjects, run_indices=None, )
