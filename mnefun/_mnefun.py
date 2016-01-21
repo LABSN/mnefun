@@ -32,6 +32,7 @@ except ImportError:  # oldmne-python
     from mne import compute_raw_data_covariance as compute_raw_covariance
 from mne.preprocessing.ssp import compute_proj_ecg, compute_proj_eog
 from mne.preprocessing.maxfilter import fit_sphere_to_headshape
+from mne.preprocessing.maxwell import maxwell_filter
 from mne.minimum_norm import make_inverse_operator
 from mne.label import read_label
 from mne.epochs import combine_event_ids
@@ -186,6 +187,8 @@ class Params(Frozen):
         High-pass transition band.
     movecomp : str | None
         Movement compensation to use. Can be 'inter' or None.
+    sss_type : str
+        signal space separation method. Must be either 'maxfilter' or 'python'
 
     Returns
     -------
@@ -213,7 +216,8 @@ class Params(Frozen):
                  cov_method='empirical', ssp_eog_reject=None,
                  ssp_ecg_reject=None, baseline='individual',
                  reject_tmin=None, reject_tmax=None,
-                 lp_trans=0.5, hp_trans=0.5, movecomp='inter'):
+                 lp_trans=0.5, hp_trans=0.5, movecomp='inter',
+                 sss_type='maxfilter'):
         self.reject = dict(eog=np.inf, grad=1500e-13, mag=5000e-15, eeg=150e-6)
         self.flat = dict(eog=-1, grad=1e-13, mag=1e-15, eeg=1e-6)
         if ssp_eog_reject is None:
@@ -331,6 +335,8 @@ class Params(Frozen):
         self.subject_run_indices = None
         self.movecomp = movecomp
         assert self.movecomp in ('inter', None)
+        self.sss_type = sss_type
+        assert self.sss_type in ('maxfilter', 'python')
         self.freeze()
 
     @property
@@ -351,9 +357,9 @@ def _get_baseline(p):
     return baseline
 
 
-def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
-                  do_sss=False, fetch_sss=False, do_ch_fix=False,
-                  gen_ssp=False, apply_ssp=False, plot_psd=False,
+def do_processing(p, fetch_raw=False, do_score=False, do_sss_local=False,
+                  push_raw=False, do_sss_remote=False, fetch_sss=False,
+                  do_ch_fix=False, gen_ssp=False, apply_ssp=False, plot_psd=False,
                   write_epochs=False, gen_covs=False, gen_fwd=False,
                   gen_inv=False, gen_report=False, print_status=True):
     """Do M/EEG data processing
@@ -366,9 +372,11 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
         Fetch raw recording files from acquisition machine.
     do_score : bool
         Do scoring.
+    do_sss_local : bool
+        Run SSS locally using mne-python
     push_raw : bool
         Push raw recording files to SSS workstation.
-    do_sss : bool
+    do_sss_remote : bool
         Run SSS remotely on SSS workstation.
     fetch_sss : bool
         Fetch SSS files from SSS workstation.
@@ -396,8 +404,9 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
     # Generate requested things
     bools = [fetch_raw,
              do_score,
+             do_sss_local,
              push_raw,
-             do_sss,
+             do_sss_remote,
              fetch_sss,
              do_ch_fix,
              gen_ssp,
@@ -412,6 +421,7 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
              ]
     texts = ['Pulling raw files from acquisition machine',
              'Scoring subjects',
+             'Running SSS locally using mne-python',
              'Pushing raw files to remote workstation',
              'Running SSS on remote workstation',
              'Pulling SSS files from remote workstation',
@@ -434,6 +444,7 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
             return score_fun_two(p, subjects)
     funcs = [fetch_raw_files,
              score_fun,
+             run_sss_localy,
              push_raw_files,
              run_sss_remotely,
              fetch_sss_files,
@@ -488,6 +499,10 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
     run_indices = [r for ri, r in enumerate(run_indices) if ri in sinds]
     assert all(r is None or np.in1d(r, np.arange(len(p.run_names))).all()
                for r in run_indices)
+
+    if p.sss_type == 'python':
+        do_sss_remote = False
+        fetch_raw = False
 
     # Actually do the work
 
@@ -646,10 +661,7 @@ def push_raw_files(p, subjects, run_indices):
         includes += ['--include', root, '--include', raw_root,
                      '--include', op.join(raw_root, op.basename(out_pos)),
                      '--include', op.join(raw_root, op.basename(med_pos))]
-        prebad_file = op.join(raw_dir, subj + '_prebad.txt')
-        if not op.isfile(prebad_file):  # SSS prebad file
-            raise RuntimeError('Could not find SSS prebad file: %s'
-                               % prebad_file)
+        prebad_file = _prebad(p, subj)
         includes += ['--include',
                      op.join(raw_root, op.basename(prebad_file))]
         fnames = get_raw_fnames(p, subj, 'raw', True, True, run_indices[si])
@@ -840,6 +852,41 @@ def run_sss_positions(fname_in, fname_out, host='kasga', opts='', port=22):
     cmd = ['ssh', '-p', port, host, 'rm -f %s %s %s'
            % (' '.join(remote_ins), remote_hp, remote_out)]
     run_subprocess(cmd)
+
+
+def run_sss_localy(p, subjects, run_indices, int_order=6, ext_order=3,
+                   st_correlation=.9, st_duration=4):
+
+    cal_file = op.join(op.dirname(op.dirname(__file__)), 'sss_cal.dat')
+    ct_file = op.join(op.dirname(op.dirname(__file__)), 'ct_sparse.fif')
+    for si, subj in enumerate(subjects):
+        if p.disp_files:
+            print('  Preprocessing subject %g/%g (%s).'
+                  % (si + 1, len(subjects), subj))
+        sss_dir = op.join(p.work_dir, subj, p.sss_dir)
+        if not op.isdir(sss_dir):
+            os.mkdir(sss_dir)
+        # Create SSP projection vectors after marking bad channels
+        raw_names = get_raw_fnames(p, subj, 'raw', False, False,
+                                   run_indices[si])
+        names_out = get_raw_fnames(p, subj, 'sss', False, False,
+                                   run_indices[si])
+        prebad_file = _prebad(p, subj)
+        for ii, (r, o) in enumerate(zip(raw_names, names_out)):
+            if not op.isfile(r):
+                raise NameError('File not found (' + r + ')')
+            raw = _raw_LRFCP(raw_names, p.proj_sfreq, None, None, p.n_jobs_fir,
+                             p.n_jobs_resample, list(), prebad_file, p.disp_files,
+                             method='fft', filter_length=p.filter_length,
+                             apply_proj=False, force_bads=True,
+                             l_trans=p.hp_trans, h_trans=p.lp_trans, allow_maxshield=True)
+            # apply maxwell filter
+            raw_sss = maxwell_filter(raw, int_order=int_order, ext_order=ext_order,
+                                     calibration=cal_file,
+                                     cross_talk=ct_file,
+                                     st_correlation=st_correlation,
+                                     st_duration=st_duration)
+            raw_sss.save(o, overwrite=True, buffer_size_sec=None)
 
 
 def extract_expyfun_events(fname, return_offsets=False):
@@ -1437,7 +1484,7 @@ def _cals(raw):
 def _raw_LRFCP(raw_names, sfreq, l_freq, h_freq, n_jobs, n_jobs_resample,
                projs, bad_file, disp_files=False, method='fft',
                filter_length=32768, apply_proj=True, preload=True,
-               force_bads=False, l_trans=0.5, h_trans=0.5):
+               force_bads=False, l_trans=0.5, h_trans=0.5, allow_maxshield=False):
     """Helper to load, filter, concatenate, then project raw files
     """
     if isinstance(raw_names, str):
@@ -1446,7 +1493,7 @@ def _raw_LRFCP(raw_names, sfreq, l_freq, h_freq, n_jobs, n_jobs_resample,
         print('    Loading and filtering %d files.' % len(raw_names))
     raw = list()
     for rn in raw_names:
-        r = Raw(rn, preload=True)
+        r = Raw(rn, preload=True, allow_maxshield=allow_maxshield)
         r.load_bad_channels(bad_file, force=force_bads)
         if sfreq is not None:
             with warnings.catch_warnings(record=True):  # resamp of stim ch
@@ -1963,4 +2010,74 @@ def plot_raw_psd(p, subjects, run_indices=None, tmin=0., fmin=2, n_fft=2048):
             plt.close()
 
 
-def avr_movecomp(p, subjects, run_indices=None, )
+def _prebad(p, subj):
+    prebad_file = op.join(p.work_dir, subj, p.raw_dir, subj + '_prebad.txt')
+    if not op.isfile(prebad_file):  # SSS prebad file
+        raise RuntimeError('Could not find SSS prebad file: %s'
+                               % prebad_file)
+    return prebad_file
+
+
+
+
+'''def avr_movecomp(p, subjects, run_indices=None)
+
+import mne
+print(__doc__)
+
+data_path = '/home/mdclarke/Desktop/bad_baby/'
+fname = data_path + '/bad_105/raw_fif/bad_105_mmn_raw.fif'
+
+# read in raw
+raw = mne.io.Raw(fname, allow_maxshield=True)
+
+
+
+
+# compute ECG projections
+proj, ECG_events = mne.preprocessing.compute_proj_ecg(maxfilt, n_grad=2, n_mag=2, n_eeg=0, ch_name='MEG0113')
+## apply projections
+maxfilt.add_proj(proj).apply_proj()
+## plot
+maxfilt.plot(events=ECG_events, show_options=True)
+## save tsss data
+maxfilt.save(data_path + '/pyth_test/bad_105_mmn_raw_ssp_tsss.fif')
+## read in tsss
+tsss_fname = data_path + '/pyth_test/bad_105_mmn_raw_ssp_tsss.fif'
+
+## save tsss data
+#maxfilt.save(data_path + '/pyth_test/bad_105_mmn_raw_tsss.fif')
+## read in tsss
+#tsss_fname = data_path + '/pyth_test/bad_105_mmn_raw_tsss.fif'
+
+# read raw
+tsss = mne.io.Raw(tsss_fname)
+
+# find trigger events in raw file
+events = mne.find_events(tsss, stim_channel='STI101')
+
+# Select trigger to epoch
+event_id = {'All':1}
+
+# Read epochs
+epochs = mne.Epochs(tsss, events, event_id, tmin=-0.1, tmax=0.9,
+                    baseline=(None, 0), preload=True, proj='delayed',
+                    reject=None)
+
+# read in head position from file
+epochs.info['dev_head_t'] = mne.read_trans('/home/mdclarke/Desktop/bad_baby/bad_105/raw_fif/bad_105_median_pos.fif')
+
+
+# read in .pos file created from Maxfilter's head pos estimation
+posfile = '/home/mdclarke/Desktop/bad_baby/bad_105/sss_log/bad_105_mmn_hp.txt'
+
+# extract head positions
+pos = mne.get_chpi_positions(posfile)
+
+# run evoked movement compensation
+movecomp = mne.epochs.average_movements(epochs, pos, orig_sfreq=1800, int_order=6,
+                                        ext_order=0, return_mapping=True)
+
+# save averaged movecomp data
+movecomp[0].save('/home/mdclarke/Desktop/bad_baby/pyth_test/105_mmn_maxwell_tsss_emc-ave.fif')
+movecomp[0].plot(spatial_colors=True)'''
