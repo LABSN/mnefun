@@ -189,6 +189,23 @@ class Params(Frozen):
         Movement compensation to use. Can be 'inter' or None.
     sss_type : str
         signal space separation method. Must be either 'maxfilter' or 'python'
+    int_order : int
+        Order of internal component of spherical expansion.
+    ext_order : int
+        Order of external component of spherical expansion.
+    st_duration : float
+        Apply spatiotemporal SSS with specified buffer duration
+        (in seconds). Elekta's default is 10.0 seconds in MaxFilter™ v2.2.
+        Spatiotemporal SSS acts as implicitly as a high-pass filter where the
+        cut-off frequency is 1/st_dur Hz. For this (and other) reasons, longer
+        buffers are generally better as long as your system can handle the
+        higher memory usage. To ensure that each window is processed
+        identically, choose a buffer length that divides evenly into your data.
+        Any data at the trailing edge that doesn't fit evenly into a whole
+        buffer window will be lumped into the previous buffer.
+    st_correlation : float
+        Correlation limit between inner and outer subspaces used to reject
+        ovwrlapping intersecting inner/outer signals during spatiotemporal SSS.
 
     Returns
     -------
@@ -217,7 +234,8 @@ class Params(Frozen):
                  ssp_ecg_reject=None, baseline='individual',
                  reject_tmin=None, reject_tmax=None,
                  lp_trans=0.5, hp_trans=0.5, movecomp='inter',
-                 sss_type='maxfilter'):
+                 sss_type='maxfilter', int_order=3, ext_order=6, st_duration=10.0,
+                 st_correlation=0.98):
         self.reject = dict(eog=np.inf, grad=1500e-13, mag=5000e-15, eeg=150e-6)
         self.flat = dict(eog=-1, grad=1e-13, mag=1e-15, eeg=1e-6)
         if ssp_eog_reject is None:
@@ -337,6 +355,10 @@ class Params(Frozen):
         assert self.movecomp in ('inter', None)
         self.sss_type = sss_type
         assert self.sss_type in ('maxfilter', 'python')
+        self.int_order = int_order
+        self.ext_order = ext_order
+        self.st_duration = st_duration
+        self.st_correlation = st_correlation
         self.freeze()
 
     @property
@@ -357,9 +379,9 @@ def _get_baseline(p):
     return baseline
 
 
-def do_processing(p, fetch_raw=False, do_score=False, do_sss_local=False,
-                  push_raw=False, do_sss_remote=False, fetch_sss=False,
-                  do_ch_fix=False, gen_ssp=False, apply_ssp=False, plot_psd=False,
+def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
+                  do_sss=False, fetch_sss=False, do_ch_fix=False,
+                  gen_ssp=False, apply_ssp=False, plot_psd=False,
                   write_epochs=False, gen_covs=False, gen_fwd=False,
                   gen_inv=False, gen_report=False, print_status=True):
     """Do M/EEG data processing
@@ -372,11 +394,9 @@ def do_processing(p, fetch_raw=False, do_score=False, do_sss_local=False,
         Fetch raw recording files from acquisition machine.
     do_score : bool
         Do scoring.
-    do_sss_local : bool
-        Run SSS locally using mne-python
     push_raw : bool
         Push raw recording files to SSS workstation.
-    do_sss_remote : bool
+    do_sss : bool
         Run SSS remotely on SSS workstation.
     fetch_sss : bool
         Fetch SSS files from SSS workstation.
@@ -404,9 +424,8 @@ def do_processing(p, fetch_raw=False, do_score=False, do_sss_local=False,
     # Generate requested things
     bools = [fetch_raw,
              do_score,
-             do_sss_local,
              push_raw,
-             do_sss_remote,
+             do_sss,
              fetch_sss,
              do_ch_fix,
              gen_ssp,
@@ -421,9 +440,8 @@ def do_processing(p, fetch_raw=False, do_score=False, do_sss_local=False,
              ]
     texts = ['Pulling raw files from acquisition machine',
              'Scoring subjects',
-             'Running SSS locally using mne-python',
              'Pushing raw files to remote workstation',
-             'Running SSS on remote workstation',
+             'Running SSS using %s' % p.sss_type,
              'Pulling SSS files from remote workstation',
              'Fixing EEG order',
              'Preprocessing files',
@@ -444,9 +462,8 @@ def do_processing(p, fetch_raw=False, do_score=False, do_sss_local=False,
             return score_fun_two(p, subjects)
     funcs = [fetch_raw_files,
              score_fun,
-             run_sss_localy,
              push_raw_files,
-             run_sss_remotely,
+             run_sss,
              fetch_sss_files,
              fix_eeg_files,
              do_preprocessing_combined,
@@ -499,10 +516,6 @@ def do_processing(p, fetch_raw=False, do_score=False, do_sss_local=False,
     run_indices = [r for ri, r in enumerate(run_indices) if ri in sinds]
     assert all(r is None or np.in1d(r, np.arange(len(p.run_names))).all()
                for r in run_indices)
-
-    if p.sss_type == 'python':
-        do_sss_remote = False
-        fetch_raw = False
 
     # Actually do the work
 
@@ -687,35 +700,40 @@ def _check_trans_file(p):
                              % p.trans_to)
 
 
-def run_sss_remotely(p, subjects, run_indices):
-    """Run SSS preprocessing remotely (only designed for *nix platforms)"""
-    for si, subj in enumerate(subjects):
-        files = get_raw_fnames(p, subj, 'raw', False, True, run_indices[si])
-        n_files = len(files)
-        files = ':'.join([op.basename(f) for f in files])
-        erm = get_raw_fnames(p, subj, 'raw', 'only', True, run_indices[si])
-        n_files += len(erm)
-        erm = ':'.join([op.basename(f) for f in erm])
-        erm = ' --erm ' + erm if len(erm) > 0 else ''
-        assert isinstance(p.tsss_dur, float) and p.tsss_dur > 0
-        st = ' --st %s' % p.tsss_dur
-        if p.sss_format not in ('short', 'long', 'float'):
-            raise RuntimeError('format must be short, long, or float')
-        fmt = ' --format ' + p.sss_format
-        assert p.movecomp in ['inter', None]
-        mc = ' --mc %s' % str(p.movecomp).lower()
-        _check_trans_file(p)
-        trans = ' --trans ' + p.trans_to
-        run_sss = (op.join(p.sws_dir, 'run_sss.sh') + st + fmt + trans +
-                   ' --subject ' + subj + ' --files ' + files + erm + mc +
-                   ' --args=\"%s\"' % p.mf_args)
-        cmd = ['ssh', '-p', str(p.sws_port), p.sws_ssh, run_sss]
-        s = 'Remote output for %s on %s files:' % (subj, n_files)
-        print('-' * len(s))
-        print(s)
-        print('-' * len(s))
-        run_subprocess(cmd, stdout=None, stderr=None)
-        print('-' * 70, end='\n\n')
+def run_sss(p, subjects, run_indices):
+    """Run SSS preprocessing remotely (only designed for *nix platforms) or
+    locally using Maxwell filtering in mne-python"""
+    if p.sss_type is 'python':
+        print(' Applying SSS locally using mne-python')
+        run_sss_localy(p, subjects, run_indices)
+    else:
+        for si, subj in enumerate(subjects):
+            files = get_raw_fnames(p, subj, 'raw', False, True, run_indices[si])
+            n_files = len(files)
+            files = ':'.join([op.basename(f) for f in files])
+            erm = get_raw_fnames(p, subj, 'raw', 'only', True, run_indices[si])
+            n_files += len(erm)
+            erm = ':'.join([op.basename(f) for f in erm])
+            erm = ' --erm ' + erm if len(erm) > 0 else ''
+            assert isinstance(p.tsss_dur, float) and p.tsss_dur > 0
+            st = ' --st %s' % p.tsss_dur
+            if p.sss_format not in ('short', 'long', 'float'):
+                raise RuntimeError('format must be short, long, or float')
+            fmt = ' --format ' + p.sss_format
+            assert p.movecomp in ['inter', None]
+            mc = ' --mc %s' % str(p.movecomp).lower()
+            _check_trans_file(p)
+            trans = ' --trans ' + p.trans_to
+            run_sss = (op.join(p.sws_dir, 'run_sss.sh') + st + fmt + trans +
+                       ' --subject ' + subj + ' --files ' + files + erm + mc +
+                       ' --args=\"%s\"' % p.mf_args)
+            cmd = ['ssh', '-p', str(p.sws_port), p.sws_ssh, run_sss]
+            s = 'Remote output for %s on %s files:' % (subj, n_files)
+            print('-' * len(s))
+            print(s)
+            print('-' * len(s))
+            run_subprocess(cmd, stdout=None, stderr=None)
+            print('-' * 70, end='\n\n')
 
 
 def fetch_sss_files(p, subjects, run_indices):
@@ -854,11 +872,12 @@ def run_sss_positions(fname_in, fname_out, host='kasga', opts='', port=22):
     run_subprocess(cmd)
 
 
-def run_sss_localy(p, subjects, run_indices, int_order=6, ext_order=3,
-                   st_correlation=.9, st_duration=4):
+def run_sss_localy(p, subjects, run_indices):
 
     cal_file = op.join(op.dirname(op.dirname(__file__)), 'sss_cal.dat')
     ct_file = op.join(op.dirname(op.dirname(__file__)), 'ct_sparse.fif')
+    if p.st_duration is not None:
+        st_duration = float(p.st_duration)
     for si, subj in enumerate(subjects):
         if p.disp_files:
             print('  Preprocessing subject %g/%g (%s).'
@@ -881,10 +900,10 @@ def run_sss_localy(p, subjects, run_indices, int_order=6, ext_order=3,
                              apply_proj=False, force_bads=True,
                              l_trans=p.hp_trans, h_trans=p.lp_trans, allow_maxshield=True)
             # apply maxwell filter
-            raw_sss = maxwell_filter(raw, int_order=int_order, ext_order=ext_order,
+            raw_sss = maxwell_filter(raw, int_order=p.int_order, ext_order=p.ext_order,
                                      calibration=cal_file,
                                      cross_talk=ct_file,
-                                     st_correlation=st_correlation,
+                                     st_correlation=p.st_correlation,
                                      st_duration=st_duration)
             raw_sss.save(o, overwrite=True, buffer_size_sec=None)
 
@@ -2011,73 +2030,10 @@ def plot_raw_psd(p, subjects, run_indices=None, tmin=0., fmin=2, n_fft=2048):
 
 
 def _prebad(p, subj):
+    """Helper for locating file containing bad channels during acq"""
     prebad_file = op.join(p.work_dir, subj, p.raw_dir, subj + '_prebad.txt')
     if not op.isfile(prebad_file):  # SSS prebad file
         raise RuntimeError('Could not find SSS prebad file: %s'
                                % prebad_file)
     return prebad_file
 
-
-
-
-'''def avr_movecomp(p, subjects, run_indices=None)
-
-import mne
-print(__doc__)
-
-data_path = '/home/mdclarke/Desktop/bad_baby/'
-fname = data_path + '/bad_105/raw_fif/bad_105_mmn_raw.fif'
-
-# read in raw
-raw = mne.io.Raw(fname, allow_maxshield=True)
-
-
-
-
-# compute ECG projections
-proj, ECG_events = mne.preprocessing.compute_proj_ecg(maxfilt, n_grad=2, n_mag=2, n_eeg=0, ch_name='MEG0113')
-## apply projections
-maxfilt.add_proj(proj).apply_proj()
-## plot
-maxfilt.plot(events=ECG_events, show_options=True)
-## save tsss data
-maxfilt.save(data_path + '/pyth_test/bad_105_mmn_raw_ssp_tsss.fif')
-## read in tsss
-tsss_fname = data_path + '/pyth_test/bad_105_mmn_raw_ssp_tsss.fif'
-
-## save tsss data
-#maxfilt.save(data_path + '/pyth_test/bad_105_mmn_raw_tsss.fif')
-## read in tsss
-#tsss_fname = data_path + '/pyth_test/bad_105_mmn_raw_tsss.fif'
-
-# read raw
-tsss = mne.io.Raw(tsss_fname)
-
-# find trigger events in raw file
-events = mne.find_events(tsss, stim_channel='STI101')
-
-# Select trigger to epoch
-event_id = {'All':1}
-
-# Read epochs
-epochs = mne.Epochs(tsss, events, event_id, tmin=-0.1, tmax=0.9,
-                    baseline=(None, 0), preload=True, proj='delayed',
-                    reject=None)
-
-# read in head position from file
-epochs.info['dev_head_t'] = mne.read_trans('/home/mdclarke/Desktop/bad_baby/bad_105/raw_fif/bad_105_median_pos.fif')
-
-
-# read in .pos file created from Maxfilter's head pos estimation
-posfile = '/home/mdclarke/Desktop/bad_baby/bad_105/sss_log/bad_105_mmn_hp.txt'
-
-# extract head positions
-pos = mne.get_chpi_positions(posfile)
-
-# run evoked movement compensation
-movecomp = mne.epochs.average_movements(epochs, pos, orig_sfreq=1800, int_order=6,
-                                        ext_order=0, return_mapping=True)
-
-# save averaged movecomp data
-movecomp[0].save('/home/mdclarke/Desktop/bad_baby/pyth_test/105_mmn_maxwell_tsss_emc-ave.fif')
-movecomp[0].plot(spatial_colors=True)'''
