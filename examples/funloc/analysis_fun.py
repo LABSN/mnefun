@@ -40,7 +40,7 @@ except ImportError:
 
 params = mnefun.Params(tmin=-0.2, tmax=0.5, t_adjust=-4e-3,
                        n_jobs=6, n_jobs_mkl=1,
-                       n_jobs_fir='cuda', n_jobs_resample='cuda',
+                       n_jobs_fir=6, n_jobs_resample=6,
                        decim=5, proj_sfreq=200, filter_length='5s')
 params.subjects = ['subj_01', 'subj_02']
 params.structurals = [None, 'AKCLEE_110_slim']  # None means use sphere
@@ -49,10 +49,10 @@ params.score = score  # scoring function to use
 params.subject_indices = np.arange(2)  # which subjects to run
 params.plot_drop_logs = False  # turn off for demo or plots will block
 
-params.acq_ssh = 'minea'  # can also be e.g., "eric@minea.ilabs.uw.edu"
+params.acq_ssh = "kambiz@minea.ilabs.uw.edu"
 params.acq_dir = '/sinuhe/data02/eric_non_space'
-params.sws_ssh = 'kasga'
-params.sws_dir = '/data06/larsoner'
+params.sws_ssh = 'kam@kasga.ilabs.uw.edu'
+params.sws_dir = '/data01/kam'
 
 # set the niprov handler to deal with events:
 params.on_process = handler
@@ -66,7 +66,8 @@ params.proj_nums = [[1, 1, 0],  # ECG: grad/mag/eeg
                     [1, 1, 2],  # EOG
                     [0, 0, 0]]  # Continuous (from ERM)
 params.cov_method = 'shrunk'  # cleaner noise covariance regularization
-
+params.sss_type = 'maxfilter'  # python | maxfilter for choosing SSS applied using either Maxfilter or mne-python
+params.st_duration = 10  # Spatiotemporal SSS buffer duration
 # The scoring function needs to produce an event file with these values
 params.in_names = ['Aud', 'Vis', 'AudDev', 'VisDev']
 params.in_numbers = [10, 11, 20, 21]
@@ -97,8 +98,8 @@ mnefun.do_processing(
     # Make SUBJ/raw_fif/SUBJ_prebad.txt file with space-separated
     # list of bad MEG channel numbers, needed for running SSS.
     push_raw=True,  # Push raw files and SSS script to SSS workstation
-    do_sss=True,  # Run SSS remotely
-    fetch_sss=True,  # Fetch SSSed files
+    do_sss=True,  # Run SSS remote using Maxfilter or local with mne-python
+    fetch_sss=True,  # Fetch SSSed files from SSS workstation
     do_ch_fix=True,  # Fix channel ordering
     # Examine SSS'ed files and make SUBJ/bads/bad_ch_SUBJ_post-sss.txt,
     # usually only contains EEG channels, needed for preprocessing.
