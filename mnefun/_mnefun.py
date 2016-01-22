@@ -193,7 +193,7 @@ class Params(Frozen):
         Order of internal component of spherical expansion.
     ext_order : int
         Order of external component of spherical expansion.
-    st_duration : float
+    tsss_dur : float | None
         Apply spatiotemporal SSS with specified buffer duration
         (in seconds). Elekta's default is 10.0 seconds in MaxFilter™ v2.2.
         Spatiotemporal SSS acts as implicitly as a high-pass filter where the
@@ -206,6 +206,19 @@ class Params(Frozen):
     st_correlation : float
         Correlation limit between inner and outer subspaces used to reject
         ovwrlapping intersecting inner/outer signals during spatiotemporal SSS.
+    trans_to : str | array-like, shape (3,) | None
+        The destination location for the head. Can be ``None``, which
+        will not change the head position, or a string path to a FIF file
+        containing a MEG device<->head transformation, or a 3-element array
+        giving the coordinates to translate to (with no rotations).
+        For example, ``destination=(0, 0, 0.04)`` would translate the bases
+        as ``--trans default`` would in MaxFilter™ (i.e., to the default
+        head location).
+    origin : array-like, shape (3,) | str
+        Origin of internal and external multipolar moment space in meters.
+        The default is ``'auto'``, which means ``(0., 0., 0.)`` for
+        ``coord_frame='meg'``, and a head-digitization-based origin fit
+        for ``coord_frame='head'``.
 
     Returns
     -------
@@ -215,11 +228,22 @@ class Params(Frozen):
     See also
     --------
     do_processing
+    run_sss_localy
+    mne.maxwell_filter
 
     Notes
     -----
-    Params has additional properties. Use ``dir(params)`` to see
+    - Params has additional properties. Use ``dir(params)`` to see
     all the possible options.
+    - For Maxwell filtering with mne.maxwell_filter the following default
+    parameters:
+        * tSSS correlation = 0.98
+        * Order of internal component of spherical expansion = 3
+        * Order of external component of spherical expansion = 8
+        * tSSS buffer length = 60 seconds
+        * Spherical expansion coordinate frame = head
+        * Coordinate frame origin =  head-digitization-based origin fit
+
     """
 
     def __init__(self, tmin=None, tmax=None, t_adjust=0, bmin=-0.2, bmax=0.0,
@@ -234,8 +258,8 @@ class Params(Frozen):
                  ssp_ecg_reject=None, baseline='individual',
                  reject_tmin=None, reject_tmax=None,
                  lp_trans=0.5, hp_trans=0.5, movecomp='inter',
-                 sss_type='maxfilter', int_order=3, ext_order=6, st_duration=10.0,
-                 st_correlation=0.98):
+                 sss_type='maxfilter', int_order=8, ext_order=3,
+                 st_correlation=0.98, sss_origin='head'):
         self.reject = dict(eog=np.inf, grad=1500e-13, mag=5000e-15, eeg=150e-6)
         self.flat = dict(eog=-1, grad=1e-13, mag=1e-15, eeg=1e-6)
         if ssp_eog_reject is None:
@@ -353,12 +377,13 @@ class Params(Frozen):
         self.subject_run_indices = None
         self.movecomp = movecomp
         assert self.movecomp in ('inter', None)
+        # Maxwell filtering parameters
         self.sss_type = sss_type
         assert self.sss_type in ('maxfilter', 'python')
         self.int_order = int_order
         self.ext_order = ext_order
-        self.st_duration = st_duration
         self.st_correlation = st_correlation
+        self.sss_origin = sss_origin
         self.freeze()
 
     @property
@@ -517,6 +542,10 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
     assert all(r is None or np.in1d(r, np.arange(len(p.run_names))).all()
                for r in run_indices)
 
+    if p.sss_type is 'python' and fetch_sss:
+        raise RuntimeError(' You are running SSS pre-processing locally '
+                           ' and attempting to pull SSS files from remote workstation. '
+                           ' Set fetch_sss parameter to False and try again!')
     # Actually do the work
 
     outs = [None] * len(bools)
@@ -640,7 +669,9 @@ def push_raw_files(p, subjects, run_indices):
     # do all copies at once to avoid multiple logins
     copy2(op.join(op.dirname(__file__), 'run_sss.sh'), p.work_dir)
     includes = ['--include', op.sep + 'run_sss.sh']
-    if p.trans_to not in ('default', 'median'):
+    if not isinstance(p.trans_to, string_types):
+        raise TypeError(' Illegal head transformation argument to MaxFilter.')
+    elif p.trans_to not in ('default', 'median'):
         _check_trans_file(p)
         includes += ['--include', op.sep + p.trans_to]
     for si, subj in enumerate(subjects):
@@ -873,11 +904,34 @@ def run_sss_positions(fname_in, fname_out, host='kasga', opts='', port=22):
 
 
 def run_sss_localy(p, subjects, run_indices):
+    """Run SSS locally using maxwell filter in python
 
+    .. warning:: Automatic bad channel detection is not currently implemented.
+                 It is critical to mark bad channels before running Maxwell
+                 filtering, so data should be inspected and marked accordingly
+                 prior to running this algorithm.
+
+    .. warning:: Not all features of Elekta MaxFilter™ are currently
+                 implemented (see Notes). Maxwell filtering in mne-python
+                 is not designed for clinical use.
+
+    Notes
+    -----
+    Compared to Elekta's MaxFilter™ software, Maxwwell filtering in mne-python
+    does not require/support the following arguments:
+        -format
+        -hpicons
+        -autobad
+        -force
+        -movecomp
+
+    """
     cal_file = op.join(op.dirname(op.dirname(__file__)), 'sss_cal.dat')
     ct_file = op.join(op.dirname(op.dirname(__file__)), 'ct_sparse.fif')
-    if p.st_duration is not None:
-        st_duration = float(p.st_duration)
+    if p.tsss_dur:
+        st_duration = p.tsss_duration
+    else:
+        st_duration = None
     for si, subj in enumerate(subjects):
         if p.disp_files:
             print('  Preprocessing subject %g/%g (%s).'
@@ -900,11 +954,25 @@ def run_sss_localy(p, subjects, run_indices):
                              apply_proj=False, force_bads=True,
                              l_trans=p.hp_trans, h_trans=p.lp_trans, allow_maxshield=True)
             # apply maxwell filter
-            raw_sss = maxwell_filter(raw, int_order=p.int_order, ext_order=p.ext_order,
+            if p.sss_origin is 'head':
+                _, origin, _ = fit_sphere_to_headshape(raw.info)
+            else:
+                origin = p.sss_origin
+
+            if p.trans_to is 'median':
+                trans_to = op.join(raw_dir, subj + '_median_pos.fif')
+                if not op.isfile(trans_to):
+                    calc_median_hp(p, subj, trans_to, run_indices[si])
+            elif isinstance(p.trans_to, (list, np.ndarray)):
+                trans_to = p.trans_to
+            else:
+                trans_to = None
+
+            raw_sss = maxwell_filter(raw, origin=origin, int_order=p.int_order, ext_order=p.ext_order,
                                      calibration=cal_file,
                                      cross_talk=ct_file,
-                                     st_correlation=p.st_correlation,
-                                     st_duration=st_duration)
+                                     st_correlation=p.st_correlation, st_duration=st_duration,
+                                     destination=trans_to)
             raw_sss.save(o, overwrite=True, buffer_size_sec=None)
 
 
