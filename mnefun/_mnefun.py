@@ -929,7 +929,7 @@ def run_sss_localy(p, subjects, run_indices):
     cal_file = op.join(op.dirname(op.dirname(__file__)), 'sss_cal.dat')
     ct_file = op.join(op.dirname(op.dirname(__file__)), 'ct_sparse.fif')
     if p.tsss_dur:
-        st_duration = p.tsss_duration
+        st_duration = p.tsss_dur
     else:
         st_duration = None
     for si, subj in enumerate(subjects):
@@ -960,7 +960,7 @@ def run_sss_localy(p, subjects, run_indices):
                 origin = p.sss_origin
 
             if p.trans_to is 'median':
-                trans_to = op.join(raw_dir, subj + '_median_pos.fif')
+                trans_to = op.join(p.work_dir, subj, p.raw_dir, subj + '_median_pos.fif')
                 if not op.isfile(trans_to):
                     calc_median_hp(p, subj, trans_to, run_indices[si])
             elif isinstance(p.trans_to, (list, np.ndarray)):
