@@ -258,7 +258,7 @@ class Params(Frozen):
                  ssp_ecg_reject=None, baseline='individual',
                  reject_tmin=None, reject_tmax=None,
                  lp_trans=0.5, hp_trans=0.5, movecomp='inter',
-                 sss_type='maxfilter', int_order=8, ext_order=3,
+                 sss_type='maxfilter', int_order=3, ext_order=8,
                  st_correlation=0.98, sss_origin='head'):
         self.reject = dict(eog=np.inf, grad=1500e-13, mag=5000e-15, eeg=150e-6)
         self.flat = dict(eog=-1, grad=1e-13, mag=1e-15, eeg=1e-6)
