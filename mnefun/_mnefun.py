@@ -21,7 +21,8 @@ from numpy.testing import assert_allclose
 
 from mne import (compute_proj_raw, make_fixed_length_events, Epochs,
                  find_events, read_events, write_events, concatenate_events,
-                 read_cov, compute_covariance, write_cov, read_forward_solution,
+                 read_cov, compute_covariance, write_cov,
+                 read_forward_solution,
                  write_proj, read_proj, setup_source_space,
                  make_forward_solution, get_config, write_evokeds,
                  make_sphere_model, setup_volume_source_space,
@@ -36,9 +37,14 @@ from mne.minimum_norm import make_inverse_operator
 from mne.label import read_label
 from mne.epochs import combine_event_ids
 try:
-    from mne.chpi import _quat_to_rot, _rot_to_quat
+    from mne.chpi import quat_to_rot, rot_to_quat
 except ImportError:
-    from mne.io.chpi import _quat_to_rot, _rot_to_quat
+    try:
+        from mne.chpi import (_quat_to_rot as quat_to_rot,
+                              _rot_to_quat as rot_to_quat)
+    except ImportError:
+        from mne.io.chpi import (_quat_to_rot as quat_to_rot,
+                                 _rot_to_quat as rot_to_quat)
 from mne.io import Raw, concatenate_raws, read_info, write_info
 from mne.io.pick import pick_types_forward, pick_types
 from mne.io.meas_info import _empty_info
@@ -589,13 +595,13 @@ def calc_median_hp(p, subj, out_file, ridx):
         # make sure we are a rotation matrix
         assert_allclose(np.dot(m, m.T), np.eye(3), atol=1e-5)
         assert_allclose(np.linalg.trace(m), 1., atol=1e-5)
-        qs.append(_rot_to_quat(m))
+        qs.append(rot_to_quat(m))
     assert info is not None
     if len(raw_files) == 1:  # only one head position
         dev_head_t = info['dev_head_t']
     else:
         t = np.median(np.array(ts), axis=0)
-        rot = np.median(_quat_to_rot(np.array(qs)), axis=0)
+        rot = np.median(quat_to_rot(np.array(qs)), axis=0)
         trans = np.r_[np.c_[rot, t[:, np.newaxis]],
                       np.array([0, 0, 0, 1], t.dtype)[np.newaxis, :]]
         dev_head_t = {'to': 4, 'from': 1, 'trans': trans}
