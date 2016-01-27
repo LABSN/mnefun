@@ -96,9 +96,9 @@ mnefun.do_processing(
     do_score=True,  # do scoring
     # Make SUBJ/raw_fif/SUBJ_prebad.txt file with space-separated
     # list of bad MEG channel numbers, needed for running SSS.
-    push_raw=True,  # Push raw files and SSS script to SSS workstation
+    push_raw=False,  # Push raw files and SSS script to SSS workstation
     do_sss=True,  # Run SSS remote using Maxfilter or local with mne-python
-    fetch_sss=True,  # Fetch SSSed files from SSS workstation
+    fetch_sss=False,  # Fetch SSSed files from SSS workstation
     do_ch_fix=True,  # Fix channel ordering
     # Examine SSS'ed files and make SUBJ/bads/bad_ch_SUBJ_post-sss.txt,
     # usually only contains EEG channels, needed for preprocessing.
