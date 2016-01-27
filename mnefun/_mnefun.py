@@ -214,11 +214,11 @@ class Params(Frozen):
         For example, ``destination=(0, 0, 0.04)`` would translate the bases
         as ``--trans default`` would in MaxFilter™ (i.e., to the default
         head location).
-    origin : array-like, shape (3,) | str
-        Origin of internal and external multipolar moment space in meters.
-        The default is ``'auto'``, which means ``(0., 0., 0.)`` for
-        ``coord_frame='meg'``, and a head-digitization-based origin fit
-        for ``coord_frame='head'``.
+    sss_origin : array-like, shape (3,) | str
+        Origin of internal and external multipolar moment space in meters. Default is
+        center of sphere fit to digitized head points.
+    coord_frame : str
+        The coordinate frame that the ``sss_origin`` is specified in, default is 'head'.
 
     Returns
     -------
@@ -238,8 +238,8 @@ class Params(Frozen):
     - For Maxwell filtering with mne.maxwell_filter the following default
     parameters:
         * tSSS correlation = 0.98
-        * Order of internal component of spherical expansion = 3
-        * Order of external component of spherical expansion = 8
+        * Order of internal component of spherical expansion = 8
+        * Order of external component of spherical expansion = 3
         * tSSS buffer length = 60 seconds
         * Spherical expansion coordinate frame = head
         * Coordinate frame origin =  head-digitization-based origin fit
@@ -258,8 +258,8 @@ class Params(Frozen):
                  ssp_ecg_reject=None, baseline='individual',
                  reject_tmin=None, reject_tmax=None,
                  lp_trans=0.5, hp_trans=0.5, movecomp='inter',
-                 sss_type='maxfilter', int_order=3, ext_order=8,
-                 st_correlation=0.98, sss_origin='head'):
+                 sss_type='maxfilter', int_order=8, ext_order=3,
+                 st_correlation=0.98, sss_origin='head', coord_frame = 'head'):
         self.reject = dict(eog=np.inf, grad=1500e-13, mag=5000e-15, eeg=150e-6)
         self.flat = dict(eog=-1, grad=1e-13, mag=1e-15, eeg=1e-6)
         if ssp_eog_reject is None:
@@ -384,6 +384,8 @@ class Params(Frozen):
         self.ext_order = ext_order
         self.st_correlation = st_correlation
         self.sss_origin = sss_origin
+        self.coord_frame = coord_frame
+        assert self.coord_frame in ('head', 'meg')
         self.freeze()
 
     @property
@@ -957,6 +959,7 @@ def run_sss_localy(p, subjects, run_indices):
             # apply maxwell filter
             if p.sss_origin is 'head':
                 _, origin, _ = fit_sphere_to_headshape(raw.info)
+                origin /= 1000
             else:
                 origin = p.sss_origin
 
@@ -973,7 +976,8 @@ def run_sss_localy(p, subjects, run_indices):
                                      calibration=cal_file,
                                      cross_talk=ct_file,
                                      st_correlation=p.st_correlation, st_duration=st_duration,
-                                     destination=trans_to)
+                                     destination=trans_to,
+                                     coord_frame=p.coord_frame)
             raw_sss.save(o, overwrite=True, buffer_size_sec=None)
 
 
