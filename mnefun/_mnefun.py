@@ -367,7 +367,7 @@ class Params(Frozen):
         self.must_match = []
         self.on_missing = 'error'  # for epochs
         self.trans_to = trans_to  # where to transform head positions to
-        assert p.trans_to in ('median', None)
+        assert p.trans_to in ('median', 'default' None)
         self.sss_format = 'float'  # output type for MaxFilter
         self.subject_run_indices = None
         self.movecomp = movecomp
@@ -951,12 +951,13 @@ def run_sss_localy(p, subjects, run_indices):
             else:
                 origin = p.sss_origin
 
-            if p.trans_to is not 'median' or None:
-                trans_to = p.trans_to
-            else:
+            if p.trans_to is 'median':
                 trans_to = op.join(p.work_dir, subj, p.raw_dir, subj + '_median_pos.fif')
                 if not op.isfile(trans_to):
                     calc_median_hp(p, subj, trans_to, run_indices[si])
+            else:
+                trans_to = p.trans_to
+
             # apply maxwell filter
             raw_sss = maxwell_filter(raw, origin=origin, int_order=p.int_order, ext_order=p.ext_order,
                                      calibration=cal_file,
