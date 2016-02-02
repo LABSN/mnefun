@@ -206,19 +206,13 @@ class Params(Frozen):
     st_correlation : float
         Correlation limit between inner and outer subspaces used to reject
         ovwrlapping intersecting inner/outer signals during spatiotemporal SSS.
-    trans_to : str | array-like, shape (3,) | None
+    trans_to : str | None
         The destination location for the head. Can be ``None``, which
         will not change the head position, or a string path to a FIF file
-        containing a MEG device<->head transformation, or a 3-element array
-        giving the coordinates to translate to (with no rotations).
-        For example, ``destination=(0, 0, 0.04)`` would translate the bases
-        as ``--trans default`` would in MaxFilter™ (i.e., to the default
-        head location).
+        containing a MEG device<->head transformation.
     sss_origin : array-like, shape (3,) | str
         Origin of internal and external multipolar moment space in meters. Default is
         center of sphere fit to digitized head points.
-    coord_frame : str
-        The coordinate frame that the ``sss_origin`` is specified in, default is 'head'.
 
     Returns
     -------
@@ -259,7 +253,7 @@ class Params(Frozen):
                  reject_tmin=None, reject_tmax=None,
                  lp_trans=0.5, hp_trans=0.5, movecomp='inter',
                  sss_type='maxfilter', int_order=8, ext_order=3,
-                 st_correlation=0.98, sss_origin='head', coord_frame = 'head'):
+                 st_correlation=0.98, sss_origin='head'):
         self.reject = dict(eog=np.inf, grad=1500e-13, mag=5000e-15, eeg=150e-6)
         self.flat = dict(eog=-1, grad=1e-13, mag=1e-15, eeg=1e-6)
         if ssp_eog_reject is None:
@@ -384,8 +378,6 @@ class Params(Frozen):
         self.ext_order = ext_order
         self.st_correlation = st_correlation
         self.sss_origin = sss_origin
-        self.coord_frame = coord_frame
-        assert self.coord_frame in ('head', 'meg')
         self.freeze()
 
     @property
@@ -648,7 +640,7 @@ def calc_median_hp(p, subj, out_file, ridx):
         m = trans[:3, :3]
         # make sure we are a rotation matrix
         assert_allclose(np.dot(m, m.T), np.eye(3), atol=1e-5)
-        assert_allclose(np.linalg.det(m), 1., atol=1e-5) #for the determinant
+        assert_allclose(np.linalg.det(m), 1., atol=1e-5)  # for the determinant
         qs.append(_rot_to_quat(m))
     assert info is not None
     if len(raw_files) == 1:  # only one head position
@@ -926,59 +918,70 @@ def run_sss_localy(p, subjects, run_indices):
         -hpicons
         -autobad
         -force
-        -movecomp
 
     """
-    cal_file = op.join(op.dirname(op.dirname(__file__)), 'sss_cal.dat')
-    ct_file = op.join(op.dirname(op.dirname(__file__)), 'ct_sparse.fif')
+    cal_file = op.join(op.dirname(op.dirname(__file__)), 'data/sss_cal.dat')
+    ct_file = op.join(op.dirname(op.dirname(__file__)), 'data/ct_sparse.fif')
     if p.tsss_dur:
         st_duration = p.tsss_dur
     else:
         st_duration = None
     for si, subj in enumerate(subjects):
         if p.disp_files:
-            print('  Preprocessing subject %g/%g (%s).'
+            print('  Mawell filtering subject %g/%g (%s).'
                   % (si + 1, len(subjects), subj))
+        #  locate raw and erm files
         sss_dir = op.join(p.work_dir, subj, p.sss_dir)
         if not op.isdir(sss_dir):
             os.mkdir(sss_dir)
-        # Create SSP projection vectors after marking bad channels
-        raw_names = get_raw_fnames(p, subj, 'raw', False, False,
-                                   run_indices[si])
-        names_out = get_raw_fnames(p, subj, 'sss', False, False,
-                                   run_indices[si])
+        raw_files = get_raw_fnames(p, subj, 'raw', False, False, run_indices[si])
+        raw_files_out = get_raw_fnames(p, subj, 'sss', False, False, run_indices[si])
+        erm_files = get_raw_fnames(p, subj, 'raw', 'only')
+        erm_files_out = get_raw_fnames(p, subj, 'sss', False, False, run_indices[si])
         prebad_file = _prebad(p, subj)
-        for ii, (r, o) in enumerate(zip(raw_names, names_out)):
+        #  process raw files
+        for ii, (r, o) in enumerate(zip(raw_files, raw_files_out)):
             if not op.isfile(r):
                 raise NameError('File not found (' + r + ')')
-            raw = _raw_LRFCP(raw_names, p.proj_sfreq, None, None, p.n_jobs_fir,
-                             p.n_jobs_resample, list(), prebad_file, p.disp_files,
-                             method='fft', filter_length=p.filter_length,
-                             apply_proj=False, force_bads=True,
-                             l_trans=p.hp_trans, h_trans=p.lp_trans, allow_maxshield=True)
-            # apply maxwell filter
+            raw = Raw(r, preload=True, allow_maxshield=allow_maxshield)
+            raw.load_bad_channels(prebad_file, force=True)
+            #  set maxwell filtering parameters
             if p.sss_origin is 'head':
                 _, origin, _ = fit_sphere_to_headshape(raw.info)
                 origin /= 1000
             else:
                 origin = p.sss_origin
 
-            if p.trans_to is 'median':
+            if p.trans_to is not 'median' or None:
+                trans_to = p.trans_to
+            else:
                 trans_to = op.join(p.work_dir, subj, p.raw_dir, subj + '_median_pos.fif')
                 if not op.isfile(trans_to):
                     calc_median_hp(p, subj, trans_to, run_indices[si])
-            elif isinstance(p.trans_to, (list, np.ndarray)):
-                trans_to = p.trans_to
-            else:
-                trans_to = None
-
+            # apply maxwell filter
             raw_sss = maxwell_filter(raw, origin=origin, int_order=p.int_order, ext_order=p.ext_order,
                                      calibration=cal_file,
                                      cross_talk=ct_file,
                                      st_correlation=p.st_correlation, st_duration=st_duration,
                                      destination=trans_to,
-                                     coord_frame=p.coord_frame)
+                                     coord_frame='head')
             raw_sss.save(o, overwrite=True, buffer_size_sec=None)
+            #  process erm files if any
+            if len(erm_files) > 1:
+                for ii, (r, o) in enumerate(zip(erm_files, erm_files_out)):
+                    if not op.isfile(r):
+                        raise NameError('File not found (' + r + ')')
+                    raw = Raw(r, preload=True, allow_maxshield=allow_maxshield)
+                    raw.load_bad_channels(prebad_file, force=True)
+                    # apply maxwell filter
+                    raw_sss = maxwell_filter(raw, int_order=p.int_order, ext_order=p.ext_order,
+                                             calibration=cal_file,
+                                             cross_talk=ct_file,
+                                             st_correlation=p.st_correlation, st_duration=st_duration,
+                                             destination=None,
+                                             coord_frame='device')
+                    raw_sss.save(o, overwrite=True, buffer_size_sec=None)
+
 
 
 def extract_expyfun_events(fname, return_offsets=False):
