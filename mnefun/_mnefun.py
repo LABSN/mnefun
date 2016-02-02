@@ -36,10 +36,10 @@ from mne.preprocessing.maxwell import maxwell_filter
 from mne.minimum_norm import make_inverse_operator
 from mne.label import read_label
 from mne.epochs import combine_event_ids
-try:
-    from mne.chpi import _quat_to_rot, _rot_to_quat
-except ImportError:
-    from mne.io.chpi import _quat_to_rot, _rot_to_quat
+#try:
+#    from mne.chpi import _quat_to_rot, _rot_to_quat
+#except ImportError:
+#    from mne.io.chpi import _quat_to_rot, _rot_to_quat
 from mne.io import Raw, concatenate_raws, read_info, write_info
 from mne.io.pick import pick_types_forward, pick_types
 from mne.io.meas_info import _empty_info
@@ -253,7 +253,7 @@ class Params(Frozen):
                  reject_tmin=None, reject_tmax=None,
                  lp_trans=0.5, hp_trans=0.5, movecomp='inter',
                  sss_type='maxfilter', int_order=8, ext_order=3,
-                 st_correlation=0.98, trans_to='meian', sss_origin='head'):
+                 st_correlation=0.98, trans_to='median', sss_origin='head'):
         self.reject = dict(eog=np.inf, grad=1500e-13, mag=5000e-15, eeg=150e-6)
         self.flat = dict(eog=-1, grad=1e-13, mag=1e-15, eeg=1e-6)
         if ssp_eog_reject is None:
@@ -367,7 +367,7 @@ class Params(Frozen):
         self.must_match = []
         self.on_missing = 'error'  # for epochs
         self.trans_to = trans_to  # where to transform head positions to
-        assert p.trans_to in ('median', 'default' None)
+        assert self.trans_to in ('median', 'default', None)
         self.sss_format = 'float'  # output type for MaxFilter
         self.subject_run_indices = None
         self.movecomp = movecomp
@@ -919,15 +919,15 @@ def run_sss_localy(p, subjects, run_indices):
         -force
 
     """
-    cal_file = op.join(op.dirname(op.dirname(__file__)), 'data/sss_cal.dat')
-    ct_file = op.join(op.dirname(op.dirname(__file__)), 'data/ct_sparse.fif')
+    cal_file = op.join(op.dirname(op.dirname(__file__)), 'mnefun/data/sss_cal.dat')
+    ct_file = op.join(op.dirname(op.dirname(__file__)), 'mnefun/data/ct_sparse.fif')
     if p.tsss_dur:
         st_duration = p.tsss_dur
     else:
         st_duration = None
     for si, subj in enumerate(subjects):
         if p.disp_files:
-            print('  Mawell filtering subject %g/%g (%s).'
+            print('  Maxwell filtering subject %g/%g (%s).'
                   % (si + 1, len(subjects), subj))
         #  locate raw and erm files
         sss_dir = op.join(p.work_dir, subj, p.sss_dir)
@@ -942,7 +942,7 @@ def run_sss_localy(p, subjects, run_indices):
         for ii, (r, o) in enumerate(zip(raw_files, raw_files_out)):
             if not op.isfile(r):
                 raise NameError('File not found (' + r + ')')
-            raw = Raw(r, preload=True, allow_maxshield=allow_maxshield)
+            raw = Raw(r, preload=True, allow_maxshield=True)
             raw.load_bad_channels(prebad_file, force=True)
             #  set maxwell filtering parameters
             if p.sss_origin is 'head':
@@ -971,7 +971,7 @@ def run_sss_localy(p, subjects, run_indices):
                 for ii, (r, o) in enumerate(zip(erm_files, erm_files_out)):
                     if not op.isfile(r):
                         raise NameError('File not found (' + r + ')')
-                    raw = Raw(r, preload=True, allow_maxshield=allow_maxshield)
+                    raw = Raw(r, preload=True, allow_maxshield=True)
                     raw.load_bad_channels(prebad_file, force=True)
                     # apply maxwell filter
                     raw_sss = maxwell_filter(raw, int_order=p.int_order, ext_order=p.ext_order,
@@ -2109,6 +2109,9 @@ def _prebad(p, subj):
     """Helper for locating file containing bad channels during acq"""
     prebad_file = op.join(p.work_dir, subj, p.raw_dir, subj + '_prebad.txt')
     if not op.isfile(prebad_file):  # SSS prebad file
+        with open(prebad_file, mode='w') as f:
+            f.write()
+            f.close()
         raise RuntimeError('Could not find SSS prebad file: %s'
                                % prebad_file)
     return prebad_file
