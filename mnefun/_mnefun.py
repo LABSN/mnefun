@@ -441,6 +441,9 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
         Print status (determined from file structure).
     """
     # Generate requested things
+    if p.sss_type is 'python':
+        push_raw = False
+        fetch_sss = False
     bools = [fetch_raw,
              do_score,
              push_raw,
@@ -536,11 +539,6 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
     assert all(r is None or np.in1d(r, np.arange(len(p.run_names))).all()
                for r in run_indices)
 
-    if p.sss_type is 'python' and fetch_sss or push_raw:
-        raise RuntimeError(' You are running SSS pre-processing locally'
-                           ' and attempting to pull and/or push SSS files from'
-                           ' remote workstation.'
-                           ' Set fetch_sss parameter to False and try again!')
     # Actually do the work
 
     outs = [None] * len(bools)
