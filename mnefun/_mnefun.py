@@ -253,7 +253,7 @@ class Params(Frozen):
                  reject_tmin=None, reject_tmax=None,
                  lp_trans=0.5, hp_trans=0.5, movecomp='inter',
                  sss_type='maxfilter', int_order=8, ext_order=3,
-                 st_correlation=0.98, sss_origin='head'):
+                 st_correlation=0.98, trans_to='meian', sss_origin='head'):
         self.reject = dict(eog=np.inf, grad=1500e-13, mag=5000e-15, eeg=150e-6)
         self.flat = dict(eog=-1, grad=1e-13, mag=1e-15, eeg=1e-6)
         if ssp_eog_reject is None:
@@ -366,7 +366,8 @@ class Params(Frozen):
         self.out_numbers = []
         self.must_match = []
         self.on_missing = 'error'  # for epochs
-        self.trans_to = 'median'  # where to transform head positions to
+        self.trans_to = trans_to  # where to transform head positions to
+        assert p.trans_to in ('median', None)
         self.sss_format = 'float'  # output type for MaxFilter
         self.subject_run_indices = None
         self.movecomp = movecomp
