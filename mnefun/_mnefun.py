@@ -221,7 +221,7 @@ class Params(Frozen):
                  reject_tmin=None, reject_tmax=None,
                  lp_trans=0.5, hp_trans=0.5, movecomp='inter'):
         self.reject = dict(eog=np.inf, grad=1500e-13, mag=5000e-15, eeg=150e-6)
-        self.flat = dict(eog=-1, grad=1e-13, mag=1e-15, eeg=1e-6)
+        self.flat = dict(eog=0, grad=1e-13, mag=1e-15, eeg=1e-6)
         if ssp_eog_reject is None:
             ssp_eog_reject = dict(grad=2000e-13, mag=3000e-15,
                                   eeg=500e-6, eog=np.inf)
@@ -594,7 +594,7 @@ def calc_median_hp(p, subj, out_file, ridx):
         m = trans[:3, :3]
         # make sure we are a rotation matrix
         assert_allclose(np.dot(m, m.T), np.eye(3), atol=1e-5)
-        assert_allclose(np.linalg.trace(m), 1., atol=1e-5)
+        assert_allclose(np.linalg.det(m), 1., atol=1e-5)
         qs.append(rot_to_quat(m))
     assert info is not None
     if len(raw_files) == 1:  # only one head position
@@ -605,7 +605,7 @@ def calc_median_hp(p, subj, out_file, ridx):
         trans = np.r_[np.c_[rot, t[:, np.newaxis]],
                       np.array([0, 0, 0, 1], t.dtype)[np.newaxis, :]]
         dev_head_t = {'to': 4, 'from': 1, 'trans': trans}
-    info = _empty_info()
+    info = _empty_info(info['sfreq]')
     info['dev_head_t'] = dev_head_t
     write_info(out_file, info)
 
@@ -1794,8 +1794,10 @@ def timestring(t):
     time : str
         The time in HH:MM:SS.
     """
+
     def rediv(ll, b):
         return list(divmod(ll[0], b)) + ll[1:]
+
     return "%d:%02d:%02d.%03d" % tuple(reduce(rediv, [[t * 1000, ], 1000, 60,
                                                       60]))
 
