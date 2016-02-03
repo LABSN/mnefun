@@ -605,7 +605,7 @@ def calc_median_hp(p, subj, out_file, ridx):
         trans = np.r_[np.c_[rot, t[:, np.newaxis]],
                       np.array([0, 0, 0, 1], t.dtype)[np.newaxis, :]]
         dev_head_t = {'to': 4, 'from': 1, 'trans': trans}
-    info = _empty_info(info['sfreq]')
+    info = _empty_info(info['sfreq'])
     info['dev_head_t'] = dev_head_t
     write_info(out_file, info)
 
