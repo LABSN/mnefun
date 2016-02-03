@@ -21,7 +21,8 @@ from numpy.testing import assert_allclose
 
 from mne import (compute_proj_raw, make_fixed_length_events, Epochs,
                  find_events, read_events, write_events, concatenate_events,
-                 read_cov, compute_covariance, write_cov, read_forward_solution,
+                 read_cov, compute_covariance, write_cov,
+                 read_forward_solution,
                  write_proj, read_proj, setup_source_space,
                  make_forward_solution, get_config, write_evokeds,
                  make_sphere_model, setup_volume_source_space,
@@ -36,10 +37,15 @@ from mne.preprocessing.maxwell import maxwell_filter
 from mne.minimum_norm import make_inverse_operator
 from mne.label import read_label
 from mne.epochs import combine_event_ids
-#try:
-#    from mne.chpi import _quat_to_rot, _rot_to_quat
-#except ImportError:
-#    from mne.io.chpi import _quat_to_rot, _rot_to_quat
+try:
+    from mne.chpi import quat_to_rot, rot_to_quat
+except ImportError:
+    try:
+        from mne.chpi import (_quat_to_rot as quat_to_rot,
+                              _rot_to_quat as rot_to_quat)
+    except ImportError:
+        from mne.io.chpi import (_quat_to_rot as quat_to_rot,
+                                 _rot_to_quat as rot_to_quat)
 from mne.io import Raw, concatenate_raws, read_info, write_info
 from mne.io.pick import pick_types_forward, pick_types
 from mne.io.meas_info import _empty_info
@@ -227,7 +233,7 @@ class Params(Frozen):
 
     Notes
     -----
-    - Params has additional properties. Use ``dir(params)`` to see
+    Params has additional properties. Use ``dir(params)`` to see
     all the possible options.
     - For Maxwell filtering with mne.maxwell_filter the following default
     parameters:
@@ -255,7 +261,7 @@ class Params(Frozen):
                  sss_type='maxfilter', int_order=8, ext_order=3,
                  st_correlation=0.98, trans_to='median', sss_origin='head'):
         self.reject = dict(eog=np.inf, grad=1500e-13, mag=5000e-15, eeg=150e-6)
-        self.flat = dict(eog=-1, grad=1e-13, mag=1e-15, eeg=1e-6)
+        self.flat = dict(eog=0, grad=1e-13, mag=1e-15, eeg=1e-6)
         if ssp_eog_reject is None:
             ssp_eog_reject = dict(grad=2000e-13, mag=3000e-15,
                                   eeg=500e-6, eog=np.inf)
@@ -639,14 +645,14 @@ def calc_median_hp(p, subj, out_file, ridx):
         m = trans[:3, :3]
         # make sure we are a rotation matrix
         assert_allclose(np.dot(m, m.T), np.eye(3), atol=1e-5)
-        assert_allclose(np.linalg.det(m), 1., atol=1e-5)  # for the determinant
-        qs.append(_rot_to_quat(m))
+        assert_allclose(np.linalg.det(m), 1., atol=1e-5)
+        qs.append(rot_to_quat(m))
     assert info is not None
     if len(raw_files) == 1:  # only one head position
         dev_head_t = info['dev_head_t']
     else:
         t = np.median(np.array(ts), axis=0)
-        rot = np.median(_quat_to_rot(np.array(qs)), axis=0)
+        rot = np.median(quat_to_rot(np.array(qs)), axis=0)
         trans = np.r_[np.c_[rot, t[:, np.newaxis]],
                       np.array([0, 0, 0, 1], t.dtype)[np.newaxis, :]]
         dev_head_t = {'to': 4, 'from': 1, 'trans': trans}
@@ -781,7 +787,7 @@ def fetch_sss_files(p, subjects, run_indices):
 
 
 def run_sss_command(fname_in, options, fname_out, host='kasga', port=22,
-                    fname_pos=None):
+                    fname_pos=None, stdout=None, stderr=None, prefix=''):
     """Run Maxfilter remotely and fetch resulting file
 
     Parameters
@@ -797,6 +803,12 @@ def run_sss_command(fname_in, options, fname_out, host='kasga', port=22,
         The SSH/scp host to run the command on.
     fname_pos : str | None
         The ``-hp fname_pos`` to use with MaxFilter.
+    stdout : file-like | None
+        Where to send stdout.
+    stderr : file-like | None
+        Where to send stderr.
+    prefix : str
+        The text to prefix to messages.
     """
     # let's make sure we can actually write where we want
     if not op.isfile(fname_in):
@@ -811,35 +823,35 @@ def run_sss_command(fname_in, options, fname_out, host='kasga', port=22,
     remote_in = '~/temp_%s_raw.fif' % t0
     remote_out = '~/temp_%s_raw_sss.fif' % t0
     remote_pos = '~/temp_%s_raw_sss.pos' % t0
-    print('Copying file to %s' % host)
+    print(prefix + 'Copying file to %s' % host)
     cmd = ['scp', '-P' + port, fname_in, host + ':' + remote_in]
-    run_subprocess(cmd, stdout=None, stderr=None)
+    run_subprocess(cmd, stdout=stdout, stderr=stderr)
 
     if fname_pos is not None:
         options += ' -hp ' + remote_pos
 
-    print('Running maxfilter on %s' % host)
+    print(prefix + 'Running maxfilter on %s' % host)
     cmd = ['ssh', '-p', port, host,
            'maxfilter -f ' + remote_in + ' -o ' + remote_out + ' ' + options]
     try:
-        run_subprocess(cmd, stdout=None, stderr=None)
+        run_subprocess(cmd, stdout=stdout, stderr=stderr)
 
-        print('Copying result to %s' % fname_out)
+        print(prefix + 'Copying result to %s' % fname_out)
         if fname_pos is not None:
             try:
                 cmd = ['scp', '-P' + port, host + ':' + remote_pos, fname_pos]
-                run_subprocess(cmd, stdout=None, stderr=None)
+                run_subprocess(cmd, stdout=stdout, stderr=stderr)
             except Exception:
                 pass
         cmd = ['scp', '-P' + port, host + ':' + remote_out, fname_out]
-        run_subprocess(cmd, stdout=None, stderr=None)
+        run_subprocess(cmd, stdout=stdout, stderr=stderr)
     finally:
-        print('Cleaning up %s' % host)
+        print(prefix + 'Cleaning up %s' % host)
         files = [remote_in, remote_out]
         files += [remote_pos] if fname_pos is not None else []
         cmd = ['ssh', '-p', port, host, 'rm -f ' + ' '.join(files)]
         try:
-            run_subprocess(cmd, stdout=None, stderr=None)
+            run_subprocess(cmd, stdout=stdout, stderr=stderr)
         except Exception:
             pass
 
