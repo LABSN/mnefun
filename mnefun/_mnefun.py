@@ -37,6 +37,7 @@ from mne.preprocessing.maxwell import maxwell_filter
 from mne.minimum_norm import make_inverse_operator
 from mne.label import read_label
 from mne.epochs import combine_event_ids
+from mne.chpi import (filter_chpi, read_head_pos, _calculate_chpi_positions)
 try:
     from mne.chpi import quat_to_rot, rot_to_quat
 except ImportError:
@@ -196,27 +197,26 @@ class Params(Frozen):
     sss_type : str
         signal space separation method. Must be either 'maxfilter' or 'python'
     int_order : int
-        Order of internal component of spherical expansion.
+        Order of internal component of spherical expansion. Default is 3.
     ext_order : int
-        Order of external component of spherical expansion.
+        Order of external component of spherical expansion. Default is 8.
+        Value of 6 recomended for infant data
     tsss_dur : float | None
-        Apply spatiotemporal SSS with specified buffer duration
-        (in seconds). Elekta's default is 10.0 seconds in MaxFilter™ v2.2.
-        Spatiotemporal SSS acts as implicitly as a high-pass filter where the
-        cut-off frequency is 1/st_dur Hz. For this (and other) reasons, longer
-        buffers are generally better as long as your system can handle the
-        higher memory usage. To ensure that each window is processed
-        identically, choose a buffer length that divides evenly into your data.
-        Any data at the trailing edge that doesn't fit evenly into a whole
-        buffer window will be lumped into the previous buffer.
+        Buffer length (in seconds) fpr Spatiotemporal SSS. Default is 60.
+        however based on system specification a shorter buffer may be appropriate.
+        For data containing excessive head movements e.g. young children a buffer
+        size of 4s is recommended.
     st_correlation : float
         Correlation limit between inner and outer subspaces used to reject
         ovwrlapping intersecting inner/outer signals during spatiotemporal SSS.
+        Default is .98 however a smaller value of .9 is recommended for infant/
+        child data.
     trans_to : str | None
         The destination location for the head. Can be ``None``, which
         will not change the head position, or a string path to a FIF file
-        containing a MEG device<->head transformation.
-    sss_origin : array-like, shape (3,) | str
+        containing a MEG device<->head transformation. Default is median
+        head position.
+    sss_origin : str
         Origin of internal and external multipolar moment space in meters. Default is
         center of sphere fit to digitized head points.
 
@@ -228,22 +228,12 @@ class Params(Frozen):
     See also
     --------
     do_processing
-    run_sss_localy
-    mne.maxwell_filter
+    mne.preprocessing.maxwell_filter
 
     Notes
     -----
     Params has additional properties. Use ``dir(params)`` to see
     all the possible options.
-    - For Maxwell filtering with mne.maxwell_filter the following default
-    parameters:
-        * tSSS correlation = 0.98
-        * Order of internal component of spherical expansion = 8
-        * Order of external component of spherical expansion = 3
-        * tSSS buffer length = 60 seconds
-        * Spherical expansion coordinate frame = head
-        * Coordinate frame origin =  head-digitization-based origin fit
-
     """
 
     def __init__(self, tmin=None, tmax=None, t_adjust=0, bmin=-0.2, bmax=0.0,
@@ -257,9 +247,7 @@ class Params(Frozen):
                  cov_method='empirical', ssp_eog_reject=None,
                  ssp_ecg_reject=None, baseline='individual',
                  reject_tmin=None, reject_tmax=None,
-                 lp_trans=0.5, hp_trans=0.5, movecomp='inter',
-                 sss_type='maxfilter', int_order=8, ext_order=3,
-                 st_correlation=0.98, trans_to='median', sss_origin='head'):
+                 lp_trans=0.5, hp_trans=0.5):
         self.reject = dict(eog=np.inf, grad=1500e-13, mag=5000e-15, eeg=150e-6)
         self.flat = dict(eog=0, grad=1e-13, mag=1e-15, eeg=1e-6)
         if ssp_eog_reject is None:
@@ -340,9 +328,18 @@ class Params(Frozen):
         self.keep_orig = False
         # This is used by fix_eeg_channels to fix original files
         self.raw_fif_tag = '_raw.fif'
-        # Maxfilter params
+        # SSS denoising params
+        self.sss_type = 'python'
         self.mf_args = ''
         self.tsss_dur = 60.
+        self.trans_to = 'median'  # where to transform head positions to
+        self.sss_format = 'float'  # output type for MaxFilter
+        self.movecomp = 'inter'
+        self.int_order = 8
+        self.ext_order = 3
+        self.st_correlation = .98
+        self.sss_origin = 'head'
+        self.sss_regularize = 'in'
         # boolean for whether data set(s) have an individual mri
         self.on_process = None
         # Use more than EXTRA points to fit headshape
@@ -372,19 +369,7 @@ class Params(Frozen):
         self.out_numbers = []
         self.must_match = []
         self.on_missing = 'error'  # for epochs
-        self.trans_to = trans_to  # where to transform head positions to
-        assert self.trans_to in ('median', 'default', None)
-        self.sss_format = 'float'  # output type for MaxFilter
         self.subject_run_indices = None
-        self.movecomp = movecomp
-        assert self.movecomp in ('inter', None)
-        # Maxwell filtering parameters
-        self.sss_type = sss_type
-        assert self.sss_type in ('maxfilter', 'python')
-        self.int_order = int_order
-        self.ext_order = ext_order
-        self.st_correlation = st_correlation
-        self.sss_origin = sss_origin
         self.freeze()
 
     @property
@@ -856,19 +841,19 @@ def run_sss_command(fname_in, options, fname_out, host='kasga', port=22,
             pass
 
 
-def run_sss_positions(fname_in, fname_out, host='kasga', opts='', port=22):
+def run_sss_positions(p, fname_in, fname_out, opts=''):
     """Run Maxfilter remotely and fetch resulting file
 
     Parameters
     ----------
+    p : object
+        mnefun params object
     fname_in : str
         The filename to process. Additional ``-1`` files will be
         automatically detected.
     fname_out : str
         Output filename to use to store the resulting head positions
         on the local machine.
-    host : str
-        The SSH/scp host to run the command on.
     opts : str
         Additional command-line options to pass to MaxFilter.
     """
@@ -884,7 +869,8 @@ def run_sss_positions(fname_in, fname_out, host='kasga', opts='', port=22):
             fnames_in.append(next_name)
         else:
             break
-    port = str(int(port))
+    port = str(int(p.sws_port))
+    host = p.sws_ssh
     t0 = time()
     remote_ins = ['~/' + op.basename(fname) for fname in fnames_in]
     remote_out = '~/temp_%s_raw_quat.fif' % t0
@@ -893,7 +879,7 @@ def run_sss_positions(fname_in, fname_out, host='kasga', opts='', port=22):
     cmd = ['scp', '-P' + port] + fnames_in + [host + ':~/']
     run_subprocess(cmd, stdout=None, stderr=None)
 
-    print('  Running maxfilter on %s' % host)
+    print('  Running maxfilter as %s' % host)
     cmd = ['ssh', '-p', port, host,
            'maxfilter -f ' + remote_ins[0] + ' -o ' + remote_out +
            ' -headpos -format short -hp ' + remote_hp + ' ' + opts]
@@ -912,31 +898,18 @@ def run_sss_positions(fname_in, fname_out, host='kasga', opts='', port=22):
 def run_sss_localy(p, subjects, run_indices):
     """Run SSS locally using maxwell filter in python
 
-    .. warning:: Automatic bad channel detection is not currently implemented.
-                 It is critical to mark bad channels before running Maxwell
-                 filtering, so data should be inspected and marked accordingly
-                 prior to running this algorithm.
-
-    .. warning:: Not all features of Elekta MaxFilter™ are currently
-                 implemented (see Notes). Maxwell filtering in mne-python
-                 is not designed for clinical use.
-
-    Notes
-    -----
-    Compared to Elekta's MaxFilter™ software, Maxwwell filtering in mne-python
-    does not require/support the following arguments:
-        -format
-        -hpicons
-        -autobad
-        -force
-
+    For details see
+    ---------------
+    mne.preprocessing.maxwell
     """
-    cal_file = op.join(op.dirname(op.dirname(__file__)), 'mnefun/data/sss_cal.dat')
-    ct_file = op.join(op.dirname(op.dirname(__file__)), 'mnefun/data/ct_sparse.fif')
-    if p.tsss_dur:
-        st_duration = p.tsss_dur
-    else:
-        st_duration = None
+    data_dir = op.join(op.dirname(__file__), 'mnefun', 'data')
+    cal_file = op.join(data_dir, 'sss_cal.dat')
+    ct_file = op.join(data_dir, 'ct_sparse.fif')
+    assert isinstance(p.tsss_dur, float) and p.tsss_dur > 0
+    st_duration = p.tsss_dur
+    assert isinstance(p.sss_regularize, string_types)
+    reg = p.sss_regularize
+
     for si, subj in enumerate(subjects):
         if p.disp_files:
             print('  Maxwell filtering subject %g/%g (%s).'
@@ -950,19 +923,19 @@ def run_sss_localy(p, subjects, run_indices):
         erm_files = get_raw_fnames(p, subj, 'raw', 'only')
         erm_files_out = get_raw_fnames(p, subj, 'sss', False, False, run_indices[si])
         prebad_file = _prebad(p, subj)
+
         #  process raw files
         for ii, (r, o) in enumerate(zip(raw_files, raw_files_out)):
             if not op.isfile(r):
                 raise NameError('File not found (' + r + ')')
             raw = Raw(r, preload=True, allow_maxshield=True)
             raw.load_bad_channels(prebad_file, force=True)
-            #  set maxwell filtering parameters
-            if p.sss_origin is 'head':
-                _, origin, _ = fit_sphere_to_headshape(raw.info)
-                origin /= 1000
-            else:
-                origin = p.sss_origin
+            raw.fix_mag_coil_types()
+            raw = filter_chpi(raw)
+            _, origin, _ = fit_sphere_to_headshape(raw.info)
+            origin /= 1000
 
+            assert isinstance(p.trans_to, string_types)
             if p.trans_to is 'median':
                 trans_to = op.join(p.work_dir, subj, p.raw_dir, subj + '_median_pos.fif')
                 if not op.isfile(trans_to):
@@ -970,13 +943,16 @@ def run_sss_localy(p, subjects, run_indices):
             else:
                 trans_to = p.trans_to
 
+            # estimate head position
+            # pos = _calculate_chpi_positions(raw)
+            pos = _headpos(p, subj, r, o)
             # apply maxwell filter
             raw_sss = maxwell_filter(raw, origin=origin, int_order=p.int_order, ext_order=p.ext_order,
-                                     calibration=cal_file,
-                                     cross_talk=ct_file,
+                                     calibration=cal_file, cross_talk=ct_file,
                                      st_correlation=p.st_correlation, st_duration=st_duration,
-                                     destination=trans_to,
-                                     coord_frame='head')
+                                     destination=trans_to, coord_frame='head',
+                                     head_pos=pos, regularize=reg)
+
             raw_sss.save(o, overwrite=True, buffer_size_sec=None)
             #  process erm files if any
             if len(erm_files) > 1:
@@ -2121,10 +2097,15 @@ def _prebad(p, subj):
     """Helper for locating file containing bad channels during acq"""
     prebad_file = op.join(p.work_dir, subj, p.raw_dir, subj + '_prebad.txt')
     if not op.isfile(prebad_file):  # SSS prebad file
-        with open(prebad_file, mode='w') as f:
-            f.write()
-            f.close()
-        raise RuntimeError('Could not find SSS prebad file: %s'
-                               % prebad_file)
+        raise RuntimeError('Could not find SSS prebad file: %s' % prebad_file)
     return prebad_file
+
+
+def _headpos(p, subj, file_in, file_out):
+    """Helper for locating head position estimation file"""
+    headpos_file = op.join(p.work_dir, subj, p.raw_dir, subj + '_raw.pos')
+    if not op.isfile(headpos_file):
+        run_sss_positions(p, file_in, file_out)
+    pos = read_head_pos(headpos_file)
+    return pos
 
