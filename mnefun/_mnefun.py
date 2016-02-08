@@ -881,7 +881,7 @@ def run_sss_positions(p, fname_in, fname_out, opts=''):
 
     print('  Running maxfilter as %s' % host)
     cmd = ['ssh', '-p', port, host,
-           'maxfilter -f ' + remote_ins[0] + ' -o ' + remote_out +
+           '/neuro/bin/util/maxfilter -f ' + remote_ins[0] + ' -o ' + remote_out +
            ' -headpos -format short -hp ' + remote_hp + ' ' + opts]
     run_subprocess(cmd)
 
