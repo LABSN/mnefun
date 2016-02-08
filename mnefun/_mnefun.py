@@ -216,7 +216,7 @@ class Params(Frozen):
         will not change the head position, or a string path to a FIF file
         containing a MEG device<->head transformation. Default is median
         head position.
-    sss_origin : str
+    sss_origin : array-like, shape (3,) | str
         Origin of internal and external multipolar moment space in meters. Default is
         center of sphere fit to digitized head points.
 
@@ -338,7 +338,7 @@ class Params(Frozen):
         self.int_order = 8
         self.ext_order = 3
         self.st_correlation = .98
-        self.sss_origin = 'head'
+        self.sss_origin = 'auto'
         self.sss_regularize = 'in'
         # boolean for whether data set(s) have an individual mri
         self.on_process = None
@@ -932,8 +932,6 @@ def run_sss_localy(p, subjects, run_indices):
             raw.load_bad_channels(prebad_file, force=True)
             raw.fix_mag_coil_types()
             raw = filter_chpi(raw)
-            _, origin, _ = fit_sphere_to_headshape(raw.info)
-            origin /= 1000
 
             assert isinstance(p.trans_to, string_types)
             if p.trans_to is 'median':
@@ -947,7 +945,7 @@ def run_sss_localy(p, subjects, run_indices):
             # pos = _calculate_chpi_positions(raw)
             pos = _headpos(p, subj, r, o)
             # apply maxwell filter
-            raw_sss = maxwell_filter(raw, origin=origin, int_order=p.int_order, ext_order=p.ext_order,
+            raw_sss = maxwell_filter(raw, origin=p.sss_origin, int_order=p.int_order, ext_order=p.ext_order,
                                      calibration=cal_file, cross_talk=ct_file,
                                      st_correlation=p.st_correlation, st_duration=st_duration,
                                      destination=trans_to, coord_frame='head',
@@ -955,20 +953,19 @@ def run_sss_localy(p, subjects, run_indices):
 
             raw_sss.save(o, overwrite=True, buffer_size_sec=None)
             #  process erm files if any
-            if len(erm_files) > 1:
-                for ii, (r, o) in enumerate(zip(erm_files, erm_files_out)):
-                    if not op.isfile(r):
-                        raise NameError('File not found (' + r + ')')
-                    raw = Raw(r, preload=True, allow_maxshield=True)
-                    raw.load_bad_channels(prebad_file, force=True)
-                    # apply maxwell filter
-                    raw_sss = maxwell_filter(raw, int_order=p.int_order, ext_order=p.ext_order,
-                                             calibration=cal_file,
-                                             cross_talk=ct_file,
-                                             st_correlation=p.st_correlation, st_duration=st_duration,
-                                             destination=None,
-                                             coord_frame='device')
-                    raw_sss.save(o, overwrite=True, buffer_size_sec=None)
+            for ii, (r, o) in enumerate(zip(erm_files, erm_files_out)):
+                if not op.isfile(r):
+                    raise NameError('File not found (' + r + ')')
+                raw = Raw(r, preload=True, allow_maxshield=True)
+                raw.load_bad_channels(prebad_file, force=True)
+                # apply maxwell filter
+                raw_sss = maxwell_filter(raw, int_order=p.int_order, ext_order=p.ext_order,
+                                         calibration=cal_file,
+                                         cross_talk=ct_file,
+                                         st_correlation=p.st_correlation, st_duration=st_duration,
+                                         destination=None,
+                                         coord_frame='device')
+                raw_sss.save(o, overwrite=True, buffer_size_sec=None)
 
 
 
@@ -1576,7 +1573,8 @@ def _raw_LRFCP(raw_names, sfreq, l_freq, h_freq, n_jobs, n_jobs_resample,
         print('    Loading and filtering %d files.' % len(raw_names))
     raw = list()
     for rn in raw_names:
-        r = Raw(rn, preload=True, allow_maxshield=allow_maxshield)
+        with warnings.catch_warnings(record=True):
+            r = Raw(rn, preload=True, allow_maxshield=allow_maxshield)
         r.load_bad_channels(bad_file, force=force_bads)
         if sfreq is not None:
             with warnings.catch_warnings(record=True):  # resamp of stim ch
