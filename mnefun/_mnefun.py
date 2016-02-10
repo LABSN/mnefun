@@ -27,6 +27,7 @@ from mne import (compute_proj_raw, make_fixed_length_events, Epochs,
                  make_forward_solution, get_config, write_evokeds,
                  make_sphere_model, setup_volume_source_space,
                  read_bem_solution)
+
 try:
     from mne import compute_raw_covariance  # up-to-date mne-python
 except ImportError:  # oldmne-python
@@ -38,6 +39,7 @@ from mne.minimum_norm import make_inverse_operator
 from mne.label import read_label
 from mne.epochs import combine_event_ids
 from mne.chpi import (filter_chpi, read_head_pos, _calculate_chpi_positions)
+
 try:
     from mne.chpi import quat_to_rot, rot_to_quat
 except ImportError:
@@ -97,6 +99,7 @@ class Frozen(object):
         self.__isfrozen = False
 
 
+# noinspection PyUnresolvedReferences
 class Params(Frozen):
     """Make a parameter structure for use with `do_processing`
 
@@ -885,8 +888,8 @@ def run_sss_positions(p, fname_in, fname_out, opts=''):
            ' -headpos -format short -hp ' + remote_hp + ' ' + opts]
     run_subprocess(cmd)
 
-    print('  Copying result to %s' % fname_out)
-    cmd = ['scp', '-P' + port, host + ':' + remote_hp, fname_out]
+    print('  Copying result to %s.pos' % fname_out[:-4])
+    cmd = ['scp', '-P' + port, host + ':' + remote_hp, fname_out[:-4] + '.pos']
     run_subprocess(cmd)
 
     print('  Cleaning up %s' % host)
@@ -902,7 +905,7 @@ def run_sss_localy(p, subjects, run_indices):
     ---------------
     mne.preprocessing.maxwell
     """
-    data_dir = op.join(op.dirname(__file__), 'mnefun', 'data')
+    data_dir = op.join(op.dirname(__file__), 'data')
     cal_file = op.join(data_dir, 'sss_cal.dat')
     ct_file = op.join(data_dir, 'ct_sparse.fif')
     assert isinstance(p.tsss_dur, float) and p.tsss_dur > 0
@@ -914,14 +917,17 @@ def run_sss_localy(p, subjects, run_indices):
         if p.disp_files:
             print('  Maxwell filtering subject %g/%g (%s).'
                   % (si + 1, len(subjects), subj))
-        #  locate raw and erm files
+        # locate raw and erm files
+        raw_dir = op.join(p.work_dir, subj, p.raw_dir)
         sss_dir = op.join(p.work_dir, subj, p.sss_dir)
         if not op.isdir(sss_dir):
             os.mkdir(sss_dir)
-        raw_files = get_raw_fnames(p, subj, 'raw', False, False, run_indices[si])
-        raw_files_out = get_raw_fnames(p, subj, 'sss', False, False, run_indices[si])
+        raw_files = get_raw_fnames(p, subj, 'raw', erm=False, add_splits=True,
+                                   run_indices=run_indices[si])
+        raw_files_out = get_raw_fnames(p, subj, 'sss', erm=False, add_splits=False,
+                                       run_indices=run_indices[si])
         erm_files = get_raw_fnames(p, subj, 'raw', 'only')
-        erm_files_out = get_raw_fnames(p, subj, 'sss', False, False, run_indices[si])
+        erm_files_out = get_raw_fnames(p, subj, 'sss', 'only')
         prebad_file = _prebad(p, subj)
 
         #  process raw files
@@ -943,7 +949,8 @@ def run_sss_localy(p, subjects, run_indices):
 
             # estimate head position
             # pos = _calculate_chpi_positions(raw)
-            pos = _headpos(p, subj, r, o)
+            file_out = op.join(raw_dir, op.basename(r)[:-4] + '.pos')
+            pos = _headpos(p, subj, r, file_out)
             # apply maxwell filter
             raw_sss = maxwell_filter(raw, origin=p.sss_origin, int_order=p.int_order, ext_order=p.ext_order,
                                      calibration=cal_file, cross_talk=ct_file,
@@ -966,7 +973,6 @@ def run_sss_localy(p, subjects, run_indices):
                                          destination=None,
                                          coord_frame='device')
                 raw_sss.save(o, overwrite=True, buffer_size_sec=None)
-
 
 
 def extract_expyfun_events(fname, return_offsets=False):
@@ -1067,7 +1073,7 @@ def fix_eeg_files(p, subjects, structurals=None, dates=None, run_indices=None):
         names = [name for name in raw_names if op.isfile(name)]
         # noinspection PyPep8
         if structurals is not None and structurals[si] is not None and \
-                dates is not None:
+                        dates is not None:
             assert isinstance(structurals[si], str)
             assert isinstance(dates[si], tuple) and len(dates[si]) == 3
             assert all([isinstance(d, int) for d in dates[si]])
@@ -1891,7 +1897,7 @@ def apply_preprocessing_combined(p, subjects, run_indices):
             _viz_raw_ssp_events(p, subj, run_indices[si])
 
 
-class FakeEpochs():
+class FakeEpochs:
     """Make iterable epoch-like class, convenient for MATLAB transition"""
 
     def __init__(self, data, ch_names, tmin=-0.2, sfreq=1000.0):
@@ -2106,4 +2112,3 @@ def _headpos(p, subj, file_in, file_out):
         run_sss_positions(p, file_in, file_out)
     pos = read_head_pos(headpos_file)
     return pos
-
