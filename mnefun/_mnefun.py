@@ -11,7 +11,7 @@ import warnings
 from shutil import move, copy2
 import subprocess
 import glob
-from collections import Counter
+from collections import Counter, defaultdict
 from time import time
 
 import numpy as np
@@ -436,7 +436,7 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
         Print status (determined from file structure).
     """
     # Generate requested things
-    if p.sss_type is 'python':
+    if p.sss_type == 'python':
         push_raw = False
         fetch_sss = False
     bools = [fetch_raw,
@@ -844,13 +844,11 @@ def run_sss_command(fname_in, options, fname_out, host='kasga', port=22,
             pass
 
 
-def run_sss_positions(p, fname_in, fname_out, opts=''):
+def run_sss_positions(fname_in, fname_out, host, port=22, opts=''):
     """Run Maxfilter remotely and fetch resulting file
 
     Parameters
     ----------
-    p : object
-        mnefun params object
     fname_in : str
         The filename to process. Additional ``-1`` files will be
         automatically detected.
@@ -865,36 +863,27 @@ def run_sss_positions(p, fname_in, fname_out, opts=''):
         raise IOError('input file not found: %s' % fname_in)
     if not op.isdir(op.dirname(op.abspath(fname_out))):
         raise IOError('output directory for output file does not exist')
-    fnames_in = [fname_in]
-    for ii in range(1, 11):
-        next_name = op.splitext(fname_in)[0] + '-%s' % ii + '.fif'
-        if op.isfile(next_name):
-            fnames_in.append(next_name)
-        else:
-            break
-    port = str(int(p.sws_port))
-    host = p.sws_ssh
     t0 = time()
-    remote_ins = ['~/' + op.basename(fname) for fname in fnames_in]
+    remote_in = '~/' + op.basename(fname_in)
     remote_out = '~/temp_%s_raw_quat.fif' % t0
     remote_hp = '~/temp_%s_hp.txt' % t0
     print('  Copying file to %s' % host)
-    cmd = ['scp', '-P' + port] + fnames_in + [host + ':~/']
+    cmd = ['scp', '-P', '%d' % port, fname_in, host + ':~/']
     run_subprocess(cmd, stdout=None, stderr=None)
 
     print('  Running maxfilter as %s' % host)
-    cmd = ['ssh', '-p', port, host,
-           '/neuro/bin/util/maxfilter -f ' + remote_ins[0] + ' -o ' + remote_out +
+    cmd = ['ssh', '-p', '%d' % port, host,
+           '/neuro/bin/util/maxfilter -f ' + remote_in + ' -o ' + remote_out +
            ' -headpos -format short -hp ' + remote_hp + ' ' + opts]
     run_subprocess(cmd)
 
     print('  Copying result to %s.pos' % fname_out[:-4])
-    cmd = ['scp', '-P' + port, host + ':' + remote_hp, fname_out[:-4] + '.pos']
+    cmd = ['scp', '-P' + '%d' % port, host + ':' + remote_hp, fname_out]
     run_subprocess(cmd)
 
     print('  Cleaning up %s' % host)
-    cmd = ['ssh', '-p', port, host, 'rm -f %s %s %s'
-           % (' '.join(remote_ins), remote_hp, remote_out)]
+    cmd = ['ssh', '-p', '%d' % port, host, 'rm -f %s %s %s'
+           % (remote_in, remote_hp, remote_out)]
     run_subprocess(cmd)
 
 
@@ -917,20 +906,58 @@ def run_sss_localy(p, subjects, run_indices):
         if p.disp_files:
             print('  Maxwell filtering subject %g/%g (%s).'
                   % (si + 1, len(subjects), subj))
-        # locate raw and erm files
+        # locate raw files with splits
         raw_dir = op.join(p.work_dir, subj, p.raw_dir)
+        raw_files = get_raw_fnames(p, subj, 'raw', erm=False, add_splits=True,
+                                   run_indices=run_indices[si])
+        # get head position estimation data
+        # pos = _calculate_chpi_positions(raw)
+        file_set = defaultdict(list)
+        for r in raw_files:
+            key = r.split('_raw')[0]
+            if key not in file_set:
+                file_set[key] = []
+            file_set[key].append(r)
+        # build dict with unique subj key for sets of raw files
+        for k in file_set.keys():
+            if len(file_set[k]) > 1:
+                for file_in in sorted(file_set[k], reverse=True):
+                    file_out = op.join(raw_dir, op.basename(file_in)[:-4] + '.tmp')
+                    # run MF -hp remotely for each raw file in a set
+                    run_sss_positions(file_in, file_out, p.sws_ssh)
+
+                # concatenate hp pos file for sets containing split raw files
+                pos_data = []
+                filenames = [f[:-4] + '.tmp' for f in sorted(file_set[k], reverse=True)]
+                pos_file = filenames[0][:-4] + '.pos'
+                with open(pos_file, 'w') as fo:
+                    for f in filenames:
+                        with open(f) as infile:
+                            content = infile.readlines()
+                            header = content[0]
+                            qdata = content[1:]
+                            pos_data.append(qdata)
+                            os.remove(f)
+                    pos_data.insert(0, header)
+                    fo.writelines(''.join(str(j) for j in i) for i in pos_data)
+            else:
+                # run MF -hp remotely for raw files without splits and write pos file locally
+                for file_in in raw_files:
+                    pos_file = op.join(raw_dir, op.basename(file_in)[:-4] + '.pos')
+                    run_sss_positions(file_in, pos_file, p.sws_ssh)
+        pos = read_head_pos(pos_file)
+
+        #  maxwell filtering files
         sss_dir = op.join(p.work_dir, subj, p.sss_dir)
         if not op.isdir(sss_dir):
             os.mkdir(sss_dir)
-        raw_files = get_raw_fnames(p, subj, 'raw', erm=False, add_splits=True,
+        raw_files = get_raw_fnames(p, subj, 'raw', erm=False, add_splits=False,
                                    run_indices=run_indices[si])
         raw_files_out = get_raw_fnames(p, subj, 'sss', erm=False, add_splits=False,
                                        run_indices=run_indices[si])
         erm_files = get_raw_fnames(p, subj, 'raw', 'only')
         erm_files_out = get_raw_fnames(p, subj, 'sss', 'only')
         prebad_file = _prebad(p, subj)
-
-        #  process raw files
         for ii, (r, o) in enumerate(zip(raw_files, raw_files_out)):
             if not op.isfile(r):
                 raise NameError('File not found (' + r + ')')
@@ -947,10 +974,6 @@ def run_sss_localy(p, subjects, run_indices):
             else:
                 trans_to = p.trans_to
 
-            # estimate head position
-            # pos = _calculate_chpi_positions(raw)
-            file_out = op.join(raw_dir, op.basename(r)[:-4] + '.pos')
-            pos = _headpos(p, subj, r, file_out)
             # apply maxwell filter
             raw_sss = maxwell_filter(raw, origin=p.sss_origin, int_order=p.int_order, ext_order=p.ext_order,
                                      calibration=cal_file, cross_talk=ct_file,
@@ -960,10 +983,10 @@ def run_sss_localy(p, subjects, run_indices):
 
             raw_sss.save(o, overwrite=True, buffer_size_sec=None)
             #  process erm files if any
-            for ii, (r, o) in enumerate(zip(erm_files, erm_files_out)):
+            for jj, (ef, efo) in enumerate(zip(erm_files, erm_files_out)):
                 if not op.isfile(r):
                     raise NameError('File not found (' + r + ')')
-                raw = Raw(r, preload=True, allow_maxshield=True)
+                raw = Raw(ef, preload=True, allow_maxshield=True)
                 raw.load_bad_channels(prebad_file, force=True)
                 # apply maxwell filter
                 raw_sss = maxwell_filter(raw, int_order=p.int_order, ext_order=p.ext_order,
@@ -971,8 +994,8 @@ def run_sss_localy(p, subjects, run_indices):
                                          cross_talk=ct_file,
                                          st_correlation=p.st_correlation, st_duration=st_duration,
                                          destination=None,
-                                         coord_frame='device')
-                raw_sss.save(o, overwrite=True, buffer_size_sec=None)
+                                         coord_frame='meg')
+                raw_sss.save(efo, overwrite=True, buffer_size_sec=None)
 
 
 def extract_expyfun_events(fname, return_offsets=False):
@@ -1073,7 +1096,7 @@ def fix_eeg_files(p, subjects, structurals=None, dates=None, run_indices=None):
         names = [name for name in raw_names if op.isfile(name)]
         # noinspection PyPep8
         if structurals is not None and structurals[si] is not None and \
-                        dates is not None:
+            dates is not None:
             assert isinstance(structurals[si], str)
             assert isinstance(dates[si], tuple) and len(dates[si]) == 3
             assert all([isinstance(d, int) for d in dates[si]])
@@ -1897,7 +1920,7 @@ def apply_preprocessing_combined(p, subjects, run_indices):
             _viz_raw_ssp_events(p, subj, run_indices[si])
 
 
-class FakeEpochs:
+class FakeEpochs(object):
     """Make iterable epoch-like class, convenient for MATLAB transition"""
 
     def __init__(self, data, ch_names, tmin=-0.2, sfreq=1000.0):
@@ -2104,11 +2127,3 @@ def _prebad(p, subj):
         raise RuntimeError('Could not find SSS prebad file: %s' % prebad_file)
     return prebad_file
 
-
-def _headpos(p, subj, file_in, file_out):
-    """Helper for locating head position estimation file"""
-    headpos_file = op.join(p.work_dir, subj, p.raw_dir, subj + '_raw.pos')
-    if not op.isfile(headpos_file):
-        run_sss_positions(p, file_in, file_out)
-    pos = read_head_pos(headpos_file)
-    return pos
