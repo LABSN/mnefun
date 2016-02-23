@@ -872,28 +872,33 @@ def run_sss_positions(fname_in, fname_out, host='kasga', opts='', port=22):
             fnames_in.append(next_name)
         else:
             break
-    t0 = time()
-    remote_ins = ['~/' + op.basename(fname) for fname in fnames_in]
-    remote_out = '~/temp_%s_raw_quat.fif' % t0
-    remote_hp = '~/temp_%s_hp.txt' % t0
+
     print('  Copying file to %s' % host)
     cmd = ['scp', '-P' + str(port)] + fnames_in + [host + ':~/']
     run_subprocess(cmd, stdout=None, stderr=None)
+    t0 = time()
+    remote_ins = ['~/' + op.basename(f) for f in fnames_in]
+    if len(remote_ins) > 1:
+        fnames_out = [op.basename(r)[:-4] + '.pos' for r in remote_ins]
+        assert len(fnames_out) == len(fnames_in)
+        for fi, file_out in enumerate(fnames_out):
+            remote_out = '~/temp_%s_raw_quat.fif' % t0
+            remote_hp = '~/temp_%s_hp.txt' % t0
 
-    print('  Running maxfilter as %s' % host)
-    cmd = ['ssh', '-p', str(port), host,
-           '/neuro/bin/util/maxfilter -f ' + remote_ins[0] + ' -o ' + remote_out +
-           ' -headpos -format short -hp ' + remote_hp + ' ' + opts]
-    run_subprocess(cmd)
+            print('  Running maxfilter as %s' % host)
+            cmd = ['ssh', '-p', str(port), host,
+                   '/neuro/bin/util/maxfilter -f ' + remote_ins[0] + ' -o ' + remote_out +
+                   ' -headpos -format short -hp ' + remote_hp + ' ' + opts]
+            run_subprocess(cmd)
 
-    print('  Copying result to %s.pos' % fname_out[:-4])
-    cmd = ['scp', '-P' + str(port), host + ':' + remote_hp, fname_out[:-4] + '.pos']
-    run_subprocess(cmd)
+            print('  Copying result to %s' % file_out)
+            cmd = ['scp', '-P' + str(port), host + ':' + remote_hp, file_out]
+            run_subprocess(cmd)
 
-    print('  Cleaning up %s' % host)
-    cmd = ['ssh', '-p', str(port), host, 'rm -f %s %s %s'
-           % (' '.join(remote_ins), remote_hp, remote_out)]
-    run_subprocess(cmd)
+            print('  Cleaning up %s' % host)
+            cmd = ['ssh', '-p', str(port), host, 'rm -f %s %s %s'
+                   % (' '.join(remote_ins), remote_hp, remote_out)]
+            run_subprocess(cmd)
 
 
 def run_sss_localy(p, subjects, run_indices):
@@ -945,10 +950,13 @@ def run_sss_localy(p, subjects, run_indices):
             else:
                 trans_to = p.trans_to
 
-            # estimate head position
-            # pos = _calculate_chpi_positions(raw)
-            file_out = op.join(raw_dir, op.basename(r)[:-4] + '.pos')
-            pos = _headpos(p, r, file_out)
+            if p.movecomp is not None:
+                # estimate head position for movement compensation
+                # pos = _calculate_chpi_positions(raw)
+                file_out = op.join(raw_dir, op.basename(r)[:-4] + '.pos')
+                pos = _headpos(p, r, file_out)
+            else:
+                pos = None
             # apply maxwell filter
             raw_sss = maxwell_filter(raw, origin=p.sss_origin, int_order=p.int_order, ext_order=p.ext_order,
                                      calibration=cal_file, cross_talk=ct_file,
