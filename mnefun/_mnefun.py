@@ -865,6 +865,7 @@ def run_sss_positions(fname_in, fname_out, host='kasga', opts='', port=22):
         raise IOError('input file not found: %s' % fname_in)
     if not op.isdir(op.dirname(op.abspath(fname_out))):
         raise IOError('output directory for output file does not exist')
+    pout = op.dirname(fname_in)
     fnames_in = [fname_in]
     for ii in range(1, 11):
         next_name = op.splitext(fname_in)[0] + '-%s' % ii + '.fif'
@@ -879,26 +880,41 @@ def run_sss_positions(fname_in, fname_out, host='kasga', opts='', port=22):
     t0 = time()
     remote_ins = ['~/' + op.basename(f) for f in fnames_in]
     if len(remote_ins) > 1:
-        fnames_out = [op.basename(r)[:-4] + '.pos' for r in remote_ins]
+        fnames_out = [op.basename(r)[:-4] + '.tmp' for r in remote_ins]
         assert len(fnames_out) == len(fnames_in)
-        for fi, file_out in enumerate(fnames_out):
-            remote_out = '~/temp_%s_raw_quat.fif' % t0
-            remote_hp = '~/temp_%s_hp.txt' % t0
+    else:
+        fnames_out = [op.basename(fname_out)[:-4] + '.tmp']
+    for fi, file_out in enumerate(fnames_out):
+        remote_out = '~/temp_%s_raw_quat.fif' % t0
+        remote_hp = '~/temp_%s_hp.txt' % t0
 
-            print('  Running maxfilter as %s' % host)
-            cmd = ['ssh', '-p', str(port), host,
-                   '/neuro/bin/util/maxfilter -f ' + remote_ins[0] + ' -o ' + remote_out +
-                   ' -headpos -format short -hp ' + remote_hp + ' ' + opts]
-            run_subprocess(cmd)
+        print('  Running maxfilter as %s' % host)
+        cmd = ['ssh', '-p', str(port), host,
+               '/neuro/bin/util/maxfilter -f ' + remote_ins[fi] + ' -o ' + remote_out +
+               ' -headpos -format short -hp ' + remote_hp + ' ' + opts]
+        run_subprocess(cmd)
 
-            print('  Copying result to %s' % file_out)
-            cmd = ['scp', '-P' + str(port), host + ':' + remote_hp, file_out]
-            run_subprocess(cmd)
+        print('  Copying result to %s' % file_out)
+        cmd = ['scp', '-P' + str(port), host + ':' + remote_hp, op.join(pout, file_out)]
+        run_subprocess(cmd)
 
-            print('  Cleaning up %s' % host)
-            cmd = ['ssh', '-p', str(port), host, 'rm -f %s %s %s'
-                   % (' '.join(remote_ins), remote_hp, remote_out)]
-            run_subprocess(cmd)
+        print('  Cleaning up %s' % host)
+        cmd = ['ssh', '-p', str(port), host, 'rm -f %s %s %s %s'
+           % (' '.join(remote_ins), file_out, remote_hp, remote_out)]
+        run_subprocess(cmd)
+
+    # concatenate hp pos file for split raw files if any
+    pos_data = []
+    with open(fname_out, 'w') as fo:
+        for f in fnames_out:
+            with open(op.join(pout, f)) as infile:
+                content = infile.readlines()
+                header = content[0]
+                qdata = content[1:]
+                pos_data.append(qdata)
+                os.remove(op.join(pout, f))
+        pos_data.insert(0, header)
+        fo.writelines(''.join(str(j) for j in i) for i in pos_data)
 
 
 def run_sss_localy(p, subjects, run_indices):
