@@ -899,8 +899,8 @@ def run_sss_positions(fname_in, fname_out, host='kasga', opts='', port=22):
         run_subprocess(cmd)
 
         print('  Cleaning up %s' % host)
-        cmd = ['ssh', '-p', str(port), host, 'rm -f %s %s %s %s'
-           % (' '.join(remote_ins), file_out, remote_hp, remote_out)]
+        cmd = ['ssh', '-p', str(port), host, 'rm -f %s %s %s'
+           % (' '.join(remote_ins), remote_hp, remote_out)]
         run_subprocess(cmd)
 
     # concatenate hp pos file for split raw files if any
