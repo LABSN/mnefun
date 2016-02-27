@@ -38,5 +38,4 @@ if __name__ == "__main__":
           packages=setuptools.find_packages(),
           package_data={'mnefun': ['run_sss.sh', os.path.join('data', 'sss_cal.dat'),
                                    os.path.join('data', 'ct_sparse.fif')]},
-          scripts=['bin/simulate_movement.py'],
-          requires=['numpy'])
+          scripts=['bin/simulate_movement.py'])

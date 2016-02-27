@@ -879,11 +879,7 @@ def run_sss_positions(fname_in, fname_out, host='kasga', opts='', port=22):
     run_subprocess(cmd, stdout=None, stderr=None)
     t0 = time()
     remote_ins = ['~/' + op.basename(f) for f in fnames_in]
-    if len(remote_ins) > 1:
-        fnames_out = [op.basename(r)[:-4] + '.tmp' for r in remote_ins]
-        assert len(fnames_out) == len(fnames_in)
-    else:
-        fnames_out = [op.basename(fname_out)[:-4] + '.tmp']
+    fnames_out = [op.basename(r)[:-4] + '.tmp' for r in remote_ins]
     for fi, file_out in enumerate(fnames_out):
         remote_out = '~/temp_%s_raw_quat.fif' % t0
         remote_hp = '~/temp_%s_hp.txt' % t0
@@ -905,20 +901,21 @@ def run_sss_positions(fname_in, fname_out, host='kasga', opts='', port=22):
 
     # concatenate hp pos file for split raw files if any
     pos_data = []
+    for f in fnames_out:
+        with open(op.join(pout, f)) as infile:
+            content = infile.readlines()
+        header = content[0]
+        qdata = content[1:]
+        pos_data.append(qdata)
+        os.remove(op.join(pout, f))
+    pos_data.insert(0, header)
+
     with open(fname_out, 'w') as fo:
-        for f in fnames_out:
-            with open(op.join(pout, f)) as infile:
-                content = infile.readlines()
-                header = content[0]
-                qdata = content[1:]
-                pos_data.append(qdata)
-                os.remove(op.join(pout, f))
-        pos_data.insert(0, header)
         fo.writelines(''.join(str(j) for j in i) for i in pos_data)
 
 
-def run_sss_localy(p, subjects, run_indices):
-    """Run SSS localy using maxwell filter in python
+def run_sss_locally(p, subjects, run_indices):
+    """Run SSS locally using maxwell filter in python
 
     For details see
     ---------------
@@ -1095,7 +1092,7 @@ def fix_eeg_files(p, subjects, structurals=None, dates=None, run_indices=None):
         names = [name for name in raw_names if op.isfile(name)]
         # noinspection PyPep8
         if structurals is not None and structurals[si] is not None and \
-            dates is not None:
+                dates is not None:
             assert isinstance(structurals[si], str)
             assert isinstance(dates[si], tuple) and len(dates[si]) == 3
             assert all([isinstance(d, int) for d in dates[si]])
