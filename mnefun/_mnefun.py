@@ -724,7 +724,7 @@ def run_sss(p, subjects, run_indices):
     locally using Maxwell filtering in mne-python"""
     if p.sss_type is 'python':
         print(' Applying SSS locally using mne-python')
-        run_sss_localy(p, subjects, run_indices)
+        run_sss_locally(p, subjects, run_indices)
     else:
         for si, subj in enumerate(subjects):
             files = get_raw_fnames(p, subj, 'raw', False, True, run_indices[si])
