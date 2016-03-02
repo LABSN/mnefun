@@ -27,15 +27,19 @@ from mne import (compute_proj_raw, make_fixed_length_events, Epochs,
                  make_forward_solution, get_config, write_evokeds,
                  make_sphere_model, setup_volume_source_space,
                  read_bem_solution)
+
 try:
     from mne import compute_raw_covariance  # up-to-date mne-python
 except ImportError:  # oldmne-python
     from mne import compute_raw_data_covariance as compute_raw_covariance
 from mne.preprocessing.ssp import compute_proj_ecg, compute_proj_eog
 from mne.preprocessing.maxfilter import fit_sphere_to_headshape
+from mne.preprocessing.maxwell import maxwell_filter
 from mne.minimum_norm import make_inverse_operator
 from mne.label import read_label
 from mne.epochs import combine_event_ids
+from mne.chpi import (filter_chpi, read_head_pos, write_head_pos)
+
 try:
     from mne.chpi import quat_to_rot, rot_to_quat
 except ImportError:
@@ -95,6 +99,7 @@ class Frozen(object):
         self.__isfrozen = False
 
 
+# noinspection PyUnresolvedReferences
 class Params(Frozen):
     """Make a parameter structure for use with `do_processing`
 
@@ -192,6 +197,31 @@ class Params(Frozen):
         High-pass transition band.
     movecomp : str | None
         Movement compensation to use. Can be 'inter' or None.
+    sss_type : str
+        signal space separation method. Must be either 'maxfilter' or 'python'
+    int_order : int
+        Order of internal component of spherical expansion. Default is 3.
+    ext_order : int
+        Order of external component of spherical expansion. Default is 8.
+        Value of 6 recomended for infant data
+    tsss_dur : float | None
+        Buffer length (in seconds) fpr Spatiotemporal SSS. Default is 60.
+        however based on system specification a shorter buffer may be appropriate.
+        For data containing excessive head movements e.g. young children a buffer
+        size of 4s is recommended.
+    st_correlation : float
+        Correlation limit between inner and outer subspaces used to reject
+        ovwrlapping intersecting inner/outer signals during spatiotemporal SSS.
+        Default is .98 however a smaller value of .9 is recommended for infant/
+        child data.
+    trans_to : str | None
+        The destination location for the head. Can be ``None``, which
+        will not change the head position, or a string path to a FIF file
+        containing a MEG device<->head transformation. Default is median
+        head position.
+    sss_origin : array-like, shape (3,) | str
+        Origin of internal and external multipolar moment space in meters. Default is
+        center of sphere fit to digitized head points.
 
     Returns
     -------
@@ -201,6 +231,7 @@ class Params(Frozen):
     See also
     --------
     do_processing
+    mne.preprocessing.maxwell_filter
 
     Notes
     -----
@@ -219,7 +250,7 @@ class Params(Frozen):
                  cov_method='empirical', ssp_eog_reject=None,
                  ssp_ecg_reject=None, baseline='individual',
                  reject_tmin=None, reject_tmax=None,
-                 lp_trans=0.5, hp_trans=0.5, movecomp='inter'):
+                 lp_trans=0.5, hp_trans=0.5):
         self.reject = dict(eog=np.inf, grad=1500e-13, mag=5000e-15, eeg=150e-6)
         self.flat = dict(eog=0, grad=1e-13, mag=1e-15, eeg=1e-6)
         if ssp_eog_reject is None:
@@ -300,9 +331,18 @@ class Params(Frozen):
         self.keep_orig = False
         # This is used by fix_eeg_channels to fix original files
         self.raw_fif_tag = '_raw.fif'
-        # Maxfilter params
+        # SSS denoising params
+        self.sss_type = 'python'
         self.mf_args = ''
         self.tsss_dur = 60.
+        self.trans_to = 'median'  # where to transform head positions to
+        self.sss_format = 'float'  # output type for MaxFilter
+        self.movecomp = 'inter'
+        self.int_order = 8
+        self.ext_order = 3
+        self.st_correlation = .98
+        self.sss_origin = 'auto'
+        self.sss_regularize = 'in'
         # boolean for whether data set(s) have an individual mri
         self.on_process = None
         # Use more than EXTRA points to fit headshape
@@ -332,11 +372,7 @@ class Params(Frozen):
         self.out_numbers = []
         self.must_match = []
         self.on_missing = 'error'  # for epochs
-        self.trans_to = 'median'  # where to transform head positions to
-        self.sss_format = 'float'  # output type for MaxFilter
         self.subject_run_indices = None
-        self.movecomp = movecomp
-        assert self.movecomp in ('inter', None)
         self.freeze()
 
     @property
@@ -400,6 +436,9 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
         Print status (determined from file structure).
     """
     # Generate requested things
+    if p.sss_type == 'python':
+        push_raw = False
+        fetch_sss = False
     bools = [fetch_raw,
              do_score,
              push_raw,
@@ -419,7 +458,7 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
     texts = ['Pulling raw files from acquisition machine',
              'Scoring subjects',
              'Pushing raw files to remote workstation',
-             'Running SSS on remote workstation',
+             'Running SSS using %s' % p.sss_type,
              'Pulling SSS files from remote workstation',
              'Fixing EEG order',
              'Preprocessing files',
@@ -441,7 +480,7 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
     funcs = [fetch_raw_files,
              score_fun,
              push_raw_files,
-             run_sss_remotely,
+             run_sss,
              fetch_sss_files,
              fix_eeg_files,
              do_preprocessing_combined,
@@ -618,7 +657,9 @@ def push_raw_files(p, subjects, run_indices):
     # do all copies at once to avoid multiple logins
     copy2(op.join(op.dirname(__file__), 'run_sss.sh'), p.work_dir)
     includes = ['--include', op.sep + 'run_sss.sh']
-    if p.trans_to not in ('default', 'median'):
+    if not isinstance(p.trans_to, string_types):
+        raise TypeError(' Illegal head transformation argument to MaxFilter.')
+    elif p.trans_to not in ('default', 'median'):
         _check_trans_file(p)
         includes += ['--include', op.sep + p.trans_to]
     for si, subj in enumerate(subjects):
@@ -652,10 +693,7 @@ def push_raw_files(p, subjects, run_indices):
         includes += ['--include', root, '--include', raw_root,
                      '--include', op.join(raw_root, op.basename(out_pos)),
                      '--include', op.join(raw_root, op.basename(med_pos))]
-        prebad_file = op.join(raw_dir, subj + '_prebad.txt')
-        if not op.isfile(prebad_file):  # SSS prebad file
-            raise RuntimeError('Could not find SSS prebad file: %s'
-                               % prebad_file)
+        prebad_file = _prebad(p, subj)
         includes += ['--include',
                      op.join(raw_root, op.basename(prebad_file))]
         fnames = get_raw_fnames(p, subj, 'raw', True, True, run_indices[si])
@@ -681,35 +719,40 @@ def _check_trans_file(p):
                              % p.trans_to)
 
 
-def run_sss_remotely(p, subjects, run_indices):
-    """Run SSS preprocessing remotely (only designed for *nix platforms)"""
-    for si, subj in enumerate(subjects):
-        files = get_raw_fnames(p, subj, 'raw', False, True, run_indices[si])
-        n_files = len(files)
-        files = ':'.join([op.basename(f) for f in files])
-        erm = get_raw_fnames(p, subj, 'raw', 'only', True, run_indices[si])
-        n_files += len(erm)
-        erm = ':'.join([op.basename(f) for f in erm])
-        erm = ' --erm ' + erm if len(erm) > 0 else ''
-        assert isinstance(p.tsss_dur, float) and p.tsss_dur > 0
-        st = ' --st %s' % p.tsss_dur
-        if p.sss_format not in ('short', 'long', 'float'):
-            raise RuntimeError('format must be short, long, or float')
-        fmt = ' --format ' + p.sss_format
-        assert p.movecomp in ['inter', None]
-        mc = ' --mc %s' % str(p.movecomp).lower()
-        _check_trans_file(p)
-        trans = ' --trans ' + p.trans_to
-        run_sss = (op.join(p.sws_dir, 'run_sss.sh') + st + fmt + trans +
-                   ' --subject ' + subj + ' --files ' + files + erm + mc +
-                   ' --args=\"%s\"' % p.mf_args)
-        cmd = ['ssh', '-p', str(p.sws_port), p.sws_ssh, run_sss]
-        s = 'Remote output for %s on %s files:' % (subj, n_files)
-        print('-' * len(s))
-        print(s)
-        print('-' * len(s))
-        run_subprocess(cmd, stdout=None, stderr=None)
-        print('-' * 70, end='\n\n')
+def run_sss(p, subjects, run_indices):
+    """Run SSS preprocessing remotely (only designed for *nix platforms) or
+    locally using Maxwell filtering in mne-python"""
+    if p.sss_type is 'python':
+        print(' Applying SSS locally using mne-python')
+        run_sss_locally(p, subjects, run_indices)
+    else:
+        for si, subj in enumerate(subjects):
+            files = get_raw_fnames(p, subj, 'raw', False, True, run_indices[si])
+            n_files = len(files)
+            files = ':'.join([op.basename(f) for f in files])
+            erm = get_raw_fnames(p, subj, 'raw', 'only', True, run_indices[si])
+            n_files += len(erm)
+            erm = ':'.join([op.basename(f) for f in erm])
+            erm = ' --erm ' + erm if len(erm) > 0 else ''
+            assert isinstance(p.tsss_dur, float) and p.tsss_dur > 0
+            st = ' --st %s' % p.tsss_dur
+            if p.sss_format not in ('short', 'long', 'float'):
+                raise RuntimeError('format must be short, long, or float')
+            fmt = ' --format ' + p.sss_format
+            assert p.movecomp in ['inter', None]
+            mc = ' --mc %s' % str(p.movecomp).lower()
+            _check_trans_file(p)
+            trans = ' --trans ' + p.trans_to
+            run_sss = (op.join(p.sws_dir, 'run_sss.sh') + st + fmt + trans +
+                       ' --subject ' + subj + ' --files ' + files + erm + mc +
+                       ' --args=\"%s\"' % p.mf_args)
+            cmd = ['ssh', '-p', str(p.sws_port), p.sws_ssh, run_sss]
+            s = 'Remote output for %s on %s files:' % (subj, n_files)
+            print('-' * len(s))
+            print(s)
+            print('-' * len(s))
+            run_subprocess(cmd, stdout=None, stderr=None)
+            print('-' * 70, end='\n\n')
 
 
 def fetch_sss_files(p, subjects, run_indices):
@@ -813,7 +856,7 @@ def run_sss_positions(fname_in, fname_out, host='kasga', opts='', port=22):
         Output filename to use to store the resulting head positions
         on the local machine.
     host : str
-        The SSH/scp host to run the command on.
+        The SSH/scp host to run the command on
     opts : str
         Additional command-line options to pass to MaxFilter.
     """
@@ -822,6 +865,7 @@ def run_sss_positions(fname_in, fname_out, host='kasga', opts='', port=22):
         raise IOError('input file not found: %s' % fname_in)
     if not op.isdir(op.dirname(op.abspath(fname_out))):
         raise IOError('output directory for output file does not exist')
+    pout = op.dirname(fname_in)
     fnames_in = [fname_in]
     for ii in range(1, 11):
         next_name = op.splitext(fname_in)[0] + '-%s' % ii + '.fif'
@@ -829,29 +873,119 @@ def run_sss_positions(fname_in, fname_out, host='kasga', opts='', port=22):
             fnames_in.append(next_name)
         else:
             break
-    port = str(int(port))
-    t0 = time()
-    remote_ins = ['~/' + op.basename(fname) for fname in fnames_in]
-    remote_out = '~/temp_%s_raw_quat.fif' % t0
-    remote_hp = '~/temp_%s_hp.txt' % t0
+
     print('  Copying file to %s' % host)
-    cmd = ['scp', '-P' + port] + fnames_in + [host + ':~/']
+    cmd = ['scp', '-P' + str(port)] + fnames_in + [host + ':~/']
     run_subprocess(cmd, stdout=None, stderr=None)
+    t0 = time()
+    remote_ins = ['~/' + op.basename(f) for f in fnames_in]
+    fnames_out = [op.basename(r)[:-4] + '.tmp' for r in remote_ins]
+    for fi, file_out in enumerate(fnames_out):
+        remote_out = '~/temp_%s_raw_quat.fif' % t0
+        remote_hp = '~/temp_%s_hp.txt' % t0
 
-    print('  Running maxfilter on %s' % host)
-    cmd = ['ssh', '-p', port, host,
-           'maxfilter -f ' + remote_ins[0] + ' -o ' + remote_out +
-           ' -headpos -format short -hp ' + remote_hp + ' ' + opts]
-    run_subprocess(cmd)
+        print('  Running maxfilter as %s' % host)
+        cmd = ['ssh', '-p', str(port), host,
+               '/neuro/bin/util/maxfilter -f ' + remote_ins[fi] + ' -o ' + remote_out +
+               ' -headpos -format short -hp ' + remote_hp + ' ' + opts]
+        run_subprocess(cmd)
 
-    print('  Copying result to %s' % fname_out)
-    cmd = ['scp', '-P' + port, host + ':' + remote_hp, fname_out]
-    run_subprocess(cmd)
+        print('  Copying result to %s' % file_out)
+        cmd = ['scp', '-P' + str(port), host + ':' + remote_hp, op.join(pout, file_out)]
+        run_subprocess(cmd)
 
-    print('  Cleaning up %s' % host)
-    cmd = ['ssh', '-p', port, host, 'rm -f %s %s %s'
-           % (' '.join(remote_ins), remote_hp, remote_out)]
-    run_subprocess(cmd)
+        print('  Cleaning up %s' % host)
+        cmd = ['ssh', '-p', str(port), host, 'rm -f %s %s %s'
+               % (remote_ins[fi], remote_hp, remote_out)]
+        run_subprocess(cmd)
+
+    # concatenate hp pos file for split raw files if any
+    data = []
+    for f in fnames_out:
+        data.append(read_head_pos(op.join(pout, f)))
+        os.remove(op.join(pout, f))
+    pos_data = np.concatenate(np.array(data))
+    write_head_pos(fname_out, pos_data)
+
+
+def run_sss_locally(p, subjects, run_indices):
+    """Run SSS locally using maxwell filter in python
+
+    For details see
+    ---------------
+    mne.preprocessing.maxwell
+    """
+    data_dir = op.join(op.dirname(__file__), 'data')
+    cal_file = op.join(data_dir, 'sss_cal.dat')
+    ct_file = op.join(data_dir, 'ct_sparse.fif')
+    assert isinstance(p.tsss_dur, float) and p.tsss_dur > 0
+    st_duration = p.tsss_dur
+    assert isinstance(p.sss_regularize, string_types)
+    reg = p.sss_regularize
+
+    for si, subj in enumerate(subjects):
+        if p.disp_files:
+            print('  Maxwell filtering subject %g/%g (%s).'
+                  % (si + 1, len(subjects), subj))
+        # locate raw files with splits
+        raw_dir = op.join(p.work_dir, subj, p.raw_dir)
+        sss_dir = op.join(p.work_dir, subj, p.sss_dir)
+        if not op.isdir(sss_dir):
+            os.mkdir(sss_dir)
+        raw_files = get_raw_fnames(p, subj, 'raw', erm=False,
+                                   run_indices=run_indices[si])
+        raw_files_out = get_raw_fnames(p, subj, 'sss', erm=False,
+                                       run_indices=run_indices[si])
+        erm_files = get_raw_fnames(p, subj, 'raw', 'only')
+        erm_files_out = get_raw_fnames(p, subj, 'sss', 'only')
+        prebad_file = _prebad(p, subj)
+
+        #  process raw files
+        for ii, (r, o) in enumerate(zip(raw_files, raw_files_out)):
+            if not op.isfile(r):
+                raise NameError('File not found (' + r + ')')
+            raw = Raw(r, preload=True, allow_maxshield=True)
+            raw.load_bad_channels(prebad_file, force=True)
+            raw.fix_mag_coil_types()
+            raw = filter_chpi(raw)
+
+            assert isinstance(p.trans_to, string_types)
+            if p.trans_to is 'median':
+                trans_to = op.join(p.work_dir, subj, p.raw_dir, subj + '_median_pos.fif')
+                if not op.isfile(trans_to):
+                    calc_median_hp(p, subj, trans_to, run_indices[si])
+            else:
+                trans_to = p.trans_to
+
+            if p.movecomp is not None:
+                # estimate head position for movement compensation
+                # pos = _calculate_chpi_positions(raw)
+                file_out = op.join(raw_dir, op.basename(r)[:-4] + '.pos')
+                pos = _headpos(p, r, file_out)
+            else:
+                pos = None
+            # apply maxwell filter
+            raw_sss = maxwell_filter(raw, origin=p.sss_origin, int_order=p.int_order, ext_order=p.ext_order,
+                                     calibration=cal_file, cross_talk=ct_file,
+                                     st_correlation=p.st_correlation, st_duration=st_duration,
+                                     destination=trans_to, coord_frame='head',
+                                     head_pos=pos, regularize=reg)
+
+            raw_sss.save(o, overwrite=True, buffer_size_sec=None)
+            #  process erm files if any
+            for ii, (r, o) in enumerate(zip(erm_files, erm_files_out)):
+                if not op.isfile(r):
+                    raise NameError('File not found (' + r + ')')
+                raw = Raw(r, preload=True, allow_maxshield=True)
+                raw.load_bad_channels(prebad_file, force=True)
+                # apply maxwell filter
+                raw_sss = maxwell_filter(raw, int_order=p.int_order, ext_order=p.ext_order,
+                                         calibration=cal_file,
+                                         cross_talk=ct_file,
+                                         st_correlation=p.st_correlation, st_duration=st_duration,
+                                         destination=None,
+                                         coord_frame='meg')
+                raw_sss.save(o, overwrite=True, buffer_size_sec=None)
 
 
 def extract_expyfun_events(fname, return_offsets=False):
@@ -1449,7 +1583,7 @@ def _cals(raw):
 def _raw_LRFCP(raw_names, sfreq, l_freq, h_freq, n_jobs, n_jobs_resample,
                projs, bad_file, disp_files=False, method='fft',
                filter_length=32768, apply_proj=True, preload=True,
-               force_bads=False, l_trans=0.5, h_trans=0.5):
+               force_bads=False, l_trans=0.5, h_trans=0.5, allow_maxshield=False):
     """Helper to load, filter, concatenate, then project raw files
     """
     if isinstance(raw_names, str):
@@ -1458,7 +1592,7 @@ def _raw_LRFCP(raw_names, sfreq, l_freq, h_freq, n_jobs, n_jobs_resample,
         print('    Loading and filtering %d files.' % len(raw_names))
     raw = list()
     for rn in raw_names:
-        r = Raw(rn, preload=True)
+        r = Raw(rn, preload=True, allow_maxshield='yes')
         r.load_bad_channels(bad_file, force=force_bads)
         if sfreq is not None:
             with warnings.catch_warnings(record=True):  # resamp of stim ch
@@ -1775,7 +1909,7 @@ def apply_preprocessing_combined(p, subjects, run_indices):
             _viz_raw_ssp_events(p, subj, run_indices[si])
 
 
-class FakeEpochs():
+class FakeEpochs(object):
     """Make iterable epoch-like class, convenient for MATLAB transition"""
 
     def __init__(self, data, ch_names, tmin=-0.2, sfreq=1000.0):
@@ -1973,3 +2107,19 @@ def plot_raw_psd(p, subjects, run_indices=None, tmin=0., fmin=2, n_fft=2048):
                          picks=None, show=False)
             plt.savefig(fname[0][:-4] + '_psd.png')
             plt.close()
+
+
+def _prebad(p, subj):
+    """Helper for locating file containing bad channels during acq"""
+    prebad_file = op.join(p.work_dir, subj, p.raw_dir, subj + '_prebad.txt')
+    if not op.isfile(prebad_file):  # SSS prebad file
+        raise RuntimeError('Could not find SSS prebad file: %s' % prebad_file)
+    return prebad_file
+
+
+def _headpos(p, file_in, file_out):
+    """Helper for locating head position estimation file"""
+    if not op.isfile(file_out):
+        run_sss_positions(file_in, file_out, host=p.sws_ssh)
+    pos = read_head_pos(file_out)
+    return pos

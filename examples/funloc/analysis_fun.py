@@ -66,7 +66,7 @@ params.proj_nums = [[1, 1, 0],  # ECG: grad/mag/eeg
                     [1, 1, 2],  # EOG
                     [0, 0, 0]]  # Continuous (from ERM)
 params.cov_method = 'shrunk'  # cleaner noise covariance regularization
-
+params.sss_type = 'python'  # python | maxfilter for choosing SSS applied using either Maxfilter or mne-python
 # The scoring function needs to produce an event file with these values
 params.in_names = ['Aud', 'Vis', 'AudDev', 'VisDev']
 params.in_numbers = [10, 11, 20, 21]
@@ -97,8 +97,8 @@ mnefun.do_processing(
     # Make SUBJ/raw_fif/SUBJ_prebad.txt file with space-separated
     # list of bad MEG channel numbers, needed for running SSS.
     push_raw=True,  # Push raw files and SSS script to SSS workstation
-    do_sss=True,  # Run SSS remotely
-    fetch_sss=True,  # Fetch SSSed files
+    do_sss=True,  # Run SSS remote using Maxfilter or local with mne-python
+    fetch_sss=True,  # Fetch SSSed files from SSS workstation
     do_ch_fix=True,  # Fix channel ordering
     # Examine SSS'ed files and make SUBJ/bads/bad_ch_SUBJ_post-sss.txt,
     # usually only contains EEG channels, needed for preprocessing.
