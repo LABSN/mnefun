@@ -38,7 +38,7 @@ from mne.preprocessing.maxwell import maxwell_filter
 from mne.minimum_norm import make_inverse_operator
 from mne.label import read_label
 from mne.epochs import combine_event_ids
-from mne.chpi import (filter_chpi, read_head_pos, _calculate_chpi_positions)
+from mne.chpi import (filter_chpi, read_head_pos, write_head_pos)
 
 try:
     from mne.chpi import quat_to_rot, rot_to_quat
@@ -896,22 +896,16 @@ def run_sss_positions(fname_in, fname_out, host='kasga', opts='', port=22):
 
         print('  Cleaning up %s' % host)
         cmd = ['ssh', '-p', str(port), host, 'rm -f %s %s %s'
-           % (' '.join(remote_ins), remote_hp, remote_out)]
+               % (remote_ins[fi], remote_hp, remote_out)]
         run_subprocess(cmd)
 
     # concatenate hp pos file for split raw files if any
-    pos_data = []
+    data = []
     for f in fnames_out:
-        with open(op.join(pout, f)) as infile:
-            content = infile.readlines()
-        header = content[0]
-        qdata = content[1:]
-        pos_data.append(qdata)
+        data.append(read_head_pos(op.join(pout, f)))
         os.remove(op.join(pout, f))
-    pos_data.insert(0, header)
-
-    with open(fname_out, 'w') as fo:
-        fo.writelines(''.join(str(j) for j in i) for i in pos_data)
+    pos_data = np.concatenate(np.array(data))
+    write_head_pos(fname_out, pos_data)
 
 
 def run_sss_locally(p, subjects, run_indices):
@@ -1598,8 +1592,7 @@ def _raw_LRFCP(raw_names, sfreq, l_freq, h_freq, n_jobs, n_jobs_resample,
         print('    Loading and filtering %d files.' % len(raw_names))
     raw = list()
     for rn in raw_names:
-        with warnings.catch_warnings(record=True):
-            r = Raw(rn, preload=True, allow_maxshield=allow_maxshield)
+        r = Raw(rn, preload=True, allow_maxshield='yes')
         r.load_bad_channels(bad_file, force=force_bads)
         if sfreq is not None:
             with warnings.catch_warnings(record=True):  # resamp of stim ch
