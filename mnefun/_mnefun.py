@@ -2055,7 +2055,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None,
                                'reporting.')
         info_fname = op.join(path, fnames[0])
         struc = structurals[si]
-        report = Report(info_fname=info_fname, subject=struc)
+        report = Report(info_fname=info_fname, subject=struc, baseline=_get_baseline(p))
         report.parse_folder(data_path=path, mri_decim=10, n_jobs=p.n_jobs,
                             pattern=patterns)
         report_fname = get_report_fnames(p, subj)[0]
