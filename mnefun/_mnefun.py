@@ -949,7 +949,7 @@ def run_sss_locally(p, subjects, run_indices):
             raw.fix_mag_coil_types()
             raw = filter_chpi(raw)
 
-            assert isinstance(p.trans_to, string_types)
+            assert type(p.trans_to) in (str, np.ndarray, type(None))
             if p.trans_to is 'median':
                 trans_to = op.join(p.work_dir, subj, p.raw_dir, subj + '_median_pos.fif')
                 if not op.isfile(trans_to):
