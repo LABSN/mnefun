@@ -920,7 +920,7 @@ def run_sss_locally(p, subjects, run_indices):
     ct_file = op.join(data_dir, 'ct_sparse.fif')
     assert isinstance(p.tsss_dur, float) and p.tsss_dur > 0
     st_duration = p.tsss_dur
-    assert isinstance(p.sss_regularize, string_types)
+    assert isinstance(p.sss_regularize, string_types) or p.sss_regularize is None
     reg = p.sss_regularize
 
     for si, subj in enumerate(subjects):
