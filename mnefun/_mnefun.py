@@ -2125,8 +2125,24 @@ def _headpos(p, file_in, file_out):
     return pos
 
 
-def get_ave_trans(pos):
+def _get_ave_trans(pos, mode='mean'):
     """Helper for computing average head transformation matrix
     without rotation from cHPI data"""
-    quat = pos[0:]
+    assert pos.shape[1] == 10
+    t = pos[:, 0]
+    # q4:q6 cols from Maxfilter hp file
+    trans = pos[:, 4:7]
+    # time weighting factor as col vector
+    frac = np.diff(t)[:, np.newaxis] / (t[-1] - t[0])
+    assert frac.size == trans[:-1].shape[0]
+    if mode == 'mean':
+        p0 = np.sum(trans[:-1] * frac, axis=0)
+    assert p0.shape == (3,)
+    ave_trans = np.eye(4)
+    ave_trans[:3, 3] = p0
+    return ave_trans
+
+
+
+
 
