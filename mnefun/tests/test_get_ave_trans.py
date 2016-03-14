@@ -19,7 +19,3 @@ def test_get_ave_trans():
     out = _get_ave_trans(pos)
     # test output
     eq_(out.shape, (4, 4))
-
-
-
-

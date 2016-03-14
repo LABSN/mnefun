@@ -2141,8 +2141,3 @@ def _get_ave_trans(pos, mode='mean'):
     ave_trans = np.eye(4)
     ave_trans[:3, 3] = p0
     return ave_trans
-
-
-
-
-
