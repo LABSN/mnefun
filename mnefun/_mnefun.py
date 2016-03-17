@@ -214,7 +214,7 @@ class Params(Frozen):
         ovwrlapping intersecting inner/outer signals during spatiotemporal SSS.
         Default is .98 however a smaller value of .9 is recommended for infant/
         child data.
-    trans_to : str | None
+    trans_to : str | array-like, (3,) | None
         The destination location for the head. Can be ``None``, which
         will not change the head position, or a string path to a FIF file
         containing a MEG device<->head transformation. Default is median
@@ -949,7 +949,7 @@ def run_sss_locally(p, subjects, run_indices):
             raw.fix_mag_coil_types()
             raw = filter_chpi(raw)
 
-            assert type(p.trans_to) in (str, np.ndarray, type(None))
+            assert isinstance(p.trans_to, (string_types, np.ndarray, type(None)))
             if p.trans_to is 'median':
                 trans_to = op.join(p.work_dir, subj, p.raw_dir, subj + '_median_pos.fif')
                 if not op.isfile(trans_to):
