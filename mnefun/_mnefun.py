@@ -2075,3 +2075,4 @@ def _headpos(p, file_in, file_out):
         run_sss_positions(file_in, file_out, host=p.sws_ssh)
     pos = read_head_pos(file_out)
     return pos
+
