@@ -206,9 +206,9 @@ class Params(Frozen):
         Value of 6 recomended for infant data
     tsss_dur : float | None
         Buffer length (in seconds) fpr Spatiotemporal SSS. Default is 60.
-        however based on system specification a shorter buffer may be appropriate.
-        For data containing excessive head movements e.g. young children a buffer
-        size of 4s is recommended.
+        however based on system specification a shorter buffer may be
+        appropriate. For data containing excessive head movements e.g
+        young children a buffer size of 4s is recommended.
     st_correlation : float
         Correlation limit between inner and outer subspaces used to reject
         ovwrlapping intersecting inner/outer signals during spatiotemporal SSS.
@@ -220,8 +220,8 @@ class Params(Frozen):
         containing a MEG device<->head transformation. Default is median
         head position.
     sss_origin : array-like, shape (3,) | str
-        Origin of internal and external multipolar moment space in meters. Default is
-        center of sphere fit to digitized head points.
+        Origin of internal and external multipolar moment space in meters.
+        Default is center of sphere fit to digitized head points.
 
     Returns
     -------
@@ -727,7 +727,8 @@ def run_sss(p, subjects, run_indices):
         run_sss_locally(p, subjects, run_indices)
     else:
         for si, subj in enumerate(subjects):
-            files = get_raw_fnames(p, subj, 'raw', False, True, run_indices[si])
+            files = get_raw_fnames(p, subj, 'raw', False, True,
+                                   run_indices[si])
             n_files = len(files)
             files = ':'.join([op.basename(f) for f in files])
             erm = get_raw_fnames(p, subj, 'raw', 'only', True, run_indices[si])
@@ -886,12 +887,14 @@ def run_sss_positions(fname_in, fname_out, host='kasga', opts='', port=22):
 
         print('  Running maxfilter as %s' % host)
         cmd = ['ssh', '-p', str(port), host,
-               '/neuro/bin/util/maxfilter -f ' + remote_ins[fi] + ' -o ' + remote_out +
-               ' -headpos -format short -hp ' + remote_hp + ' ' + opts]
+               '/neuro/bin/util/maxfilter -f ' + remote_ins[fi] + ' -o ' +
+               remote_out + ' -headpos -format short -hp ' + remote_hp +
+               ' ' + opts]
         run_subprocess(cmd)
 
         print('  Copying result to %s' % file_out)
-        cmd = ['scp', '-P' + str(port), host + ':' + remote_hp, op.join(pout, file_out)]
+        cmd = ['scp', '-P' + str(port), host + ':' + remote_hp, op.join(pout,
+               file_out)]
         run_subprocess(cmd)
 
         print('  Cleaning up %s' % host)
@@ -920,7 +923,8 @@ def run_sss_locally(p, subjects, run_indices):
     ct_file = op.join(data_dir, 'ct_sparse.fif')
     assert isinstance(p.tsss_dur, float) and p.tsss_dur > 0
     st_duration = p.tsss_dur
-    assert isinstance(p.sss_regularize, string_types) or p.sss_regularize is None
+    assert isinstance(p.sss_regularize, string_types) or \
+        p.sss_regularize is None
     reg = p.sss_regularize
 
     for si, subj in enumerate(subjects):
@@ -950,7 +954,8 @@ def run_sss_locally(p, subjects, run_indices):
             raw = filter_chpi(raw)
 
             if p.trans_to is 'median':
-                trans_to = op.join(p.work_dir, subj, p.raw_dir, subj + '_median_pos.fif')
+                trans_to = op.join(p.work_dir, subj, p.raw_dir,
+                                   subj + '_median_pos.fif')
                 if not op.isfile(trans_to):
                     calc_median_hp(p, subj, trans_to, run_indices[si])
             else:
@@ -964,9 +969,12 @@ def run_sss_locally(p, subjects, run_indices):
             else:
                 pos = None
             # apply maxwell filter
-            raw_sss = maxwell_filter(raw, origin=p.sss_origin, int_order=p.int_order, ext_order=p.ext_order,
+            raw_sss = maxwell_filter(raw, origin=p.sss_origin,
+                                     int_order=p.int_order,
+                                     ext_order=p.ext_order,
                                      calibration=cal_file, cross_talk=ct_file,
-                                     st_correlation=p.st_correlation, st_duration=st_duration,
+                                     st_correlation=p.st_correlation,
+                                     st_duration=st_duration,
                                      destination=trans_to, coord_frame='head',
                                      head_pos=pos, regularize=reg)
 
@@ -978,10 +986,12 @@ def run_sss_locally(p, subjects, run_indices):
                 raw = Raw(r, preload=True, allow_maxshield=True)
                 raw.load_bad_channels(prebad_file, force=True)
                 # apply maxwell filter
-                raw_sss = maxwell_filter(raw, int_order=p.int_order, ext_order=p.ext_order,
+                raw_sss = maxwell_filter(raw, int_order=p.int_order,
+                                         ext_order=p.ext_order,
                                          calibration=cal_file,
                                          cross_talk=ct_file,
-                                         st_correlation=p.st_correlation, st_duration=st_duration,
+                                         st_correlation=p.st_correlation,
+                                         st_duration=st_duration,
                                          destination=None,
                                          coord_frame='meg')
                 raw_sss.save(o, overwrite=True, buffer_size_sec=None)
@@ -1582,7 +1592,8 @@ def _cals(raw):
 def _raw_LRFCP(raw_names, sfreq, l_freq, h_freq, n_jobs, n_jobs_resample,
                projs, bad_file, disp_files=False, method='fft',
                filter_length=32768, apply_proj=True, preload=True,
-               force_bads=False, l_trans=0.5, h_trans=0.5, allow_maxshield=False):
+               force_bads=False, l_trans=0.5, h_trans=0.5,
+               allow_maxshield=False):
     """Helper to load, filter, concatenate, then project raw files
     """
     if isinstance(raw_names, str):
@@ -2007,7 +2018,8 @@ def gen_html_report(p, subjects, structurals, run_indices=None,
                                'reporting.')
         info_fname = op.join(path, fnames[0])
         struc = structurals[si]
-        report = Report(info_fname=info_fname, subject=struc, baseline=_get_baseline(p))
+        report = Report(info_fname=info_fname, subject=struc,
+                        baseline=_get_baseline(p))
         report.parse_folder(data_path=path, mri_decim=10, n_jobs=p.n_jobs,
                             pattern=patterns)
         report_fname = get_report_fnames(p, subj)[0]
@@ -2075,4 +2087,3 @@ def _headpos(p, file_in, file_out):
         run_sss_positions(file_in, file_out, host=p.sws_ssh)
     pos = read_head_pos(file_out)
     return pos
-
