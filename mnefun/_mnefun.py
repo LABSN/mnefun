@@ -38,7 +38,7 @@ from mne.preprocessing.maxwell import maxwell_filter
 from mne.minimum_norm import make_inverse_operator
 from mne.label import read_label
 from mne.epochs import combine_event_ids
-from mne.chpi import (filter_chpi, read_head_pos, write_head_pos)
+from mne.chpi import (filter_chpi, read_head_pos, write_head_pos, head_pos_to_trans_rot_t)
 
 try:
     from mne.chpi import quat_to_rot, rot_to_quat
@@ -2125,19 +2125,20 @@ def _headpos(p, file_in, file_out):
     return pos
 
 
-def _get_ave_trans(pos, mode='mean'):
+def _get_ave_trans(posfile, mode='mean'):
     """Helper for computing average head transformation matrix
     without rotation from cHPI data"""
-    assert pos.shape[1] == 10
-    t = pos[:, 0]
-    # q4:q6 cols from Maxfilter hp file
-    trans = pos[:, 4:7]
+    # Get cHPI data
+    trans, rots, times = head_pos_to_trans_rot_t(read_head_pos(posfile))
     # time weighting factor as col vector
-    frac = np.diff(t)[:, np.newaxis] / (t[-1] - t[0])
+    frac = np.diff(times)[:, np.newaxis] / (times[-1] - times[0])
     assert frac.size == trans[:-1].shape[0]
     if mode == 'mean':
         p0 = np.sum(trans[:-1] * frac, axis=0)
+    else:
+
     assert p0.shape == (3,)
     ave_trans = np.eye(4)
     ave_trans[:3, 3] = p0
     return ave_trans
+
