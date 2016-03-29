@@ -2125,20 +2125,36 @@ def _headpos(p, file_in, file_out):
     return pos
 
 
-def _get_ave_trans(posfile, mode='mean'):
+def _get_ave_trans(posfile, weights=None, mode='median'):
     """Helper for computing average head transformation matrix
     without rotation from cHPI data"""
     # Get cHPI data
     trans, rots, times = head_pos_to_trans_rot_t(read_head_pos(posfile))
-    # time weighting factor as col vector
-    frac = np.diff(times)[:, np.newaxis] / (times[-1] - times[0])
-    assert frac.size == trans[:-1].shape[0]
+    assert weights.size == trans.shape[0]
     if mode == 'mean':
-        p0 = np.sum(trans[:-1] * frac, axis=0)
+        if weights is None:
+            p0 = np.mean(trans, axis=0)
+        else:
+        # time weighting factor as col vector
+        weights = np.diff(times)[:, np.newaxis] / (times[-1] - times[0])
+        p0 = np.sum(trans[:-1] * weights, axis=0)
     else:
-
-    assert p0.shape == (3,)
-    ave_trans = np.eye(4)
-    ave_trans[:3, 3] = p0
-    return ave_trans
-
+        if weights is None:
+            p0 = np.median(np.array(trans).flatten())
+        else:
+            weights = np.diff(times)[:, np.newaxis] / (times[-1] - times[0])
+            data, weights = np.array(data).flatten(), np.array(weights).flatten()
+            if any(weights > 0):
+                sorted_data, sorted_weights = map(np.array,
+                                                  zip(*sorted(zip(data, weights))))
+                midpoint = 0.5 * sum(sorted_weights)
+                if any(weights > midpoint):
+                    p0 = (data[weights == np.max(weights)])[0]
+                cumulative_weight = np.cumsum(sorted_weights)
+                below_midpoint_index = np.where(cumulative_weight <= midpoint)[0][-1]
+                if cumulative_weight[below_midpoint_index] - midpoint < sys.float_info.epsilon:
+                    p0 = np.mean(sorted_data[below_midpoint_index:below_midpoint_index + 2])
+                p0 = sorted_data[below_midpoint_index + 1]
+    t_pos = np.eye(4)
+    t_pos[:3, 3] = p0
+    return t_pos
