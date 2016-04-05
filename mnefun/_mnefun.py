@@ -30,7 +30,8 @@ from mne import (compute_proj_raw, make_fixed_length_events, Epochs,
                  make_forward_solution, get_config, write_evokeds,
                  make_sphere_model, setup_volume_source_space,
                  read_bem_solution, pick_info, write_source_spaces,
-                 read_source_spaces, write_forward_solution)
+                 read_source_spaces, write_forward_solution,
+                 DipoleFixed)
 
 try:
     from mne import compute_raw_covariance  # up-to-date mne-python
@@ -74,7 +75,7 @@ from mne.cov import regularize
 from mne.minimum_norm import write_inverse_operator
 from mne.viz import plot_drop_log, tight_layout
 from mne.viz._3d import plot_head_positions
-from mne.utils import run_subprocess
+from mne.utils import run_subprocess, _time_mask
 from mne.report import Report
 from mne.io.constants import FIFF
 
@@ -2758,3 +2759,15 @@ def plot_good_coils(raw, t_step=1., t_window=0.2, dist_limit=0.005,
     ax.grid(True)
     fig.tight_layout()
     return fig
+
+
+def compute_auc(dip, tmin=-np.inf, tmax=np.inf):
+    """Compute the AUC values for a DipoleFixed object."""
+    if not isinstance(dip, DipoleFixed):
+        raise TypeError('dip must be a DipoleFixed, got "%s"' % (type(dip),))
+    pick = pick_types(dip.info, meg=False, dipole=True)
+    if len(pick) != 1:
+        raise RuntimeError('Could not find dipole data')
+    time_mask = _time_mask(dip.times, tmin, tmax, dip.info['sfreq'])
+    data = dip.data[pick[0], time_mask]
+    return np.sum(np.abs(data)) * len(data) * (1. / dip.info['sfreq'])
