@@ -7,7 +7,7 @@ from __future__ import print_function
 from os import path as op
 import numpy as np
 import scipy.stats as stats
-from mne import (read_evokeds, grand_average)
+
 
 
 def gravrevokeds(directory, subjects, analysis, condition, filtering,
@@ -61,8 +61,8 @@ def numpy_weighted_mean(data, alpha, weights=None):
     se_ts : array type
     hyp : float
     """
-    sem = sp.stats.sem(data)
-    hyp = se * stats.t._ppf((1 + (1 - alpha)) / 2., n - 1)
+    sem = stats.sem(data)
+    hyp = sem * stats.t._ppf((1 + (1 - alpha)) / 2., n - 1)
     if weights is None:
         mean = np.mean(data, axis=0)
     weights = np.array(weights).flatten() / float(sum(weights))
