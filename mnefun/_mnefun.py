@@ -26,7 +26,7 @@ from mne import (compute_proj_raw, make_fixed_length_events, Epochs,
                  write_proj, read_proj, setup_source_space,
                  make_forward_solution, get_config, write_evokeds,
                  make_sphere_model, setup_volume_source_space,
-                 read_bem_solution)
+                 read_bem_solution, pick_info)
 
 try:
     from mne import compute_raw_covariance  # up-to-date mne-python
@@ -34,7 +34,12 @@ except ImportError:  # oldmne-python
     from mne import compute_raw_data_covariance as compute_raw_covariance
 from mne.preprocessing.ssp import compute_proj_ecg, compute_proj_eog
 from mne.preprocessing.maxfilter import fit_sphere_to_headshape
-from mne.preprocessing.maxwell import maxwell_filter
+from mne.preprocessing.maxwell import (maxwell_filter,
+                                       _trans_sss_basis,  _get_n_moments,
+                                       _get_mf_picks, _prep_mf_coils,
+                                       _check_regularize, _prep_regularize,
+                                       _regularize)
+from mne.bem import _check_origin
 from mne.minimum_norm import make_inverse_operator
 from mne.label import read_label
 from mne.epochs import combine_event_ids
@@ -206,9 +211,9 @@ class Params(Frozen):
         Value of 6 recomended for infant data
     tsss_dur : float | None
         Buffer length (in seconds) fpr Spatiotemporal SSS. Default is 60.
-        however based on system specification a shorter buffer may be appropriate.
-        For data containing excessive head movements e.g. young children a buffer
-        size of 4s is recommended.
+        however based on system specification a shorter buffer may be
+        appropriate. For data containing excessive head movements e.g. young
+        children a buffer size of 4s is recommended.
     st_correlation : float
         Correlation limit between inner and outer subspaces used to reject
         ovwrlapping intersecting inner/outer signals during spatiotemporal SSS.
@@ -221,8 +226,8 @@ class Params(Frozen):
         array giving the coordinates to translate to (with no rotations).
         Default is median head position across runs.
     sss_origin : array-like, shape (3,) | str
-        Origin of internal and external multipolar moment space in meters. Default is
-        center of sphere fit to digitized head points.
+        Origin of internal and external multipolar moment space in meters.
+        Default is center of sphere fit to digitized head points.
 
     Returns
     -------
@@ -728,7 +733,8 @@ def run_sss(p, subjects, run_indices):
         run_sss_locally(p, subjects, run_indices)
     else:
         for si, subj in enumerate(subjects):
-            files = get_raw_fnames(p, subj, 'raw', False, True, run_indices[si])
+            files = get_raw_fnames(p, subj, 'raw', False, True,
+                                   run_indices[si])
             n_files = len(files)
             files = ':'.join([op.basename(f) for f in files])
             erm = get_raw_fnames(p, subj, 'raw', 'only', True, run_indices[si])
@@ -887,12 +893,14 @@ def run_sss_positions(fname_in, fname_out, host='kasga', opts='', port=22):
 
         print('  Running maxfilter as %s' % host)
         cmd = ['ssh', '-p', str(port), host,
-               '/neuro/bin/util/maxfilter -f ' + remote_ins[fi] + ' -o ' + remote_out +
+               '/neuro/bin/util/maxfilter -f ' + remote_ins[fi] + ' -o ' +
+               remote_out +
                ' -headpos -format short -hp ' + remote_hp + ' ' + opts]
         run_subprocess(cmd)
 
         print('  Copying result to %s' % file_out)
-        cmd = ['scp', '-P' + str(port), host + ':' + remote_hp, op.join(pout, file_out)]
+        cmd = ['scp', '-P' + str(port), host + ':' + remote_hp,
+               op.join(pout, file_out)]
         run_subprocess(cmd)
 
         print('  Cleaning up %s' % host)
@@ -921,7 +929,8 @@ def run_sss_locally(p, subjects, run_indices):
     ct_file = op.join(data_dir, 'ct_sparse.fif')
     assert isinstance(p.tsss_dur, float) and p.tsss_dur > 0
     st_duration = p.tsss_dur
-    assert isinstance(p.sss_regularize, string_types) or p.sss_regularize is None
+    assert (isinstance(p.sss_regularize, string_types) or
+            p.sss_regularize is None)
     reg = p.sss_regularize
 
     for si, subj in enumerate(subjects):
@@ -952,7 +961,8 @@ def run_sss_locally(p, subjects, run_indices):
 
             assert isinstance(p.trans_to, (string_types, tuple, type(None)))
             if p.trans_to is 'median':
-                trans_to = op.join(p.work_dir, subj, p.raw_dir, subj + '_median_pos.fif')
+                trans_to = op.join(p.work_dir, subj, p.raw_dir,
+                                   subj + '_median_pos.fif')
                 if not op.isfile(trans_to):
                     calc_median_hp(p, subj, trans_to, run_indices[si])
             else:
@@ -966,11 +976,12 @@ def run_sss_locally(p, subjects, run_indices):
             else:
                 pos = None
             # apply maxwell filter
-            raw_sss = maxwell_filter(raw, origin=p.sss_origin, int_order=p.int_order, ext_order=p.ext_order,
-                                     calibration=cal_file, cross_talk=ct_file,
-                                     st_correlation=p.st_correlation, st_duration=st_duration,
-                                     destination=trans_to, coord_frame='head',
-                                     head_pos=pos, regularize=reg)
+            raw_sss = maxwell_filter(
+                raw, origin=p.sss_origin, int_order=p.int_order,
+                ext_order=p.ext_order, calibration=cal_file,
+                cross_talk=ct_file, st_correlation=p.st_correlation,
+                st_duration=st_duration, destination=trans_to,
+                coord_frame='head', head_pos=pos, regularize=reg)
 
             raw_sss.save(o, overwrite=True, buffer_size_sec=None)
             #  process erm files if any
@@ -980,12 +991,11 @@ def run_sss_locally(p, subjects, run_indices):
                 raw = Raw(r, preload=True, allow_maxshield=True)
                 raw.load_bad_channels(prebad_file, force=True)
                 # apply maxwell filter
-                raw_sss = maxwell_filter(raw, int_order=p.int_order, ext_order=p.ext_order,
-                                         calibration=cal_file,
-                                         cross_talk=ct_file,
-                                         st_correlation=p.st_correlation, st_duration=st_duration,
-                                         destination=None,
-                                         coord_frame='meg')
+                raw_sss = maxwell_filter(
+                    raw, int_order=p.int_order, ext_order=p.ext_order,
+                    calibration=cal_file, cross_talk=ct_file,
+                    st_correlation=p.st_correlation, st_duration=st_duration,
+                    destination=None, coord_frame='meg')
                 raw_sss.save(o, overwrite=True, buffer_size_sec=None)
 
 
@@ -1584,7 +1594,8 @@ def _cals(raw):
 def _raw_LRFCP(raw_names, sfreq, l_freq, h_freq, n_jobs, n_jobs_resample,
                projs, bad_file, disp_files=False, method='fft',
                filter_length=32768, apply_proj=True, preload=True,
-               force_bads=False, l_trans=0.5, h_trans=0.5, allow_maxshield=False):
+               force_bads=False, l_trans=0.5, h_trans=0.5,
+               allow_maxshield=False):
     """Helper to load, filter, concatenate, then project raw files
     """
     if isinstance(raw_names, str):
@@ -2056,7 +2067,8 @@ def gen_html_report(p, subjects, structurals, run_indices=None,
                                'reporting.')
         info_fname = op.join(path, fnames[0])
         struc = structurals[si]
-        report = Report(info_fname=info_fname, subject=struc, baseline=_get_baseline(p))
+        report = Report(info_fname=info_fname, subject=struc,
+                        baseline=_get_baseline(p))
         report.parse_folder(data_path=path, mri_decim=10, n_jobs=p.n_jobs,
                             pattern=patterns)
         report_fname = get_report_fnames(p, subj)[0]
@@ -2124,3 +2136,71 @@ def _headpos(p, file_in, file_out):
         run_sss_positions(file_in, file_out, host=p.sws_ssh)
     pos = read_head_pos(file_out)
     return pos
+
+
+def info_sss_basis(info, origin='auto', int_order=8, ext_order=3,
+                   coord_frame='head', regularize='in', ignore_ref=True):
+    """Compute the SSS basis for a given measurement info structure
+
+    Parameters
+    ----------
+    info : instance of io.Info
+        The measurement info.
+    origin : array-like, shape (3,) | str
+        Origin of internal and external multipolar moment space in meters.
+        The default is ``'auto'``, which means a head-digitization-based
+        origin fit when ``coord_frame='head'``, and ``(0., 0., 0.)`` when
+        ``coord_frame='meg'``.
+    int_order : int
+        Order of internal component of spherical expansion.
+    ext_order : int
+        Order of external component of spherical expansion.
+    coord_frame : str
+        The coordinate frame that the ``origin`` is specified in, either
+        ``'meg'`` or ``'head'``. For empty-room recordings that do not have
+        a head<->meg transform ``info['dev_head_t']``, the MEG coordinate
+        frame should be used.
+    destination : str | array-like, shape (3,) | None
+        The destination location for the head. Can be ``None``, which
+        will not change the head position, or a string path to a FIF file
+        containing a MEG device<->head transformation, or a 3-element array
+        giving the coordinates to translate to (with no rotations).
+        For example, ``destination=(0, 0, 0.04)`` would translate the bases
+        as ``--trans default`` would in MaxFilter™ (i.e., to the default
+        head location).
+    regularize : str | None
+        Basis regularization type, must be "in", "svd" or None.
+        "in" is the same algorithm as the "-regularize in" option in
+        MaxFilter™. "svd" (new in v0.13) uses SVD-based regularization by
+        cutting off singular values of the basis matrix below the minimum
+        detectability threshold of an ideal head position (usually near
+        the device origin).
+    ignore_ref : bool
+        If True, do not include reference channels in compensation. This
+        option should be True for KIT files, since Maxwell filtering
+        with reference channels is not currently supported.
+    """
+    if coord_frame not in ('head', 'meg'):
+        raise ValueError('coord_frame must be either "head" or "meg", not "%s"'
+                         % coord_frame)
+    origin = _check_origin(origin, info, 'head')
+    regularize = _check_regularize(regularize, ('in', 'svd'))
+    meg_picks, mag_picks, grad_picks, good_picks, coil_scale, mag_or_fine = \
+        _get_mf_picks(info, int_order, ext_order, ignore_ref)
+    info_from = pick_info(info, good_picks, copy=True)
+    all_coils_recon = _prep_mf_coils(info, ignore_ref=ignore_ref)
+    all_coils = _prep_mf_coils(info_from, ignore_ref=ignore_ref)
+    # remove MEG bads in "to" info
+    n_in, n_out = _get_n_moments([int_order, ext_order])
+    decomp_coil_scale = coil_scale[good_picks]
+    exp = dict(int_order=int_order, ext_order=ext_order, head_frame=True,
+               origin=origin)
+    # prepare regularization techniques
+    _prep_regularize(regularize, all_coils_recon, None, exp, ignore_ref,
+                     coil_scale, grad_picks, mag_picks, mag_or_fine)
+    S = _trans_sss_basis(exp, all_coils, info['dev_head_t'],
+                         coil_scale=decomp_coil_scale)
+    if regularize is not None:
+        S = _regularize(regularize, exp, S, mag_or_fine, t=0.)[0]
+    S /= np.linalg.norm(S, axis=0)
+    return S
