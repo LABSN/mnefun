@@ -35,10 +35,15 @@ except ImportError:  # oldmne-python
 from mne.preprocessing.ssp import compute_proj_ecg, compute_proj_eog
 from mne.preprocessing.maxfilter import fit_sphere_to_headshape
 from mne.preprocessing.maxwell import (maxwell_filter,
-                                       _trans_sss_basis,  _get_n_moments,
+                                       _trans_sss_basis,
                                        _get_mf_picks, _prep_mf_coils,
-                                       _check_regularize, _prep_regularize,
+                                       _check_regularize,
                                        _regularize)
+try:
+    # Experimental version
+    from mne.preprocessing.maxwell import _prep_regularize
+except ImportError:
+    _prep_regularize = None
 from mne.bem import _check_origin
 from mne.minimum_norm import make_inverse_operator
 from mne.label import read_label
@@ -2187,16 +2192,17 @@ def info_sss_basis(info, origin='auto', int_order=8, ext_order=3,
     regularize = _check_regularize(regularize, ('in', 'svd'))
     meg_picks, mag_picks, grad_picks, good_picks, coil_scale, mag_or_fine = \
         _get_mf_picks(info, int_order, ext_order, ignore_ref)
-    info_from = pick_info(info, good_picks, copy=True)
-    all_coils_recon = _prep_mf_coils(info, ignore_ref=ignore_ref)
-    all_coils = _prep_mf_coils(info_from, ignore_ref=ignore_ref)
+    info_good = pick_info(info, good_picks, copy=True)
+    all_coils = _prep_mf_coils(info_good, ignore_ref=ignore_ref)
     # remove MEG bads in "to" info
-    n_in, n_out = _get_n_moments([int_order, ext_order])
     decomp_coil_scale = coil_scale[good_picks]
     exp = dict(int_order=int_order, ext_order=ext_order, head_frame=True,
                origin=origin)
     # prepare regularization techniques
-    _prep_regularize(regularize, all_coils_recon, None, exp, ignore_ref,
+    if _prep_regularize is None:
+        raise RuntimeError('mne-python needs to be on the experimental SVD '
+                           'branch to use this function')
+    _prep_regularize(regularize, all_coils, None, exp, ignore_ref,
                      coil_scale, grad_picks, mag_picks, mag_or_fine)
     S = _trans_sss_basis(exp, all_coils, info['dev_head_t'],
                          coil_scale=decomp_coil_scale)
