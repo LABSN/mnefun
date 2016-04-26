@@ -6,6 +6,7 @@ from __future__ import print_function
 
 import os
 import os.path as op
+from copy import deepcopy
 import inspect
 import warnings
 from shutil import move, copy2
@@ -2210,3 +2211,56 @@ def info_sss_basis(info, origin='auto', int_order=8, ext_order=3,
         S = _regularize(regularize, exp, S, mag_or_fine, t=0.)[0]
     S /= np.linalg.norm(S, axis=0)
     return S
+
+
+def plot_reconstruction(evoked, origin=(0., 0., 0.04)):
+    """Plot the reconstructed data for Evoked
+
+    Currently only works for MEG data.
+
+    Parameters
+    ----------
+    evoked : instance of Evoked
+        The evoked data.
+    origin : array-like, shape (3,)
+        The head origin to use.
+
+    Returns
+    -------
+    fig : instance of matplotlib.figure.Figure
+        The figure.
+    """
+    from mne.forward._field_interpolation import _map_meg_channels
+    evoked = evoked.copy().pick_types(meg=True, exclude='bads')
+    info_to = deepcopy(evoked.info)
+    info_to['projs'] = []
+    op = _map_meg_channels(
+        evoked.info, info_to, mode='accurate', origin=(0., 0., 0.04))
+    fig, axs = plt.subplots(3, 2, squeeze=False)
+    titles = dict(grad='Gradiometers (fT/cm)', mag='Magnetometers (fT)')
+    for mi, meg in enumerate(('grad', 'mag')):
+        picks = pick_types(evoked.info, meg=meg)
+        kwargs = dict(ylim=dict(grad=[-250, 250], mag=[-600, 600]),
+                      spatial_colors=True, picks=picks)
+        evoked.plot(axes=axs[0, mi], proj=False,
+                    titles=dict(grad='Proj off', mag=''), **kwargs)
+        evoked_remap = evoked.copy().apply_proj()
+        evoked_remap.info['projs'] = []
+        evoked_remap.plot(axes=axs[1, mi],
+                          titles=dict(grad='Proj on', mag=''), **kwargs)
+        evoked_remap.data = np.dot(op, evoked_remap.data)
+        evoked_remap.plot(axes=axs[2, mi],
+                          titles=dict(grad='Recon', mag=''), **kwargs)
+        axs[0, mi].set_title(titles[meg])
+        for ii in range(3):
+            if ii in (0, 1):
+                axs[ii, mi].set_xlabel('')
+            if ii in (1, 2):
+                axs[ii, mi].set_title('')
+    for ii in range(3):
+        axs[ii, 1].set_ylabel('')
+    axs[0, 0].set_ylabel('Original')
+    axs[1, 0].set_ylabel('Projection')
+    axs[2, 0].set_ylabel('Reconstruction')
+    fig.tight_layout()
+    return fig
