@@ -345,7 +345,7 @@ class Params(Frozen):
         # This is used by fix_eeg_channels to fix original files
         self.raw_fif_tag = '_raw.fif'
         # SSS denoising params
-        self.sss_type = 'python'
+        self.sss_type = 'maxfilter'
         self.mf_args = ''
         self.tsss_dur = 60.
         self.trans_to = 'median'  # where to transform head positions to
@@ -695,7 +695,8 @@ def push_raw_files(p, subjects, run_indices):
             else:
                 dig_kinds = (FIFF.FIFFV_POINT_EXTRA,)
             origin_head = fit_sphere_to_headshape(read_info(in_fif),
-                                                  dig_kinds=dig_kinds)[1]
+                                                  dig_kinds=dig_kinds,
+                                                  units='mm')[1]
             out_string = ' '.join(['%0.0f' % np.round(number)
                                    for number in origin_head])
             with open(out_pos, 'w') as fid:
@@ -738,7 +739,7 @@ def _check_trans_file(p):
 def run_sss(p, subjects, run_indices):
     """Run SSS preprocessing remotely (only designed for *nix platforms) or
     locally using Maxwell filtering in mne-python"""
-    if p.sss_type is 'python':
+    if p.sss_type == 'python':
         print(' Applying SSS locally using mne-python')
         run_sss_locally(p, subjects, run_indices)
     else:
@@ -964,7 +965,7 @@ def run_sss_locally(p, subjects, run_indices):
         for ii, (r, o) in enumerate(zip(raw_files, raw_files_out)):
             if not op.isfile(r):
                 raise NameError('File not found (' + r + ')')
-            raw = Raw(r, preload=True, allow_maxshield=True)
+            raw = Raw(r, preload=True, allow_maxshield='yes')
             raw.load_bad_channels(prebad_file, force=True)
             raw.fix_mag_coil_types()
             raw = filter_chpi(raw)
