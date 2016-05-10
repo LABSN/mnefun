@@ -211,9 +211,9 @@ class Params(Frozen):
     sss_type : str
         signal space separation method. Must be either 'maxfilter' or 'python'
     int_order : int
-        Order of internal component of spherical expansion. Default is 3.
+        Order of internal component of spherical expansion. Default is 8.
     ext_order : int
-        Order of external component of spherical expansion. Default is 8.
+        Order of external component of spherical expansion. Default is 3.
         Value of 6 recomended for infant data
     tsss_dur : float | None
         Buffer length (in seconds) fpr Spatiotemporal SSS. Default is 60.
