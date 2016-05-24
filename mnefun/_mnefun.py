@@ -1859,7 +1859,7 @@ def do_preprocessing_combined(p, subjects, run_indices):
         epochs = Epochs(raw_orig, events, None, p.tmin, p.tmax, preload=False,
                         baseline=_get_baseline(p), reject=use_reject,
                         flat=use_flat, proj=True)
-        epochs.drop_bad_epochs()
+        epochs.drop_bad()
         drop_logs.append(epochs.drop_log)
         del raw_orig
         del epochs
