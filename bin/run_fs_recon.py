@@ -4,10 +4,9 @@
 #
 #          simplified bsd-3 license
 
-# TODO(ktavabi@gmail.com): Document
-"""Runs FreeSurfer recon-all on RMS combined multi echo MPRAGE volume.
-
- example usage: python run_fs_recon --subject subject --raw-dir ${SUBJECTS_DIR}/PARREC --openmp 2
+"""Wrapper for FreeSurfer reconstruction routines on multi echo MPRAGE or
+FLAHS volumes.
+example usage: python run_fs_recon --subject subject --raw-dir path-to-raw
 """
 from __future__ import print_function
 import sys
@@ -31,16 +30,18 @@ def run():
     parser.add_option('-s', '--subject', dest='subject',
                       help='Freesurfer subject id', type='str')
     parser.add_option('-r', '--raw-dir', dest='raw_dir',
-                      help='Path to parent directory containing raw mri data', default='PARREC', metavar='FILE')
+                      help='Path to parent directory containing raw mri data',
+                      default='PARREC', metavar='FILE')
     parser.add_option('-d', '--subjects-dir', dest='subjects_dir',
                       help='FS Subjects directory', default=subjects_dir)
     parser.add_option('-f', '--force', dest='force', action='store_true',
                       help='Force FreeSurfer reconstruction.')
     parser.add_option('-o', '--openmp', dest='openmp', default=2, type=int,
                       help='Number of CPUs to use for reconstruction routines.')
-    parser.add_option('-v', '--volume', dest='volume', default='MPRAGE', type=str,
-                      help='Input raw volume file for nii conversion. Default is MPRAGE '
-                           'it can also be MEMP.')
+    parser.add_option('-v', '--volume', dest='volume', default='MPRAGE',
+                      type=str,
+                      help='Input raw volume file for nii conversion.\n'
+                           'Default is MPRAGE, it can also be MEMP.')
 
     options, args = parser.parse_args()
 
@@ -50,7 +51,8 @@ def run():
     if subject is None or subjects_dir is None:
         parser.print_help()
         sys.exit(1)
-    _run(subjects_dir, subject, raw_dir, options.force, options.openmp, options.volume)
+    _run(subjects_dir, subject, raw_dir, options.force, options.openmp,
+         options.volume)
 
 
 def _run(subjects_dir, subject, raw_dir, force, mp, volume):
@@ -110,20 +112,24 @@ def _run(subjects_dir, subject, raw_dir, force, mp, volume):
 
     for ff in glob.glob(op.join(fs_nii_dir, '*.nii')):
         if volume in op.basename(ff):
-            os.symlink(ff, op.join(fs_nii_dir, 'MPRAGE.nii'))
+            os.symlink(ff, op.join(fs_nii_dir, 'MPRAGE'))
         elif 'FLASH5' in op.basename(ff):
-            os.symlink(ff, op.join(fs_nii_dir, 'FLASH5.nii'))
+            os.symlink(ff, op.join(fs_nii_dir, 'FLASH5'))
         elif 'FLASH30' in op.basename(ff):
-            os.symlink(ff, op.join(fs_nii_dir, 'FLASH30.nii'))
+            os.symlink(ff, op.join(fs_nii_dir, 'FLASH30'))
 
     logger.info('2. Starting FreeSurfer reconstruction process...')
     mri = op.join(fs_nii_dir, 'MPRAGE.nii')
     run_subprocess(['mri_concat', '--rms', '--i', mri,
                     '--o', op.join(subjects_dir, subject, 'mri/orig/001.mgz')],
                    env=this_env)
-    run_subprocess(['recon-all', '-openmp', '%.0f' % mp, '-subject', subject, '-all'], env=this_env)
+    run_subprocess(
+        ['recon-all', '-openmp', '%.0f' % mp, '-subject', subject, '-all'],
+        env=this_env)
     for morph_to in ['fsaverage', subject]:
-        run_subprocess(['mne_make_morph_maps', '--to', morph_to, '--from', subject], env=this_env)
+        run_subprocess(
+            ['mne_make_morph_maps', '--to', morph_to, '--from', subject],
+            env=this_env)
 
 
 is_main = (__name__ == '__main__')

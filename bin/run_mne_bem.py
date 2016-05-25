@@ -84,12 +84,9 @@ def _run(subjects_dir, subject, layers, spacing, overwrite):
 
     logger.info('2. Setting up %d layer BEM...' % layers)
     if layers == 3:
-        flash05 = op.join(subjects_dir, subject, 'nii/FLASH5.nii')
-        flash30 = op.join(subjects_dir, subject, 'nii/FLASH30.nii')
-
+        os.chdir(op.join(subjects_dir, subject,'mri', 'nii' ))
         run_subprocess(
-            ['mne', 'flash_bem_model', '-s', subject, '-d', subjects_dir,
-             '--flash05', flash05, '--flash30', flash30, '-v'], env=this_env)
+            ['mne', 'flash_bem', '--subject', subject], env=this_env)
         for srf in ('inner_skull', 'outer_skull', 'outer_skin'):
             shutil.copy(
                 op.join(subjects_dir, subject, 'bem/flash/%s.surf' % srf),
