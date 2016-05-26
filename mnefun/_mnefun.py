@@ -40,6 +40,7 @@ from mne.preprocessing.maxwell import (maxwell_filter,
                                        _get_mf_picks, _prep_mf_coils,
                                        _check_regularize,
                                        _regularize)
+
 try:
     # Experimental version
     from mne.preprocessing.maxwell import _prep_regularize
@@ -600,7 +601,10 @@ def fetch_raw_files(p, subjects, run_indices):
                                   p.acq_ssh, finder])[0]
         remote_fnames = [x.strip() for x in stdout_.splitlines()]
         assert all(fname.startswith(p.acq_dir) for fname in remote_fnames)
-        remote_fnames = [fname[len(p.acq_dir) + 1:] for fname in remote_fnames]
+        p_dir, _ = op.split(remote_fnames[0])
+        p_dir = p_dir.split('/')[-1]
+        remote_fnames = [p_dir + '/' + op.basename(fname) for fname in
+                         remote_fnames]
         want = set(op.basename(fname) for fname in fnames)
         got = set(op.basename(fname) for fname in remote_fnames)
         if want != got.intersection(want):
@@ -1103,7 +1107,7 @@ def fix_eeg_files(p, subjects, structurals=None, dates=None, run_indices=None):
         names = [name for name in raw_names if op.isfile(name)]
         # noinspection PyPep8
         if structurals is not None and structurals[si] is not None and \
-                dates is not None:
+                        dates is not None:
             assert isinstance(structurals[si], str)
             assert isinstance(dates[si], tuple) and len(dates[si]) == 3
             assert all([isinstance(d, int) for d in dates[si]])
@@ -2205,9 +2209,11 @@ def info_sss_basis(info, origin='auto', int_order=8, ext_order=3,
                            'branch to use this function')
     _prep_regularize(regularize, all_coils, None, exp, ignore_ref,
                      coil_scale, grad_picks, mag_picks, mag_or_fine)
+    # noinspection PyPep8Naming
     S = _trans_sss_basis(exp, all_coils, info['dev_head_t'],
                          coil_scale=decomp_coil_scale)
     if regularize is not None:
+        # noinspection PyPep8Naming
         S = _regularize(regularize, exp, S, mag_or_fine, t=0.)[0]
     S /= np.linalg.norm(S, axis=0)
     return S

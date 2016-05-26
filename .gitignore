@@ -47,3 +47,4 @@ examples/funloc/run_sss.sh
 *.DS_store
 
 *~
+/examples/funloc/
