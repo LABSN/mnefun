@@ -68,7 +68,7 @@ def _run(subjects_dir, subject, layers, spacing, overwrite):
     if 'FREESURFER_HOME' not in this_env:
         raise RuntimeError('The FreeSurfer environment needs to be set up '
                            'for this script')
-
+    os.chdir(subjects_dir)
     subj_path = op.join(subjects_dir, subject)
     if not op.exists(subj_path):
         raise RuntimeError('%s does not exits. Please check your subject '
@@ -84,13 +84,12 @@ def _run(subjects_dir, subject, layers, spacing, overwrite):
 
     logger.info('2. Setting up %d layer BEM...' % layers)
     if layers == 3:
-        os.chdir(op.join(subjects_dir, subject,'mri', 'nii' ))
+        maps_dir = op.join(subjects_dir, subject, 'mri',
+                           'flash', 'parameter_maps')
+        os.chdir(maps_dir)
         run_subprocess(
-            ['mne', 'flash_bem', '--subject', subject], env=this_env)
-        for srf in ('inner_skull', 'outer_skull', 'outer_skin'):
-            shutil.copy(
-                op.join(subjects_dir, subject, 'bem/flash/%s.surf' % srf),
-                op.join(subjects_dir, subject, 'bem/%s.surf' % srf))
+            ['mne', 'flash_bem', '--subject', subject, '--noconvert'],
+            env=this_env)
     else:
         if overwrite:
             run_subprocess(
