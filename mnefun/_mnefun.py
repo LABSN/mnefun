@@ -1043,7 +1043,7 @@ def extract_expyfun_events(fname, return_offsets=False):
     """
     # Read events
     with warnings.catch_warnings(record=True):
-        raw = Raw(fname, allow_maxshield=True)
+        raw = Raw(fname, allow_maxshield='yes')
     orig_events = find_events(raw, stim_channel='STI101', shortest_event=0)
     events = list()
     for ch in range(1, 9):
