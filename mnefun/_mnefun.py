@@ -345,7 +345,7 @@ class Params(Frozen):
         # This is used by fix_eeg_channels to fix original files
         self.raw_fif_tag = '_raw.fif'
         # SSS denoising params
-        self.sss_type = 'python'
+        self.sss_type = 'maxfilter'
         self.mf_args = ''
         self.tsss_dur = 60.
         self.trans_to = 'median'  # where to transform head positions to
@@ -695,7 +695,8 @@ def push_raw_files(p, subjects, run_indices):
             else:
                 dig_kinds = (FIFF.FIFFV_POINT_EXTRA,)
             origin_head = fit_sphere_to_headshape(read_info(in_fif),
-                                                  dig_kinds=dig_kinds)[1]
+                                                  dig_kinds=dig_kinds,
+                                                  units='mm')[1]
             out_string = ' '.join(['%0.0f' % np.round(number)
                                    for number in origin_head])
             with open(out_pos, 'w') as fid:
@@ -738,7 +739,7 @@ def _check_trans_file(p):
 def run_sss(p, subjects, run_indices):
     """Run SSS preprocessing remotely (only designed for *nix platforms) or
     locally using Maxwell filtering in mne-python"""
-    if p.sss_type is 'python':
+    if p.sss_type == 'python':
         print(' Applying SSS locally using mne-python')
         run_sss_locally(p, subjects, run_indices)
     else:
@@ -964,7 +965,7 @@ def run_sss_locally(p, subjects, run_indices):
         for ii, (r, o) in enumerate(zip(raw_files, raw_files_out)):
             if not op.isfile(r):
                 raise NameError('File not found (' + r + ')')
-            raw = Raw(r, preload=True, allow_maxshield=True)
+            raw = Raw(r, preload=True, allow_maxshield='yes')
             raw.load_bad_channels(prebad_file, force=True)
             raw.fix_mag_coil_types()
             raw = filter_chpi(raw)
@@ -1529,7 +1530,8 @@ def gen_covariances(p, subjects, run_indices):
             empty_cov_name = op.join(cov_dir, new_run + p.pca_extra +
                                      p.inv_tag + '-cov.fif')
             empty_fif = get_raw_fnames(p, subj, 'pca', 'only', False)[0]
-            raw = Raw(empty_fif, preload=True)
+            raw = Raw(empty_fif, preload=True).pick_types(meg=True, eog=True,
+                                                          exclude=())
             use_reject, use_flat = _restrict_reject_flat(p.reject, p.flat, raw)
             picks = pick_types(raw.info, meg=True, eeg=False, exclude='bads')
             cov = compute_raw_covariance(raw, reject=use_reject,
@@ -1618,7 +1620,7 @@ def _raw_LRFCP(raw_names, sfreq, l_freq, h_freq, n_jobs, n_jobs_resample,
         r.load_bad_channels(bad_file, force=force_bads)
         if sfreq is not None:
             with warnings.catch_warnings(record=True):  # resamp of stim ch
-                r.resample(sfreq, n_jobs=n_jobs_resample)
+                r.resample(sfreq, n_jobs=n_jobs_resample, npad='auto')
         if l_freq is not None or h_freq is not None:
             r.filter(l_freq=l_freq, h_freq=h_freq, picks=None,
                      n_jobs=n_jobs, method=method,
@@ -1863,7 +1865,10 @@ def do_preprocessing_combined(p, subjects, run_indices):
         epochs = Epochs(raw_orig, events, None, p.tmin, p.tmax, preload=False,
                         baseline=_get_baseline(p), reject=use_reject,
                         flat=use_flat, proj=True)
-        epochs.drop_bad()
+        try:
+            epochs.drop_bad()
+        except AttributeError:  # old way
+            epochs.drop_bad_epochs()
         drop_logs.append(epochs.drop_log)
         del raw_orig
         del epochs
