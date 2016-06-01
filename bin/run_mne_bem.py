@@ -43,6 +43,10 @@ def run():
     parser.add_option('-o', '--overwrite', dest='overwrite',
                       action='store_true',
                       help='Overwrite existing neuromag MRI and MNE BEM files.')
+    parser.add_option('--ico', dest='ico', default=4, type='int',
+                      help='The surface ico downsampling to use, e.g. 5=20484, '
+                           '4=5120, 3=1280. If None, no subsampling is applied.'
+                           'Default is 4.')
     options, args = parser.parse_args()
 
     subject = options.subject
@@ -52,10 +56,10 @@ def run():
         parser.print_help()
         sys.exit(1)
 
-    _run(subjects_dir, subject, options.layers, options.overwrite)
+    _run(subjects_dir, subject, options.layers, options.overwrite, options.ico)
 
 
-def _run(subjects_dir, subject, layers, overwrite):
+def _run(subjects_dir, subject, layers, overwrite, ico):
     this_env = copy.copy(os.environ)
     this_env['SUBJECTS_DIR'] = subjects_dir
     this_env['SUBJECT'] = subject
@@ -88,6 +92,8 @@ def _run(subjects_dir, subject, layers, overwrite):
 
     # Create BEM solution for forward calculations
     logger.info('2. Setting up %d layer BEM...' % layers)
+    srf_ds = {5: '20484', 4: '5120', 3: '1280', None: 'None'}
+    key = srf_ds.get(ico)
     if layers == 3:
         maps_dir = op.join(subjects_dir, subject, 'mri',
                            'flash', 'parameter_maps')
@@ -95,8 +101,9 @@ def _run(subjects_dir, subject, layers, overwrite):
         run_subprocess(
             ['mne', 'flash_bem', '--subject', subject, '--noconvert'],
             env=this_env)
-        bem_surf = mne.make_bem_model(subject=subject,
+        bem_surf = mne.make_bem_model(subject=subject, ico=ico,
                                        subjects_dir=subjects_dir)
+        bem_fname = subject + '-%s-%s-%s-' % (key, key, key) + 'bem-sol.fif'
     else:
         if overwrite:
             run_subprocess(
@@ -107,8 +114,11 @@ def _run(subjects_dir, subject, layers, overwrite):
                 ['mne', 'watershed_bem', '--subject', subject], env=this_env)
         # single layer homologous BEM
         bem_surf = mne.make_bem_model(subject=subject, conductivity=[0.3],
-                                      subjects_dir=subjects_dir)
-    mne.make_bem_solution(surfs=bem_surf)
+                                      ico=ico, subjects_dir=subjects_dir)
+        bem_fname = subject + '-%s-' % key + 'bem-sol.fif'
+    bem = mne.make_bem_solution(surfs=bem_surf)
+    mne.write_bem_solution(fname=op.join(subjects_dir, subject, 'bem',
+                                         bem_fname), bem=bem)
 
     # Create dense head surface and symbolic link to head.fif file
     logger.info(
