@@ -6,19 +6,18 @@
 
 """Wrapper for FreeSurfer reconstruction routines on multi echo MPRAGE or FLASH volumes.
 
-example usage: python run_fs_recon -s subject
+    example usage: python run_fs_recon -s subject
 
-Notes
+    Notes
     -----
+    This script assumes that the raw structural MRI are saved in PARREC format.
     Before running this script do the following:
 
         1. Make sure your freesurfer subjects directory is setup such that
-        a sub-directory e.g., DICOM contains subject raw MRI data.
+           a sub-directory e.g., DICOM contains subject raw MRI data.
         2. Raw parrec file names must contain following minimal substrings for
-        script to work with minimal invocation: FLASH5, FLASH30, MPRAGE for
-        FLASH MRIs with flip angles 5 & 30, and T1 weighted structural.
-
-    This function assumes that the raw structural MRI are saved as PARREC format.
+           script to work with minimal invocation: FLASH5, FLASH30, MPRAGE for
+           FLASH MRIs with flip angles 5 & 30, and T1 weighted structural.
 """
 from __future__ import print_function
 import sys

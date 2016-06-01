@@ -5,10 +5,18 @@
 #          simplified bsd-3 license
 
 
-"""Wrapper for setting up mne bem surfaces, creating high resolution skin
-surface, and mne source space.
+"""Wrapper script for extracting mne bem surface(s) from subjects FS reconstructed
+   MRI data, writing out the MNE BEM solution file for the forward calculations,
+   and creating high resolution skin surface for MR-MEEG data coregistration.
 
- example usage: python run_mne_bem.py --subject subject
+   example usage: python run_mne_bem.py --subject subject
+
+   See Also
+   --------
+   mne.bem.make_flash_bem for options related to using FLASH MRIs for BEM solution.
+   mne.make_bem_model
+   mne.make_bem_solution
+
 """
 from __future__ import print_function
 
@@ -18,7 +26,6 @@ from mne.utils import run_subprocess, logger
 import os
 from os import path as op
 import copy
-import shutil
 
 
 def run():
@@ -31,8 +38,6 @@ def run():
                       help='Freesurfer subject id', type='str')
     parser.add_option('-l', '--layers', dest='layers', default=1, type=int,
                       help='Number BEM layers.')
-    parser.add_option('--spacing', dest='spacing', default=5, type=int,
-                      help='Triangle decimation number for single layer bem')
     parser.add_option('-d', '--subjects-dir', dest='subjects_dir',
                       help='FS Subjects directory', default=subjects_dir)
     parser.add_option('-o', '--overwrite', dest='overwrite',
@@ -47,11 +52,10 @@ def run():
         parser.print_help()
         sys.exit(1)
 
-    _run(subjects_dir, subject, options.layers, options.spacing,
-         options.overwrite)
+    _run(subjects_dir, subject, options.layers, options.overwrite)
 
 
-def _run(subjects_dir, subject, layers, spacing, overwrite):
+def _run(subjects_dir, subject, layers, overwrite):
     this_env = copy.copy(os.environ)
     this_env['SUBJECTS_DIR'] = subjects_dir
     this_env['SUBJECT'] = subject
@@ -82,6 +86,7 @@ def _run(subjects_dir, subject, layers, spacing, overwrite):
         run_subprocess(['mne_setup_mri', '--mri', 'T1', '--subject', subject],
                        env=this_env)
 
+    # Create BEM solution for forward calculations
     logger.info('2. Setting up %d layer BEM...' % layers)
     if layers == 3:
         maps_dir = op.join(subjects_dir, subject, 'mri',
@@ -90,6 +95,8 @@ def _run(subjects_dir, subject, layers, spacing, overwrite):
         run_subprocess(
             ['mne', 'flash_bem', '--subject', subject, '--noconvert'],
             env=this_env)
+        bem_surf = mne.make_bem_model(subject=subject,
+                                       subjects_dir=subjects_dir)
     else:
         if overwrite:
             run_subprocess(
@@ -98,6 +105,10 @@ def _run(subjects_dir, subject, layers, spacing, overwrite):
         else:
             run_subprocess(
                 ['mne', 'watershed_bem', '--subject', subject], env=this_env)
+        # single layer homologous BEM
+        bem_surf = mne.make_bem_model(subject=subject, conductivity=[0.3],
+                                      subjects_dir=subjects_dir)
+    mne.make_bem_solution(surfs=bem_surf)
 
     # Create dense head surface and symbolic link to head.fif file
     logger.info(
@@ -111,15 +122,6 @@ def _run(subjects_dir, subject, layers, spacing, overwrite):
     os.symlink(
         (op.join(subjects_dir, subject, 'bem/%s-head-dense.fif' % subject)),
         (op.join(subjects_dir, subject, 'bem/%s-head.fif' % subject)))
-
-    # Create source space
-    logger.info(
-        '3. Creating mne source space...')
-    run_subprocess(['mne_setup_source_space', '--subject', subject, '--spacing',
-                    '%.0f' % spacing, '--cps'],
-                   env=this_env)
-
-
 is_main = (__name__ == '__main__')
 if is_main:
     run()
