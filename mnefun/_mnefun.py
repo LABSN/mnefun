@@ -601,10 +601,10 @@ def fetch_raw_files(p, subjects, run_indices):
                                   p.acq_ssh, finder])[0]
         remote_fnames = [x.strip() for x in stdout_.splitlines()]
         assert all(fname.startswith(p.acq_dir) for fname in remote_fnames)
-        p_dir, _ = op.split(remote_fnames[0])
-        p_dir = p_dir.split('/')[-1]
-        remote_fnames = [p_dir + '/' + op.basename(fname) for fname in
-                         remote_fnames]
+        # make the name "local" to the acq_dir, so that the name works
+        # remotely during rsync and locally during copyfile
+        remote_fnames = [fname[len(p.acq_dir):].lstrip('/')
+                         for fname in remote_fnames]
         want = set(op.basename(fname) for fname in fnames)
         got = set(op.basename(fname) for fname in remote_fnames)
         if want != got.intersection(want):
@@ -1531,11 +1531,9 @@ def gen_covariances(p, subjects, run_indices):
                                      p.inv_tag + '-cov.fif')
             empty_fif = get_raw_fnames(p, subj, 'pca', 'only', False)[0]
             raw = Raw(empty_fif, preload=True).pick_types(meg=True, eog=True,
-                                                          exclude=())
+                                                          exclude='bads')
             use_reject, use_flat = _restrict_reject_flat(p.reject, p.flat, raw)
-            picks = pick_types(raw.info, meg=True, eeg=False, exclude='bads')
-            cov = compute_raw_covariance(raw, reject=use_reject,
-                                         flat=use_flat, picks=picks)
+            cov = compute_raw_covariance(raw, reject=use_reject, flat=use_flat)
             write_cov(empty_cov_name, cov)
 
         # Make evoked covariances
