@@ -397,6 +397,21 @@ class Params(Frozen):
     def pca_fif_tag(self):
         return self.pca_extra + self.sss_fif_tag
 
+    def convert_subjects(self, subj_template, struc_template=None):
+        """Helper to convert subject names
+
+        Parameters
+        ----------
+        subj_template : str
+            Subject template to use.
+        struc_template : str
+            Structural template to use.
+        """
+        if struc_template is not None:
+            self.structurals = [struc_template % subj
+                                for subj in self.subjects]
+        self.subjects = [subj_template % subj for subj in self.subjects]
+
 
 def _get_baseline(p):
     """Helper to extract baseline from params"""
@@ -527,7 +542,7 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
     dates = p.dates
     if dates is not None:
         assert len(dates) == n_subj_orig
-        dates = [tuple([int(dd) for dd in d])
+        dates = [tuple([int(dd) for dd in d]) if d is not None else None
                  for d in np.array(p.dates)[sinds]]
 
     decim = p.decim
@@ -863,7 +878,8 @@ def run_sss_command(fname_in, options, fname_out, host='kasga', port=22,
             pass
 
 
-def run_sss_positions(fname_in, fname_out, host='kasga', opts='', port=22):
+def run_sss_positions(fname_in, fname_out, host='kasga', opts='', port=22,
+                      prefix='  '):
     """Run Maxfilter remotely and fetch resulting file
 
     Parameters
@@ -893,7 +909,7 @@ def run_sss_positions(fname_in, fname_out, host='kasga', opts='', port=22):
         else:
             break
 
-    print('  Copying file to %s' % host)
+    print('%sCopying file to %s' % (prefix, host))
     cmd = ['scp', '-P' + str(port)] + fnames_in + [host + ':~/']
     run_subprocess(cmd, stdout=None, stderr=None)
     t0 = time()
@@ -903,19 +919,20 @@ def run_sss_positions(fname_in, fname_out, host='kasga', opts='', port=22):
         remote_out = '~/temp_%s_raw_quat.fif' % t0
         remote_hp = '~/temp_%s_hp.txt' % t0
 
-        print('  Running maxfilter as %s' % host)
+        print('%sRunning MaxFilter (headpos estimation) as %s'
+              % (prefix, host))
         cmd = ['ssh', '-p', str(port), host,
                '/neuro/bin/util/maxfilter -f ' + remote_ins[fi] + ' -o ' +
                remote_out +
                ' -headpos -format short -hp ' + remote_hp + ' ' + opts]
         run_subprocess(cmd)
 
-        print('  Copying result to %s' % file_out)
+        print('%sCopying result to %s' % (prefix, file_out))
         cmd = ['scp', '-P' + str(port), host + ':' + remote_hp,
                op.join(pout, file_out)]
         run_subprocess(cmd)
 
-        print('  Cleaning up %s' % host)
+        print('%sCleaning up %s' % (prefix, host))
         cmd = ['ssh', '-p', str(port), host, 'rm -f %s %s %s'
                % (remote_ins[fi], remote_hp, remote_out)]
         run_subprocess(cmd)
@@ -1002,7 +1019,7 @@ def run_sss_locally(p, subjects, run_indices):
         for ii, (r, o) in enumerate(zip(erm_files, erm_files_out)):
             if not op.isfile(r):
                 raise NameError('File not found (' + r + ')')
-            raw = Raw(r, preload=True, allow_maxshield=True)
+            raw = Raw(r, preload=True, allow_maxshield='yes')
             raw.fix_mag_coil_types()
             _load_meg_bads(raw, prebad_file, disp=False)
             print('      %s ...' % op.basename(r))
@@ -1074,8 +1091,7 @@ def extract_expyfun_events(fname, return_offsets=False):
     subtract 1 before doing so to yield the original binary values.
     """
     # Read events
-    with warnings.catch_warnings(record=True):
-        raw = Raw(fname, allow_maxshield='yes')
+    raw = Raw(fname, allow_maxshield='yes')
     orig_events = find_events(raw, stim_channel='STI101', shortest_event=0)
     events = list()
     for ch in range(1, 9):
@@ -1139,10 +1155,12 @@ def fix_eeg_files(p, subjects, structurals=None, dates=None, run_indices=None):
         names = [name for name in raw_names if op.isfile(name)]
         # noinspection PyPep8
         if structurals is not None and structurals[si] is not None and \
-                        dates is not None:
+                dates is not None:
             assert isinstance(structurals[si], str)
-            assert isinstance(dates[si], tuple) and len(dates[si]) == 3
-            assert all([isinstance(d, int) for d in dates[si]])
+            assert dates[si] is None or (isinstance(dates[si], tuple) and
+                                         len(dates[si]) == 3)
+            assert dates[si] is None or all([isinstance(d, int)
+                                             for d in dates[si]])
             anon = dict(first_name=subj, last_name=structurals[si],
                         birthday=dates[si])
         else:
@@ -2181,9 +2199,9 @@ def _prebad(p, subj):
 def _headpos(p, file_in, file_out):
     """Helper for locating head position estimation file"""
     if not op.isfile(file_out):
-        run_sss_positions(file_in, file_out, host=p.sws_ssh)
-    pos = read_head_pos(file_out)
-    return pos
+        run_sss_positions(file_in, file_out, host=p.sws_ssh, port=p.sws_port,
+                          prefix='        ')
+    return read_head_pos(file_out)
 
 
 def info_sss_basis(info, origin='auto', int_order=8, ext_order=3,
