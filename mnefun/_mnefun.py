@@ -894,6 +894,10 @@ def run_sss_positions(fname_in, fname_out, host='kasga', opts='', port=22,
         The SSH/scp host to run the command on
     opts : str
         Additional command-line options to pass to MaxFilter.
+    port : int
+        The SSH port.
+    prefix : str
+        The prefix to use when printing status updates.
     """
     # let's make sure we can actually write where we want
     if not op.isfile(fname_in):
@@ -1616,7 +1620,7 @@ def gen_covariances(p, subjects, run_indices):
             epochs = Epochs(raw, events, event_id=None, tmin=p.bmin,
                             tmax=p.bmax, baseline=(None, None), proj=False,
                             reject=use_reject, flat=use_flat, preload=True)
-            epochs.pick_types(meg=True, eeg=True, exclude=())
+            epochs.pick_types(meg=True, eeg=True, exclude=[])
             cov_name = op.join(cov_dir, safe_inserter(inv_name, subj) +
                                ('-%d' % p.lp_cut) + p.inv_tag + '-cov.fif')
             cov = compute_covariance(epochs, method=p.cov_method)
