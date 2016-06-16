@@ -356,6 +356,7 @@ class Params(Frozen):
         self.st_correlation = .98
         self.sss_origin = 'auto'
         self.sss_regularize = 'in'
+        self.filter_chpi = True
         # boolean for whether data set(s) have an individual mri
         self.on_process = None
         # Use more than EXTRA points to fit headshape
@@ -395,6 +396,21 @@ class Params(Frozen):
     @property
     def pca_fif_tag(self):
         return self.pca_extra + self.sss_fif_tag
+
+    def convert_subjects(self, subj_template, struc_template=None):
+        """Helper to convert subject names
+
+        Parameters
+        ----------
+        subj_template : str
+            Subject template to use.
+        struc_template : str
+            Structural template to use.
+        """
+        if struc_template is not None:
+            self.structurals = [struc_template % subj
+                                for subj in self.subjects]
+        self.subjects = [subj_template % subj for subj in self.subjects]
 
 
 def _get_baseline(p):
@@ -526,7 +542,7 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
     dates = p.dates
     if dates is not None:
         assert len(dates) == n_subj_orig
-        dates = [tuple([int(dd) for dd in d])
+        dates = [tuple([int(dd) for dd in d]) if d is not None else None
                  for d in np.array(p.dates)[sinds]]
 
     decim = p.decim
@@ -740,7 +756,7 @@ def run_sss(p, subjects, run_indices):
     """Run SSS preprocessing remotely (only designed for *nix platforms) or
     locally using Maxwell filtering in mne-python"""
     if p.sss_type == 'python':
-        print(' Applying SSS locally using mne-python')
+        print('  Applying SSS locally using mne-python')
         run_sss_locally(p, subjects, run_indices)
     else:
         for si, subj in enumerate(subjects):
@@ -862,7 +878,8 @@ def run_sss_command(fname_in, options, fname_out, host='kasga', port=22,
             pass
 
 
-def run_sss_positions(fname_in, fname_out, host='kasga', opts='', port=22):
+def run_sss_positions(fname_in, fname_out, host='kasga', opts='', port=22,
+                      prefix='  '):
     """Run Maxfilter remotely and fetch resulting file
 
     Parameters
@@ -877,6 +894,10 @@ def run_sss_positions(fname_in, fname_out, host='kasga', opts='', port=22):
         The SSH/scp host to run the command on
     opts : str
         Additional command-line options to pass to MaxFilter.
+    port : int
+        The SSH port.
+    prefix : str
+        The prefix to use when printing status updates.
     """
     # let's make sure we can actually write where we want
     if not op.isfile(fname_in):
@@ -892,7 +913,7 @@ def run_sss_positions(fname_in, fname_out, host='kasga', opts='', port=22):
         else:
             break
 
-    print('  Copying file to %s' % host)
+    print('%sCopying file to %s' % (prefix, host))
     cmd = ['scp', '-P' + str(port)] + fnames_in + [host + ':~/']
     run_subprocess(cmd, stdout=None, stderr=None)
     t0 = time()
@@ -902,19 +923,20 @@ def run_sss_positions(fname_in, fname_out, host='kasga', opts='', port=22):
         remote_out = '~/temp_%s_raw_quat.fif' % t0
         remote_hp = '~/temp_%s_hp.txt' % t0
 
-        print('  Running maxfilter as %s' % host)
+        print('%sRunning MaxFilter (headpos estimation) as %s'
+              % (prefix, host))
         cmd = ['ssh', '-p', str(port), host,
                '/neuro/bin/util/maxfilter -f ' + remote_ins[fi] + ' -o ' +
                remote_out +
                ' -headpos -format short -hp ' + remote_hp + ' ' + opts]
         run_subprocess(cmd)
 
-        print('  Copying result to %s' % file_out)
+        print('%sCopying result to %s' % (prefix, file_out))
         cmd = ['scp', '-P' + str(port), host + ':' + remote_hp,
                op.join(pout, file_out)]
         run_subprocess(cmd)
 
-        print('  Cleaning up %s' % host)
+        print('%sCleaning up %s' % (prefix, host))
         cmd = ['ssh', '-p', str(port), host, 'rm -f %s %s %s'
                % (remote_ins[fi], remote_hp, remote_out)]
         run_subprocess(cmd)
@@ -946,7 +968,7 @@ def run_sss_locally(p, subjects, run_indices):
 
     for si, subj in enumerate(subjects):
         if p.disp_files:
-            print('  Maxwell filtering subject %g/%g (%s).'
+            print('    Maxwell filtering subject %g/%g (%s).'
                   % (si + 1, len(subjects), subj))
         # locate raw files with splits
         raw_dir = op.join(p.work_dir, subj, p.raw_dir)
@@ -966,9 +988,11 @@ def run_sss_locally(p, subjects, run_indices):
             if not op.isfile(r):
                 raise NameError('File not found (' + r + ')')
             raw = Raw(r, preload=True, allow_maxshield='yes')
-            raw.load_bad_channels(prebad_file, force=True)
             raw.fix_mag_coil_types()
-            raw = filter_chpi(raw)
+            _load_meg_bads(raw, prebad_file, disp=ii == 0, prefix=' ' * 6)
+            print('      %s ...' % op.basename(r))
+            if p.filter_chpi:
+                raw = filter_chpi(raw)
 
             assert isinstance(p.trans_to, (string_types, tuple, type(None)))
             if p.trans_to is 'median':
@@ -995,19 +1019,47 @@ def run_sss_locally(p, subjects, run_indices):
                 coord_frame='head', head_pos=pos, regularize=reg)
 
             raw_sss.save(o, overwrite=True, buffer_size_sec=None)
-            #  process erm files if any
-            for ii, (r, o) in enumerate(zip(erm_files, erm_files_out)):
-                if not op.isfile(r):
-                    raise NameError('File not found (' + r + ')')
-                raw = Raw(r, preload=True, allow_maxshield=True)
-                raw.load_bad_channels(prebad_file, force=True)
-                # apply maxwell filter
-                raw_sss = maxwell_filter(
-                    raw, int_order=p.int_order, ext_order=p.ext_order,
-                    calibration=cal_file, cross_talk=ct_file,
-                    st_correlation=p.st_correlation, st_duration=st_duration,
-                    destination=None, coord_frame='meg')
-                raw_sss.save(o, overwrite=True, buffer_size_sec=None)
+        #  process erm files if any
+        for ii, (r, o) in enumerate(zip(erm_files, erm_files_out)):
+            if not op.isfile(r):
+                raise NameError('File not found (' + r + ')')
+            raw = Raw(r, preload=True, allow_maxshield='yes')
+            raw.fix_mag_coil_types()
+            _load_meg_bads(raw, prebad_file, disp=False)
+            print('      %s ...' % op.basename(r))
+            # apply maxwell filter
+            raw_sss = maxwell_filter(
+                raw, int_order=p.int_order, ext_order=p.ext_order,
+                calibration=cal_file, cross_talk=ct_file,
+                st_correlation=p.st_correlation, st_duration=st_duration,
+                destination=None, coord_frame='meg')
+            raw_sss.save(o, overwrite=True, buffer_size_sec=None)
+
+
+def _load_meg_bads(raw, prebad_file, disp=True, prefix='     '):
+    """Helper to load MEG bad channels from a file (pre-MF)"""
+    with open(prebad_file, 'r') as fid:
+        lines = fid.readlines()
+    lines = [line.strip() for line in lines if len(line.strip()) > 0]
+    if len(lines) > 0:
+        try:
+            int(lines[0][0])
+        except ValueError:
+            # MNE-Python type file
+            bads = lines
+        else:
+            # Maxfilter type file
+            if len(lines) > 1:
+                raise RuntimeError('Could not parse bad file')
+            bads = ['MEG%04d' % int(bad) for bad in lines[0].split()]
+    else:
+        bads = list()
+    if disp:
+        pl = '' if len(bads) == 1 else 's'
+        print('%sMarking %s bad MEG channel%s using %s'
+              % (prefix, len(bads), pl, op.basename(prebad_file)))
+    raw.info['bads'] = bads
+    raw.info._check_consistency()
 
 
 def extract_expyfun_events(fname, return_offsets=False):
@@ -1043,8 +1095,7 @@ def extract_expyfun_events(fname, return_offsets=False):
     subtract 1 before doing so to yield the original binary values.
     """
     # Read events
-    with warnings.catch_warnings(record=True):
-        raw = Raw(fname, allow_maxshield='yes')
+    raw = Raw(fname, allow_maxshield='yes')
     orig_events = find_events(raw, stim_channel='STI101', shortest_event=0)
     events = list()
     for ch in range(1, 9):
@@ -1108,10 +1159,12 @@ def fix_eeg_files(p, subjects, structurals=None, dates=None, run_indices=None):
         names = [name for name in raw_names if op.isfile(name)]
         # noinspection PyPep8
         if structurals is not None and structurals[si] is not None and \
-                        dates is not None:
+                dates is not None:
             assert isinstance(structurals[si], str)
-            assert isinstance(dates[si], tuple) and len(dates[si]) == 3
-            assert all([isinstance(d, int) for d in dates[si]])
+            assert dates[si] is None or (isinstance(dates[si], tuple) and
+                                         len(dates[si]) == 3)
+            assert dates[si] is None or all([isinstance(d, int)
+                                             for d in dates[si]])
             anon = dict(first_name=subj, last_name=structurals[si],
                         birthday=dates[si])
         else:
@@ -1615,10 +1668,10 @@ def _raw_LRFCP(raw_names, sfreq, l_freq, h_freq, n_jobs, n_jobs_resample,
     raw = list()
     for rn in raw_names:
         r = Raw(rn, preload=True, allow_maxshield='yes')
+        r.pick_types(meg=True, eeg=True, eog=True, ecg=True, exclude=())
         r.load_bad_channels(bad_file, force=force_bads)
         if sfreq is not None:
-            with warnings.catch_warnings(record=True):  # resamp of stim ch
-                r.resample(sfreq, n_jobs=n_jobs_resample, npad='auto')
+            r.resample(sfreq, n_jobs=n_jobs_resample, npad='auto')
         if l_freq is not None or h_freq is not None:
             r.filter(l_freq=l_freq, h_freq=h_freq, picks=None,
                      n_jobs=n_jobs, method=method,
@@ -1756,11 +1809,12 @@ def do_preprocessing_combined(p, subjects, run_indices):
 
         # Calculate and apply continuous projectors if requested
         projs = list()
-        raw_orig = _raw_LRFCP(pre_list, p.proj_sfreq, None, bad_file,
-                              p.n_jobs_fir, p.n_jobs_resample, projs, bad_file,
-                              p.disp_files, method='fft',
-                              filter_length=p.filter_length, force_bads=False,
-                              l_trans=p.hp_trans, h_trans=p.lp_trans)
+        raw_orig = _raw_LRFCP(
+            raw_names=pre_list, sfreq=p.proj_sfreq, l_freq=None, h_freq=None,
+            n_jobs=p.n_jobs_fir, n_jobs_resample=p.n_jobs_resample,
+            projs=projs, bad_file=bad_file, disp_files=p.disp_files,
+            method='fft', filter_length=p.filter_length, force_bads=False,
+            l_trans=p.hp_trans, h_trans=p.lp_trans)
 
         # Apply any user-supplied extra projectors
         if p.proj_extra is not None:
@@ -1775,12 +1829,13 @@ def do_preprocessing_combined(p, subjects, run_indices):
                 if p.disp_files:
                     print('    Computing continuous projectors using ERM.')
                 # Use empty room(s), but processed the same way
-                raw = _raw_LRFCP(empty_names, p.proj_sfreq, None, None,
-                                 p.n_jobs_fir, p.n_jobs_resample, projs,
-                                 bad_file, p.disp_files, method='fft',
-                                 filter_length=p.filter_length,
-                                 force_bads=True,
-                                 l_trans=p.hp_trans, h_trans=p.lp_trans)
+                raw = _raw_LRFCP(
+                    raw_names=empty_names, sfreq=p.proj_sfreq,
+                    l_freq=None, h_freq=None, n_jobs=p.n_jobs_fir,
+                    n_jobs_resample=p.n_jobs_resample, projs=projs,
+                    bad_file=bad_file, disp_files=p.disp_files, method='fft',
+                    filter_length=p.filter_length, force_bads=True,
+                    l_trans=p.hp_trans, h_trans=p.lp_trans)
             else:
                 if p.disp_files:
                     print('    Computing continuous projectors using data.')
@@ -1913,21 +1968,23 @@ def apply_preprocessing_combined(p, subjects, run_indices):
                 if p.disp_files:
                     print('    Processing erm file %d/%d.'
                           % (ii + 1, len(erm_in)))
-            raw = _raw_LRFCP(r, None, p.hp_cut, p.lp_cut, p.n_jobs_fir,
-                             p.n_jobs_resample, projs, bad_file,
-                             disp_files=False, method='fft', apply_proj=False,
-                             filter_length=p.filter_length, force_bads=True,
-                             l_trans=p.hp_trans, h_trans=p.lp_trans)
+            raw = _raw_LRFCP(
+                raw_names=r, sfreq=None, l_freq=p.hp_cut, h_freq=p.lp_cut,
+                n_jobs=p.n_jobs_fir, n_jobs_resample=p.n_jobs_resample,
+                projs=projs, bad_file=bad_file, disp_files=False, method='fft',
+                apply_proj=False, filter_length=p.filter_length,
+                force_bads=True, l_trans=p.hp_trans, h_trans=p.lp_trans)
             raw.save(o, overwrite=True, buffer_size_sec=None)
         for ii, (r, o) in enumerate(zip(names_in, names_out)):
             if p.disp_files:
                 print('    Processing file %d/%d.'
                       % (ii + 1, len(names_in)))
-            raw = _raw_LRFCP(r, None, p.hp_cut, p.lp_cut, p.n_jobs_fir,
-                             p.n_jobs_resample, projs, bad_file,
-                             disp_files=False, method='fft', apply_proj=False,
-                             filter_length=p.filter_length, force_bads=False,
-                             l_trans=p.hp_trans, h_trans=p.lp_trans)
+            raw = _raw_LRFCP(
+                raw_names=r, sfreq=None, l_freq=p.hp_cut, h_freq=p.lp_cut,
+                n_jobs=p.n_jobs_fir, n_jobs_resample=p.n_jobs_resample,
+                projs=projs, bad_file=bad_file, disp_files=False, method='fft',
+                apply_proj=False, filter_length=p.filter_length,
+                force_bads=False, l_trans=p.hp_trans, h_trans=p.lp_trans)
             raw.save(o, overwrite=True, buffer_size_sec=None)
         # look at raw_clean for ExG events
         if p.plot_raw:
@@ -2146,9 +2203,9 @@ def _prebad(p, subj):
 def _headpos(p, file_in, file_out):
     """Helper for locating head position estimation file"""
     if not op.isfile(file_out):
-        run_sss_positions(file_in, file_out, host=p.sws_ssh)
-    pos = read_head_pos(file_out)
-    return pos
+        run_sss_positions(file_in, file_out, host=p.sws_ssh, port=p.sws_port,
+                          prefix='        ')
+    return read_head_pos(file_out)
 
 
 def info_sss_basis(info, origin='auto', int_order=8, ext_order=3,

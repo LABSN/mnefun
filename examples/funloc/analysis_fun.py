@@ -44,7 +44,7 @@ params = mnefun.Params(tmin=-0.2, tmax=0.5, t_adjust=-4e-3,
                        decim=5, proj_sfreq=200, filter_length='5s')
 params.subjects = ['subj_01', 'subj_02']
 params.structurals = [None, 'AKCLEE_110_slim']  # None means use sphere
-params.dates = [(2014, 2, 14), (2014, 2, 10)]
+params.dates = [(2014, 2, 14), None]  # use "None" to more fully anonymize
 params.score = score  # scoring function to use
 params.subject_indices = np.arange(2)  # which subjects to run
 params.plot_drop_logs = False  # turn off for demo or plots will block
@@ -66,10 +66,13 @@ params.proj_nums = [[1, 1, 0],  # ECG: grad/mag/eeg
                     [1, 1, 2],  # EOG
                     [0, 0, 0]]  # Continuous (from ERM)
 params.cov_method = 'shrunk'  # cleaner noise covariance regularization
-params.sss_type = 'python'  # python | maxfilter for choosing SSS applied using either Maxfilter or mne-python
+# python | maxfilter for choosing SSS applied using either Maxfilter or MNE
+params.sss_type = 'python'
 # The scoring function needs to produce an event file with these values
-params.in_names = ['Aud', 'Vis', 'AudDev', 'VisDev']
 params.in_numbers = [10, 11, 20, 21]
+# Those values correspond to real categories as:
+params.in_names = ['Auditory/Standard', 'Visual/Standard',
+                   'Auditory/Deviant', 'Visual/Deviant']
 
 # These lines define how to translate the above event types into evoked files
 params.analyses = [
