@@ -2398,8 +2398,7 @@ def chpi_snr_raw(raw, winlen, nharm, stop=None):
     snr_avg_grad = np.zeros([len(cfreqs), len(bufs)])
     snr_avg_mag = np.zeros([len(cfreqs), len(bufs)])
     resid_vars = np.zeros([nchan, len(bufs)])
-    ind = 0
-    for buf0 in bufs:
+    for ind, buf0 in enumerate(bufs):
         megbuf = raw[pick_meg, buf0:buf0+buflen][0].transpose()
         coeffs = np.dot(inv_model, megbuf)
         coeffs_hpi = coeffs[2+2*len(linefreqs):]
@@ -2411,7 +2410,6 @@ def chpi_snr_raw(raw, winlen, nharm, stop=None):
                                          resid_vars[pick_grad, ind].mean())
         snr_avg_mag[:, ind] = np.divide((hpi_amps**2/2)[:, pick_mag].mean(1),
                                         resid_vars[pick_mag, ind].mean())
-        ind += 1
 
     plt.figure()
     cfreqs_legend = [str(fre)+' Hz' for fre in cfreqs]
