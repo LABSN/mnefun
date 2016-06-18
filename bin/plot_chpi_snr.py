@@ -8,9 +8,6 @@ unexplained by the model).
 Window length for SNR estimates can be specified on the command line.
 Longer windows will by nature include more low frequencies and thus have
 larger residual variance (lower SNR).
-
-Tested with Python 2.7, MNE 0.11.0
-@author: jussi (jnu@iki.fi)
 """
 
 import sys
@@ -18,7 +15,7 @@ import os
 sys.path.append(os.path.join(os.path.dirname(__file__), os.pardir))
 import mne
 import argparse
-from mnefun import chpi_snr_raw
+from mnefun import plot_chpi_snr_raw
 
 
 def run():
@@ -38,8 +35,8 @@ def run():
                         help='Process only first t seconds')
     args = parser.parse_args()
 
-    raw = mne.io.Raw(args.fiff_file, allow_maxshield=True)
-    chpi_snr_raw(raw, args.winlen, args.nharm, args.stop)
+    raw = mne.io.Raw(args.fiff_file, allow_maxshield='yes')
+    plot_chpi_snr_raw(raw, args.winlen, args.nharm, args.stop)
 
 
 if __name__ == '__main__':
