@@ -31,12 +31,10 @@ def run():
     parser.add_argument('--nharm', type=int, default=default_nharm,
                         choices=[0, 1, 2, 3, 4], help='Number of line'
                         'frequency harmonics to include')
-    parser.add_argument('--stop', type=float, metavar='t', default=None,
-                        help='Process only first t seconds')
     args = parser.parse_args()
 
     raw = mne.io.Raw(args.fiff_file, allow_maxshield='yes')
-    plot_chpi_snr_raw(raw, args.winlen, args.nharm, args.stop)
+    plot_chpi_snr_raw(raw, args.winlen, args.nharm)
 
 
 if __name__ == '__main__':

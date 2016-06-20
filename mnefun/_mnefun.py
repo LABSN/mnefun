@@ -2334,7 +2334,7 @@ def plot_reconstruction(evoked, origin=(0., 0., 0.04)):
     return fig
 
 
-def plot_chpi_snr_raw(raw, winlen, nharm, stop=None):
+def plot_chpi_snr_raw(raw, winlen, n_harmonics):
     """Compute and plot cHPI SNR from raw data
 
     Parameters
@@ -2342,10 +2342,8 @@ def plot_chpi_snr_raw(raw, winlen, nharm, stop=None):
     winlen : int
         Length of window to use. Longer windows will naturally include more
         low frequency power, resulting in lower SNR.
-    nharm : int
+    n_harmonics : int
         Number of line frequency harmonics to include in the model.
-    stop : int
-        If specified, stop before the end of file (seconds)
 
     Returns
     -------
@@ -2360,7 +2358,7 @@ def plot_chpi_snr_raw(raw, winlen, nharm, stop=None):
     # get some info from fiff
     sfreq = raw.info['sfreq']
     linefreq = raw.info['line_freq']
-    linefreqs = (np.arange(nharm + 1) + 1) * linefreq
+    linefreqs = (np.arange(n_harmonics + 1) + 1) * linefreq
     buflen = int(winlen * sfreq)
     if buflen <= 0:
         raise ValueError('Window length should be >0')
@@ -2384,13 +2382,8 @@ def plot_chpi_snr_raw(raw, winlen, nharm, stop=None):
         model = np.c_[model, np.cos(2*np.pi*f*t), np.sin(2*np.pi*f*t)]
     inv_model = scipy.linalg.pinv(model)
 
-    # loop through MEG data, fit linear model and compute SNR at each window
-    if stop:
-        stop = int(stop*sfreq)
-    else:
-        stop = raw.n_times
     # drop last buffer to avoid overrun
-    bufs = np.arange(0, stop, buflen)[:-1]
+    bufs = np.arange(0, raw.n_times, buflen)[:-1]
     tvec = bufs/sfreq
     snr_avg_grad = np.zeros([len(cfreqs), len(bufs)])
     snr_avg_mag = np.zeros([len(cfreqs), len(bufs)])
