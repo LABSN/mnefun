@@ -2401,12 +2401,13 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics):
         coeffs = np.dot(inv_model, megbuf)
         coeffs_hpi = coeffs[2+2*len(linefreqs):]
         resid_vars[:, ind] = np.var(megbuf-np.dot(model, coeffs), 0)
-        # get total HPI amplitudes by combining sine and cosine terms
-        hpi_amps = np.sqrt(coeffs_hpi[0::2, :]**2 + coeffs_hpi[1::2, :]**2)
+        # get total power by combining sine and cosine terms
+        # sinusoidal of amplitude A has power of A**2/2
+        hpi_pow = (coeffs_hpi[0::2, :]**2 + coeffs_hpi[1::2, :]**2)/2
         # divide average HPI power by average variance
-        snr_avg_grad[:, ind] = (hpi_amps**2/2)[:, pick_grad].mean(1) / \
+        snr_avg_grad[:, ind] = (hpi_pow)[:, pick_grad].mean(1) / \
             resid_vars[pick_grad, ind].mean()
-        snr_avg_mag[:, ind] = (hpi_amps**2/2)[:, pick_mag].mean(1) / \
+        snr_avg_mag[:, ind] = (hpi_pow)[:, pick_mag].mean(1) / \
             resid_vars[pick_mag, ind].mean()
 
     cfreqs_legend = ['%s Hz' % fre for fre in cfreqs]
