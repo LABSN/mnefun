@@ -2354,8 +2354,7 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics):
 
     # plotting parameters
     legend_fontsize = 9
-    title_fontsize = 11
-    legend_hspace = 25  # % of horizontal axis to reserve for legend
+    title_fontsize = 12
 
     # get some info from fiff
     sfreq = raw.info['sfreq']
@@ -2416,12 +2415,10 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics):
 
     # SNR plots for gradiometers and magnetometers
     ax = axs[0]
-    sind = np.argsort(snr_avg_grad.mean(axis=1))[::-1]
     lines1 = ax.plot(tvec, 10*np.log10(snr_avg_grad.transpose()))
     ax.set(ylabel='SNR (dB)', xlabel='Time (s)')
     ax.set_title('Mean cHPI power / mean residual variance, gradiometers',
                  fontsize=title_fontsize)
-    sind = np.argsort(snr_avg_mag.mean(axis=1))[::-1]
     ax = axs[1]
     lines2 = ax.plot(tvec, 10*np.log10(snr_avg_mag.transpose()))
     ax.set(ylabel='SNR (dB)')
@@ -2441,12 +2438,14 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics):
     box = ax.get_position()
     ax.set_position([box.x0, box.y0, box.width * 0.8, box.height])
     # order curve legends according to mean of data
+    sind = np.argsort(snr_avg_grad.mean(axis=1))[::-1]
     ax.legend(np.array(lines1)[sind], np.array(cfreqs_legend)[sind],
               prop={'size': legend_fontsize}, bbox_to_anchor=(1, 0.5, ),
               loc='center left')
     ax = axs[1]
     box = ax.get_position()
     ax.set_position([box.x0, box.y0, box.width * 0.8, box.height])
+    sind = np.argsort(snr_avg_mag.mean(axis=1))[::-1]
     ax.legend(np.array(lines2)[sind], np.array(cfreqs_legend)[sind],
               prop={'size': legend_fontsize}, bbox_to_anchor=(1, 0.5, ),
               loc='center left')
