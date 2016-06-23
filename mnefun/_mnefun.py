@@ -2377,10 +2377,16 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics):
 
     # create general linear model for the data
     t = np.arange(buflen) / float(sfreq)
-    model = np.c_[t, np.ones(t.shape)]  # model slope and DC
+    model = np.empty((len(t), 2+2*(len(linefreqs)+len(cfreqs))))
+    model[:, 0] = t
+    model[:, 1] = np.ones(t.shape)
     # add sine and cosine term for each freq
-    for f in np.concatenate([linefreqs, cfreqs]):
-        model = np.c_[model, np.cos(2*np.pi*f*t), np.sin(2*np.pi*f*t)]
+    allfreqs = np.concatenate([linefreqs, cfreqs])
+    ind = 2
+    for f in allfreqs:
+        model[:, ind] = np.cos(2*np.pi*f*t)
+        model[:, ind+1] = np.sin(2*np.pi*f*t)
+        ind += 2
     inv_model = scipy.linalg.pinv(model)
 
     # drop last buffer to avoid overrun
