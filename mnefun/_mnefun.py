@@ -2350,6 +2350,24 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics):
     -------
     fig : Instance of matplotlib.figure.Figure
         cHPI SNR as function of time, residual variance.
+
+    Notes
+    -----
+    A general linear model including cHPI and line frequencies is fit into
+    each data window. The cHPI power obtained from the model is then divided
+    by the residual variance (variance of signal unexplained by the model) to
+    obtain the SNR.
+    The SNR may decrease either due to decrease of cHPI amplitudes (e.g.
+    head moving away from the helmet), or due to increase in the residual
+    variance. In case of broadband interference that overlaps with the cHPI
+    frequencies, the resulting decreased SNR accurately reflects the true
+    situation. However, increased narrowband interference outside the cHPI
+    and line frequencies would also cause an increase in the residual variance,
+    even though it wouldn't necessarily affect estimation of the cHPI
+    amplitudes. Thus, this method is intended for a rough overview of cHPI
+    signal quality. A more accurate picture of cHPI quality (at an increased
+    computational cost) can be obtained by examining the goodness-of-fit of
+    the cHPI coil fits.
     """
 
     # plotting parameters
