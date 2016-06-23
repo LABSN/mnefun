@@ -68,7 +68,7 @@ from mne.io.pick import pick_types_forward, pick_types
 from mne.io.meas_info import _empty_info
 from mne.cov import regularize
 from mne.minimum_norm import write_inverse_operator
-from mne.viz import plot_drop_log
+from mne.viz import plot_drop_log, tight_layout
 from mne.utils import run_subprocess
 from mne.report import Report
 from mne.io.constants import FIFF
@@ -2353,7 +2353,8 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics):
     """
 
     # plotting parameters
-    legend_fontsize = 10
+    legend_fontsize = 9
+    title_fontsize = 11
     legend_hspace = 25  # % of horizontal axis to reserve for legend
 
     # get some info from fiff
@@ -2413,34 +2414,45 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics):
     cfreqs_legend = ['%s Hz' % fre for fre in cfreqs]
     fig, axs = plt.subplots(3, 1)
 
-    # order curve legends according to mean of data
+    # SNR plots for gradiometers and magnetometers
     ax = axs[0]
     sind = np.argsort(snr_avg_grad.mean(axis=1))[::-1]
     lines1 = ax.plot(tvec, 10*np.log10(snr_avg_grad.transpose()))
-    ax.legend(np.array(lines1)[sind], np.array(cfreqs_legend)[sind],
-              prop={'size': legend_fontsize})
-    ax.set(ylabel='SNR (dB)', xlabel='Time (s)',
-           title='Mean cHPI power / mean residual variance, gradiometers')
-    # create some horizontal space for legend
-    ax.set_xlim([ax.get_xlim()[0], ax.get_xlim()[1]*(1+legend_hspace/100.)])
-
+    ax.set(ylabel='SNR (dB)', xlabel='Time (s)')
+    ax.set_title('Mean cHPI power / mean residual variance, gradiometers',
+                 fontsize=title_fontsize)
     sind = np.argsort(snr_avg_mag.mean(axis=1))[::-1]
     ax = axs[1]
-    lines1 = ax.plot(tvec, 10*np.log10(snr_avg_mag.transpose()))
-    ax.legend(np.array(lines1)[sind],
-              np.array(cfreqs_legend)[sind], prop={'size': legend_fontsize})
-    ax.set(ylabel='SNR (dB)', xlabel='Time (s)',
-           title='Mean cHPI power / mean residual variance, magnetometers')
-    ax.set_xlim([ax.get_xlim()[0], ax.get_xlim()[1]*(1+legend_hspace/100.)])
-
+    lines2 = ax.plot(tvec, 10*np.log10(snr_avg_mag.transpose()))
+    ax.set(ylabel='SNR (dB)')
+    ax.set_title('Mean cHPI power / mean residual variance, magnetometers',
+                 fontsize=title_fontsize)
     # residual (unexplained) variance as function of time
     ax = axs[2]
-    ax.semilogy(tvec, resid_vars[pick_grad, :].transpose())
-    ax.set(ylabel='Variance (T/m)^2', xlabel='Time (s)',
-           title='Residual (unexplained) variance, all gradiometer channels')
-    ax.set_xlim([ax.get_xlim()[0], ax.get_xlim()[1]*(1+legend_hspace/100.)])
-
-    fig.tight_layout()
+    cls = plt.get_cmap('plasma')(np.linspace(0., 0.7, len(pick_meg)))
+    ax.set_prop_cycle(color=cls)
+    ax.semilogy(tvec, resid_vars[pick_grad, :].transpose(), alpha=.4)
+    ax.set(ylabel='Var. (T/m)$^2$')
+    ax.set_title('Residual (unexplained) variance, all gradiometer channels',
+                 fontsize=title_fontsize)
+    tight_layout()  # from mne.viz
+    # tight_layout will screw these up
+    ax = axs[0]
+    box = ax.get_position()
+    ax.set_position([box.x0, box.y0, box.width * 0.8, box.height])
+    # order curve legends according to mean of data
+    ax.legend(np.array(lines1)[sind], np.array(cfreqs_legend)[sind],
+              prop={'size': legend_fontsize}, bbox_to_anchor=(1, 0.5, ),
+              loc='center left')
+    ax = axs[1]
+    box = ax.get_position()
+    ax.set_position([box.x0, box.y0, box.width * 0.8, box.height])
+    ax.legend(np.array(lines2)[sind], np.array(cfreqs_legend)[sind],
+              prop={'size': legend_fontsize}, bbox_to_anchor=(1, 0.5, ),
+              loc='center left')
+    ax = axs[2]
+    box = ax.get_position()
+    ax.set_position([box.x0, box.y0, box.width * 0.8, box.height])
     plt.show()
 
     return fig
