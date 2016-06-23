@@ -2339,7 +2339,7 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics):
 
     Parameters
     ----------
-    win_length : int
+    win_length : float
         Length of window to use for SNR estimates (seconds). A longer window
         will naturally include more low frequency power, resulting in lower
         SNR.
