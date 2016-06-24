@@ -33,7 +33,7 @@ from score import score
 import numpy as np
 
 try:
-    # Use niprov as handler for events, or if it's not installed, ignore
+    # Use niprov as handler for events if it's installed
     from niprov.mnefunsupport import handler
 except ImportError:
     handler = None
@@ -96,29 +96,32 @@ params.out_numbers = [
 ]
 params.must_match = [
     [],
-    [0, 1],  # only make the standard event counts match
+    [0, 1],  # Only ensure the standard event counts match
 ]
 
-# Set what will run
+# Set what processing steps will execute
 mnefun.do_processing(
     params,
     fetch_raw=True,     # Fetch raw recording files from acquisition machine
     do_score=True,      # Do scoring to slice data into trials
-    # Make SUBJ/raw_fif/SUBJ_prebad.txt file with space-separated
-    # list of bad MEG channel numbers, needed for running SSS.
+
+    # Before running SSS, make SUBJ/raw_fif/SUBJ_prebad.txt file with
+    # space-separated list of bad MEG channel numbers
     push_raw=True,      # Push raw files and SSS script to SSS workstation
-    # Run SSS remotely using Maxfilter (on sws) or locally with mne-python
-    do_sss=True,
+    do_sss=True,        # Run SSS remotely (on sws) or locally with mne-python
     fetch_sss=True,     # Fetch SSSed files from SSS workstation
     do_ch_fix=True,     # Fix channel ordering
-    # Examine SSS'ed files and make SUBJ/bads/bad_ch_SUBJ_post-sss.txt,
-    # usually only contains EEG channels, needed for preprocessing.
+
+    # Before running SSP, examine SSS'ed files and make
+    # SUBJ/bads/bad_ch_SUBJ_post-sss.txt; usually, this should only contain EEG
+    # channels.
     gen_ssp=True,       # Generate SSP vectors
     apply_ssp=True,     # Apply SSP vectors and filtering
     plot_psd=True,      # Plot raw data power spectra
     write_epochs=True,  # Write epochs to disk
-    gen_covs=True,  # Generate covariances
-    # Make SUBJ/trans/SUBJ-trans.fif file in mne_analyze, needed for fwd calc.
+    gen_covs=True,      # Generate covariances
+
+    # Make SUBJ/trans/SUBJ-trans.fif using mne_analyze; needed for fwd calc.
     gen_fwd=True,       # Generate forward solutions (and src space if needed)
     gen_inv=True,       # Generate inverses
     gen_report=True,    # Write mne report html of results to disk
