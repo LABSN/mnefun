@@ -2412,6 +2412,7 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics):
     bufs = np.arange(0, raw.n_times, buflen)[:-1]
     tvec = bufs/sfreq
     snr_avg_grad = np.zeros([len(cfreqs), len(bufs)])
+    hpi_pow_grad = np.zeros([len(cfreqs), len(bufs)])
     snr_avg_mag = np.zeros([len(cfreqs), len(bufs)])
     resid_vars = np.zeros([nchan, len(bufs)])
     for ind, buf0 in enumerate(bufs):
@@ -2424,13 +2425,14 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics):
         # sinusoidal of amplitude A has power of A**2/2
         hpi_pow = (coeffs_hpi[0::2, :]**2 + coeffs_hpi[1::2, :]**2)/2
         # divide average HPI power by average variance
-        snr_avg_grad[:, ind] = hpi_pow[:, pick_grad].mean(1) / \
+        hpi_pow_grad[:, ind] = hpi_pow[:, pick_grad].mean(1)
+        snr_avg_grad[:, ind] = hpi_pow_grad[:, ind] / \
             resid_vars[pick_grad, ind].mean()
         snr_avg_mag[:, ind] = hpi_pow[:, pick_mag].mean(1) / \
             resid_vars[pick_mag, ind].mean()
 
     cfreqs_legend = ['%s Hz' % fre for fre in cfreqs]
-    fig, axs = plt.subplots(3, 1)
+    fig, axs = plt.subplots(4, 1)
 
     # SNR plots for gradiometers and magnetometers
     ax = axs[0]
@@ -2443,8 +2445,13 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics):
     ax.set(ylabel='SNR (dB)')
     ax.set_title('Mean cHPI power / mean residual variance, magnetometers',
                  fontsize=title_fontsize)
-    # residual (unexplained) variance as function of time
     ax = axs[2]
+    lines3 = ax.plot(tvec, hpi_pow_grad.transpose())
+    ax.set(ylabel='Power (T/m)$^2$')
+    ax.set_title('Mean cHPI power, gradiometers',
+                 fontsize=title_fontsize)
+    # residual (unexplained) variance as function of time
+    ax = axs[3]
     cls = plt.get_cmap('plasma')(np.linspace(0., 0.7, len(pick_meg)))
     ax.set_prop_cycle(color=cls)
     ax.semilogy(tvec, resid_vars[pick_grad, :].transpose(), alpha=.4)
@@ -2469,6 +2476,13 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics):
               prop={'size': legend_fontsize}, bbox_to_anchor=(1, 0.5, ),
               loc='center left')
     ax = axs[2]
+    box = ax.get_position()
+    ax.set_position([box.x0, box.y0, box.width * 0.8, box.height])
+    sind = np.argsort(hpi_pow_grad.mean(axis=1))[::-1]
+    ax.legend(np.array(lines3)[sind], np.array(cfreqs_legend)[sind],
+              prop={'size': legend_fontsize}, bbox_to_anchor=(1, 0.5, ),
+              loc='center left')
+    ax = axs[3]
     box = ax.get_position()
     ax.set_position([box.x0, box.y0, box.width * 0.8, box.height])
     plt.show()
