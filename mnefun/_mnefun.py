@@ -2348,7 +2348,7 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics):
 
     Returns
     -------
-    fig : Instance of matplotlib.figure.Figure
+    fig : instance of matplotlib.figure.Figure
         cHPI SNR as function of time, residual variance.
 
     Notes
@@ -2357,6 +2357,7 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics):
     each data window. The cHPI power obtained from the model is then divided
     by the residual variance (variance of signal unexplained by the model) to
     obtain the SNR.
+
     The SNR may decrease either due to decrease of cHPI amplitudes (e.g.
     head moving away from the helmet), or due to increase in the residual
     variance. In case of broadband interference that overlaps with the cHPI
@@ -2382,7 +2383,7 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics):
     if buflen <= 0:
         raise ValueError('Window length should be >0')
     (cfreqs, _, _, _, _) = _get_hpi_info(raw.info)
-    print('\nNominal cHPI frequencies: %s Hz' % cfreqs)
+    print('Nominal cHPI frequencies: %s Hz' % cfreqs)
     print('Sampling frequency: %s Hz' % sfreq)
     print('Using line freqs: %s Hz' % linefreqs)
     print('Using buffers of %s samples = %s seconds\n'
@@ -2423,9 +2424,9 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics):
         # sinusoidal of amplitude A has power of A**2/2
         hpi_pow = (coeffs_hpi[0::2, :]**2 + coeffs_hpi[1::2, :]**2)/2
         # divide average HPI power by average variance
-        snr_avg_grad[:, ind] = (hpi_pow)[:, pick_grad].mean(1) / \
+        snr_avg_grad[:, ind] = hpi_pow[:, pick_grad].mean(1) / \
             resid_vars[pick_grad, ind].mean()
-        snr_avg_mag[:, ind] = (hpi_pow)[:, pick_mag].mean(1) / \
+        snr_avg_mag[:, ind] = hpi_pow[:, pick_mag].mean(1) / \
             resid_vars[pick_mag, ind].mean()
 
     cfreqs_legend = ['%s Hz' % fre for fre in cfreqs]

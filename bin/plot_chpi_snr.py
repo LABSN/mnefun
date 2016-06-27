@@ -5,6 +5,7 @@ Plot signal-to-noise of continuous HPI coils as a function of time.
 Works by fitting a general linear model (HPI freqs, line freqs, DC, slope) to
 the data, and comparing estimated HPI powers with the residual (=variance
 unexplained by the model).
+
 Window length for SNR estimates can be specified on the command line.
 Longer windows will by nature include more low frequencies and thus have
 larger residual variance (lower SNR).
@@ -12,7 +13,6 @@ larger residual variance (lower SNR).
 
 import sys
 import os
-sys.path.append(os.path.join(os.path.dirname(__file__), os.pardir))
 import mne
 import argparse
 from mnefun import plot_chpi_snr_raw
