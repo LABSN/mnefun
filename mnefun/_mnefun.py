@@ -2424,8 +2424,8 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics):
         # get total power by combining sine and cosine terms
         # sinusoidal of amplitude A has power of A**2/2
         hpi_pow = (coeffs_hpi[0::2, :]**2 + coeffs_hpi[1::2, :]**2)/2
-        # divide average HPI power by average variance
         hpi_pow_grad[:, ind] = hpi_pow[:, pick_grad].mean(1)
+        # divide average HPI power by average variance
         snr_avg_grad[:, ind] = hpi_pow_grad[:, ind] / \
             resid_vars[pick_grad, ind].mean()
         snr_avg_mag[:, ind] = hpi_pow[:, pick_mag].mean(1) / \
