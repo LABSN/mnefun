@@ -2436,6 +2436,7 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics):
     # SNR plots for gradiometers and magnetometers
     ax = axs[0]
     lines1 = ax.plot(tvec, 10*np.log10(snr_avg_grad.transpose()))
+    ax.set_xlim([tvec.min(), tvec.max()])
     ax.set(ylabel='SNR (dB)')
     ax.yaxis.label.set_fontsize(label_fontsize)
     ax.set_title('Mean cHPI power / mean residual variance, gradiometers',
@@ -2443,6 +2444,7 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics):
     ax.tick_params(axis='both', which='major', labelsize=tick_fontsize)
     ax = axs[1]
     lines2 = ax.plot(tvec, 10*np.log10(snr_avg_mag.transpose()))
+    ax.set_xlim([tvec.min(), tvec.max()])
     ax.set(ylabel='SNR (dB)')
     ax.yaxis.label.set_fontsize(label_fontsize)
     ax.set_title('Mean cHPI power / mean residual variance, magnetometers',
@@ -2450,6 +2452,7 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics):
     ax.tick_params(axis='both', which='major', labelsize=tick_fontsize)
     ax = axs[2]
     lines3 = ax.plot(tvec, hpi_pow_grad.transpose())
+    ax.set_xlim([tvec.min(), tvec.max()])
     ax.set(ylabel='Power (T/m)$^2$')
     ax.yaxis.label.set_fontsize(label_fontsize)
     ax.set_title('Mean cHPI power, gradiometers',
@@ -2460,6 +2463,7 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics):
     cls = plt.get_cmap('plasma')(np.linspace(0., 0.7, len(pick_meg)))
     ax.set_prop_cycle(color=cls)
     ax.semilogy(tvec, resid_vars[pick_grad, :].transpose(), alpha=.4)
+    ax.set_xlim([tvec.min(), tvec.max()])
     ax.set(ylabel='Var. (T/m)$^2$', xlabel='Time (s)')
     ax.xaxis.label.set_fontsize(label_fontsize)
     ax.yaxis.label.set_fontsize(label_fontsize)
