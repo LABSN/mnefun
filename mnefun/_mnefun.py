@@ -16,6 +16,7 @@ from collections import Counter
 from time import time
 
 import numpy as np
+import scipy
 from scipy import io as spio
 import matplotlib.pyplot as plt
 from numpy.testing import assert_allclose
@@ -50,7 +51,8 @@ from mne.bem import _check_origin
 from mne.minimum_norm import make_inverse_operator
 from mne.label import read_label
 from mne.epochs import combine_event_ids
-from mne.chpi import (filter_chpi, read_head_pos, write_head_pos)
+from mne.chpi import (filter_chpi, read_head_pos, write_head_pos,
+                      _get_hpi_info)
 
 try:
     from mne.chpi import quat_to_rot, rot_to_quat
@@ -66,7 +68,7 @@ from mne.io.pick import pick_types_forward, pick_types
 from mne.io.meas_info import _empty_info
 from mne.cov import regularize
 from mne.minimum_norm import write_inverse_operator
-from mne.viz import plot_drop_log
+from mne.viz import plot_drop_log, tight_layout
 from mne.utils import run_subprocess
 from mne.report import Report
 from mne.io.constants import FIFF
@@ -2329,4 +2331,172 @@ def plot_reconstruction(evoked, origin=(0., 0., 0.04)):
     axs[1, 0].set_ylabel('Projection')
     axs[2, 0].set_ylabel('Reconstruction')
     fig.tight_layout()
+    return fig
+
+
+def plot_chpi_snr_raw(raw, win_length, n_harmonics):
+    """Compute and plot cHPI SNR from raw data
+
+    Parameters
+    ----------
+    win_length : float
+        Length of window to use for SNR estimates (seconds). A longer window
+        will naturally include more low frequency power, resulting in lower
+        SNR.
+    n_harmonics : int
+        Number of line frequency harmonics to include in the model.
+
+    Returns
+    -------
+    fig : instance of matplotlib.figure.Figure
+        cHPI SNR as function of time, residual variance.
+
+    Notes
+    -----
+    A general linear model including cHPI and line frequencies is fit into
+    each data window. The cHPI power obtained from the model is then divided
+    by the residual variance (variance of signal unexplained by the model) to
+    obtain the SNR.
+
+    The SNR may decrease either due to decrease of cHPI amplitudes (e.g.
+    head moving away from the helmet), or due to increase in the residual
+    variance. In case of broadband interference that overlaps with the cHPI
+    frequencies, the resulting decreased SNR accurately reflects the true
+    situation. However, increased narrowband interference outside the cHPI
+    and line frequencies would also cause an increase in the residual variance,
+    even though it wouldn't necessarily affect estimation of the cHPI
+    amplitudes. Thus, this method is intended for a rough overview of cHPI
+    signal quality. A more accurate picture of cHPI quality (at an increased
+    computational cost) can be obtained by examining the goodness-of-fit of
+    the cHPI coil fits.
+    """
+
+    # plotting parameters
+    legend_fontsize = 9
+    title_fontsize = 10
+    tick_fontsize = 10
+    label_fontsize = 10
+
+    # get some info from fiff
+    sfreq = raw.info['sfreq']
+    linefreq = raw.info['line_freq']
+    linefreqs = (np.arange(n_harmonics + 1) + 1) * linefreq
+    buflen = int(win_length * sfreq)
+    if buflen <= 0:
+        raise ValueError('Window length should be >0')
+    (cfreqs, _, _, _, _) = _get_hpi_info(raw.info)
+    print('Nominal cHPI frequencies: %s Hz' % cfreqs)
+    print('Sampling frequency: %s Hz' % sfreq)
+    print('Using line freqs: %s Hz' % linefreqs)
+    print('Using buffers of %s samples = %s seconds\n'
+          % (buflen, buflen/sfreq))
+
+    pick_meg = pick_types(raw.info, meg=True, exclude=[])
+    pick_mag = pick_types(raw.info, meg='mag', exclude=[])
+    pick_grad = pick_types(raw.info, meg='grad', exclude=[])
+    nchan = len(pick_meg)
+
+    # create general linear model for the data
+    t = np.arange(buflen) / float(sfreq)
+    model = np.empty((len(t), 2+2*(len(linefreqs)+len(cfreqs))))
+    model[:, 0] = t
+    model[:, 1] = np.ones(t.shape)
+    # add sine and cosine term for each freq
+    allfreqs = np.concatenate([linefreqs, cfreqs])
+    model[:, 2::2] = np.cos(2 * np.pi * t[:, np.newaxis] * allfreqs)
+    model[:, 3::2] = np.sin(2 * np.pi * t[:, np.newaxis] * allfreqs)
+    inv_model = scipy.linalg.pinv(model)
+
+    # drop last buffer to avoid overrun
+    bufs = np.arange(0, raw.n_times, buflen)[:-1]
+    tvec = bufs/sfreq
+    snr_avg_grad = np.zeros([len(cfreqs), len(bufs)])
+    hpi_pow_grad = np.zeros([len(cfreqs), len(bufs)])
+    snr_avg_mag = np.zeros([len(cfreqs), len(bufs)])
+    resid_vars = np.zeros([nchan, len(bufs)])
+    for ind, buf0 in enumerate(bufs):
+        print('Buffer %s/%s' % (ind+1, len(bufs)))
+        megbuf = raw[pick_meg, buf0:buf0+buflen][0].T
+        coeffs = np.dot(inv_model, megbuf)
+        coeffs_hpi = coeffs[2+2*len(linefreqs):]
+        resid_vars[:, ind] = np.var(megbuf-np.dot(model, coeffs), 0)
+        # get total power by combining sine and cosine terms
+        # sinusoidal of amplitude A has power of A**2/2
+        hpi_pow = (coeffs_hpi[0::2, :]**2 + coeffs_hpi[1::2, :]**2)/2
+        hpi_pow_grad[:, ind] = hpi_pow[:, pick_grad].mean(1)
+        # divide average HPI power by average variance
+        snr_avg_grad[:, ind] = hpi_pow_grad[:, ind] / \
+            resid_vars[pick_grad, ind].mean()
+        snr_avg_mag[:, ind] = hpi_pow[:, pick_mag].mean(1) / \
+            resid_vars[pick_mag, ind].mean()
+
+    cfreqs_legend = ['%s Hz' % fre for fre in cfreqs]
+    fig, axs = plt.subplots(4, 1, sharex=True)
+
+    # SNR plots for gradiometers and magnetometers
+    ax = axs[0]
+    lines1 = ax.plot(tvec, 10*np.log10(snr_avg_grad.transpose()))
+    ax.set_xlim([tvec.min(), tvec.max()])
+    ax.set(ylabel='SNR (dB)')
+    ax.yaxis.label.set_fontsize(label_fontsize)
+    ax.set_title('Mean cHPI power / mean residual variance, gradiometers',
+                 fontsize=title_fontsize)
+    ax.tick_params(axis='both', which='major', labelsize=tick_fontsize)
+    ax = axs[1]
+    lines2 = ax.plot(tvec, 10*np.log10(snr_avg_mag.transpose()))
+    ax.set_xlim([tvec.min(), tvec.max()])
+    ax.set(ylabel='SNR (dB)')
+    ax.yaxis.label.set_fontsize(label_fontsize)
+    ax.set_title('Mean cHPI power / mean residual variance, magnetometers',
+                 fontsize=title_fontsize)
+    ax.tick_params(axis='both', which='major', labelsize=tick_fontsize)
+    ax = axs[2]
+    lines3 = ax.plot(tvec, hpi_pow_grad.transpose())
+    ax.set_xlim([tvec.min(), tvec.max()])
+    ax.set(ylabel='Power (T/m)$^2$')
+    ax.yaxis.label.set_fontsize(label_fontsize)
+    ax.set_title('Mean cHPI power, gradiometers',
+                 fontsize=title_fontsize)
+    ax.tick_params(axis='both', which='major', labelsize=tick_fontsize)
+    # residual (unexplained) variance as function of time
+    ax = axs[3]
+    cls = plt.get_cmap('plasma')(np.linspace(0., 0.7, len(pick_meg)))
+    ax.set_prop_cycle(color=cls)
+    ax.semilogy(tvec, resid_vars[pick_grad, :].transpose(), alpha=.4)
+    ax.set_xlim([tvec.min(), tvec.max()])
+    ax.set(ylabel='Var. (T/m)$^2$', xlabel='Time (s)')
+    ax.xaxis.label.set_fontsize(label_fontsize)
+    ax.yaxis.label.set_fontsize(label_fontsize)
+    ax.set_title('Residual (unexplained) variance, all gradiometer channels',
+                 fontsize=title_fontsize)
+    ax.tick_params(axis='both', which='major', labelsize=tick_fontsize)
+    tight_layout(pad=.5, w_pad=.1, h_pad=.2)  # from mne.viz
+    # tight_layout will screw these up
+    ax = axs[0]
+    box = ax.get_position()
+    ax.set_position([box.x0, box.y0, box.width * 0.8, box.height])
+    # order curve legends according to mean of data
+    sind = np.argsort(snr_avg_grad.mean(axis=1))[::-1]
+    ax.legend(np.array(lines1)[sind], np.array(cfreqs_legend)[sind],
+              prop={'size': legend_fontsize}, bbox_to_anchor=(1.02, 0.5, ),
+              loc='center left')
+    ax = axs[1]
+    box = ax.get_position()
+    ax.set_position([box.x0, box.y0, box.width * 0.8, box.height])
+    sind = np.argsort(snr_avg_mag.mean(axis=1))[::-1]
+    ax.legend(np.array(lines2)[sind], np.array(cfreqs_legend)[sind],
+              prop={'size': legend_fontsize}, bbox_to_anchor=(1.02, 0.5, ),
+              loc='center left')
+    ax = axs[2]
+    box = ax.get_position()
+    ax.set_position([box.x0, box.y0, box.width * 0.8, box.height])
+    sind = np.argsort(hpi_pow_grad.mean(axis=1))[::-1]
+    ax.legend(np.array(lines3)[sind], np.array(cfreqs_legend)[sind],
+              prop={'size': legend_fontsize}, bbox_to_anchor=(1.02, 0.5, ),
+              loc='center left')
+    ax = axs[3]
+    box = ax.get_position()
+    ax.set_position([box.x0, box.y0, box.width * 0.8, box.height])
+    plt.show()
+
     return fig
