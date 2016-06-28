@@ -2434,7 +2434,7 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics):
     # SNR plots for gradiometers and magnetometers
     ax = axs[0]
     lines1 = ax.plot(tvec, 10*np.log10(snr_avg_grad.transpose()))
-    ax.set(ylabel='SNR (dB)', xlabel='Time (s)')
+    ax.set(ylabel='SNR (dB)')
     ax.set_title('Mean cHPI power / mean residual variance, gradiometers',
                  fontsize=title_fontsize)
     ax = axs[1]
@@ -2452,10 +2452,10 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics):
     cls = plt.get_cmap('plasma')(np.linspace(0., 0.7, len(pick_meg)))
     ax.set_prop_cycle(color=cls)
     ax.semilogy(tvec, resid_vars[pick_grad, :].transpose(), alpha=.4)
-    ax.set(ylabel='Var. (T/m)$^2$')
+    ax.set(ylabel='Var. (T/m)$^2$', xlabel='Time (s)')
     ax.set_title('Residual (unexplained) variance, all gradiometer channels',
                  fontsize=title_fontsize)
-    tight_layout()  # from mne.viz
+    tight_layout(pad=.5, w_pad=.1, h_pad=.1)  # from mne.viz
     # tight_layout will screw these up
     ax = axs[0]
     box = ax.get_position()
@@ -2463,21 +2463,21 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics):
     # order curve legends according to mean of data
     sind = np.argsort(snr_avg_grad.mean(axis=1))[::-1]
     ax.legend(np.array(lines1)[sind], np.array(cfreqs_legend)[sind],
-              prop={'size': legend_fontsize}, bbox_to_anchor=(1, 0.5, ),
+              prop={'size': legend_fontsize}, bbox_to_anchor=(1.02, 0.5, ),
               loc='center left')
     ax = axs[1]
     box = ax.get_position()
     ax.set_position([box.x0, box.y0, box.width * 0.8, box.height])
     sind = np.argsort(snr_avg_mag.mean(axis=1))[::-1]
     ax.legend(np.array(lines2)[sind], np.array(cfreqs_legend)[sind],
-              prop={'size': legend_fontsize}, bbox_to_anchor=(1, 0.5, ),
+              prop={'size': legend_fontsize}, bbox_to_anchor=(1.02, 0.5, ),
               loc='center left')
     ax = axs[2]
     box = ax.get_position()
     ax.set_position([box.x0, box.y0, box.width * 0.8, box.height])
     sind = np.argsort(hpi_pow_grad.mean(axis=1))[::-1]
     ax.legend(np.array(lines3)[sind], np.array(cfreqs_legend)[sind],
-              prop={'size': legend_fontsize}, bbox_to_anchor=(1, 0.5, ),
+              prop={'size': legend_fontsize}, bbox_to_anchor=(1.02, 0.5, ),
               loc='center left')
     ax = axs[3]
     box = ax.get_position()
