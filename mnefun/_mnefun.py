@@ -2373,7 +2373,9 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics):
 
     # plotting parameters
     legend_fontsize = 9
-    title_fontsize = 12
+    title_fontsize = 10
+    tick_fontsize = 10
+    label_fontsize = 10
 
     # get some info from fiff
     sfreq = raw.info['sfreq']
@@ -2435,27 +2437,36 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics):
     ax = axs[0]
     lines1 = ax.plot(tvec, 10*np.log10(snr_avg_grad.transpose()))
     ax.set(ylabel='SNR (dB)')
+    ax.yaxis.label.set_fontsize(label_fontsize)
     ax.set_title('Mean cHPI power / mean residual variance, gradiometers',
                  fontsize=title_fontsize)
+    ax.tick_params(axis='both', which='major', labelsize=tick_fontsize)
     ax = axs[1]
     lines2 = ax.plot(tvec, 10*np.log10(snr_avg_mag.transpose()))
     ax.set(ylabel='SNR (dB)')
+    ax.yaxis.label.set_fontsize(label_fontsize)
     ax.set_title('Mean cHPI power / mean residual variance, magnetometers',
                  fontsize=title_fontsize)
+    ax.tick_params(axis='both', which='major', labelsize=tick_fontsize)
     ax = axs[2]
     lines3 = ax.plot(tvec, hpi_pow_grad.transpose())
     ax.set(ylabel='Power (T/m)$^2$')
+    ax.yaxis.label.set_fontsize(label_fontsize)
     ax.set_title('Mean cHPI power, gradiometers',
                  fontsize=title_fontsize)
+    ax.tick_params(axis='both', which='major', labelsize=tick_fontsize)
     # residual (unexplained) variance as function of time
     ax = axs[3]
     cls = plt.get_cmap('plasma')(np.linspace(0., 0.7, len(pick_meg)))
     ax.set_prop_cycle(color=cls)
     ax.semilogy(tvec, resid_vars[pick_grad, :].transpose(), alpha=.4)
     ax.set(ylabel='Var. (T/m)$^2$', xlabel='Time (s)')
+    ax.xaxis.label.set_fontsize(label_fontsize)
+    ax.yaxis.label.set_fontsize(label_fontsize)
     ax.set_title('Residual (unexplained) variance, all gradiometer channels',
                  fontsize=title_fontsize)
-    tight_layout(pad=.5, w_pad=.1, h_pad=.1)  # from mne.viz
+    ax.tick_params(axis='both', which='major', labelsize=tick_fontsize)
+    tight_layout(pad=.5, w_pad=.1, h_pad=.2)  # from mne.viz
     # tight_layout will screw these up
     ax = axs[0]
     box = ax.get_position()
