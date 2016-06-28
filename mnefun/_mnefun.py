@@ -2431,7 +2431,7 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics):
             resid_vars[pick_mag, ind].mean()
 
     cfreqs_legend = ['%s Hz' % fre for fre in cfreqs]
-    fig, axs = plt.subplots(4, 1)
+    fig, axs = plt.subplots(4, 1, sharex=True)
 
     # SNR plots for gradiometers and magnetometers
     ax = axs[0]
