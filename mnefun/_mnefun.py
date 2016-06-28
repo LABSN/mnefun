@@ -2401,11 +2401,8 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics):
     model[:, 1] = np.ones(t.shape)
     # add sine and cosine term for each freq
     allfreqs = np.concatenate([linefreqs, cfreqs])
-    ind = 2
-    for f in allfreqs:
-        model[:, ind] = np.cos(2*np.pi*f*t)
-        model[:, ind+1] = np.sin(2*np.pi*f*t)
-        ind += 2
+    model[:, 2::2] = np.cos(2 * np.pi * t[:, np.newaxis] * allfreqs)
+    model[:, 3::2] = np.sin(2 * np.pi * t[:, np.newaxis] * allfreqs)
     inv_model = scipy.linalg.pinv(model)
 
     # drop last buffer to avoid overrun
