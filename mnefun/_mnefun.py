@@ -6,6 +6,7 @@ from __future__ import print_function
 
 import os
 import os.path as op
+from copy import deepcopy
 import inspect
 import warnings
 from shutil import move, copy2
@@ -15,6 +16,7 @@ from collections import Counter
 from time import time
 
 import numpy as np
+import scipy
 from scipy import io as spio
 import matplotlib.pyplot as plt
 from numpy.testing import assert_allclose
@@ -26,7 +28,7 @@ from mne import (compute_proj_raw, make_fixed_length_events, Epochs,
                  write_proj, read_proj, setup_source_space,
                  make_forward_solution, get_config, write_evokeds,
                  make_sphere_model, setup_volume_source_space,
-                 read_bem_solution)
+                 read_bem_solution, pick_info)
 
 try:
     from mne import compute_raw_covariance  # up-to-date mne-python
@@ -34,11 +36,23 @@ except ImportError:  # oldmne-python
     from mne import compute_raw_data_covariance as compute_raw_covariance
 from mne.preprocessing.ssp import compute_proj_ecg, compute_proj_eog
 from mne.preprocessing.maxfilter import fit_sphere_to_headshape
-from mne.preprocessing.maxwell import maxwell_filter
+from mne.preprocessing.maxwell import (maxwell_filter,
+                                       _trans_sss_basis,
+                                       _get_mf_picks, _prep_mf_coils,
+                                       _check_regularize,
+                                       _regularize)
+
+try:
+    # Experimental version
+    from mne.preprocessing.maxwell import _prep_regularize
+except ImportError:
+    _prep_regularize = None
+from mne.bem import _check_origin
 from mne.minimum_norm import make_inverse_operator
 from mne.label import read_label
 from mne.epochs import combine_event_ids
-from mne.chpi import (filter_chpi, read_head_pos, write_head_pos)
+from mne.chpi import (filter_chpi, read_head_pos, write_head_pos,
+                      _get_hpi_info)
 
 try:
     from mne.chpi import quat_to_rot, rot_to_quat
@@ -54,7 +68,7 @@ from mne.io.pick import pick_types_forward, pick_types
 from mne.io.meas_info import _empty_info
 from mne.cov import regularize
 from mne.minimum_norm import write_inverse_operator
-from mne.viz import plot_drop_log
+from mne.viz import plot_drop_log, tight_layout
 from mne.utils import run_subprocess
 from mne.report import Report
 from mne.io.constants import FIFF
@@ -200,15 +214,15 @@ class Params(Frozen):
     sss_type : str
         signal space separation method. Must be either 'maxfilter' or 'python'
     int_order : int
-        Order of internal component of spherical expansion. Default is 3.
+        Order of internal component of spherical expansion. Default is 8.
     ext_order : int
-        Order of external component of spherical expansion. Default is 8.
+        Order of external component of spherical expansion. Default is 3.
         Value of 6 recomended for infant data
     tsss_dur : float | None
         Buffer length (in seconds) fpr Spatiotemporal SSS. Default is 60.
         however based on system specification a shorter buffer may be
-        appropriate. For data containing excessive head movements e.g
-        young children a buffer size of 4s is recommended.
+        appropriate. For data containing excessive head movements e.g. young
+        children a buffer size of 4s is recommended.
     st_correlation : float
         Correlation limit between inner and outer subspaces used to reject
         ovwrlapping intersecting inner/outer signals during spatiotemporal SSS.
@@ -333,7 +347,7 @@ class Params(Frozen):
         # This is used by fix_eeg_channels to fix original files
         self.raw_fif_tag = '_raw.fif'
         # SSS denoising params
-        self.sss_type = 'python'
+        self.sss_type = 'maxfilter'
         self.mf_args = ''
         self.tsss_dur = 60.
         self.trans_to = 'median'  # where to transform head positions to
@@ -344,6 +358,8 @@ class Params(Frozen):
         self.st_correlation = .98
         self.sss_origin = 'auto'
         self.sss_regularize = 'in'
+        self.filter_chpi = True
+        self.filter_chpi = True
         # boolean for whether data set(s) have an individual mri
         self.on_process = None
         # Use more than EXTRA points to fit headshape
@@ -383,6 +399,36 @@ class Params(Frozen):
     @property
     def pca_fif_tag(self):
         return self.pca_extra + self.sss_fif_tag
+
+    def convert_subjects(self, subj_template, struc_template=None):
+        """Helper to convert subject names
+
+        Parameters
+        ----------
+        subj_template : str
+            Subject template to use.
+        struc_template : str
+            Structural template to use.
+        """
+        if struc_template is not None:
+            self.structurals = [struc_template % subj
+                                for subj in self.subjects]
+        self.subjects = [subj_template % subj for subj in self.subjects]
+
+    def convert_subjects(self, subj_template, struc_template=None):
+        """Helper to convert subject names
+
+        Parameters
+        ----------
+        subj_template : str
+            Subject template to use.
+        struc_template : str
+            Structural template to use.
+        """
+        if struc_template is not None:
+            self.structurals = [struc_template % subj
+                                for subj in self.subjects]
+        self.subjects = [subj_template % subj for subj in self.subjects]
 
 
 def _get_baseline(p):
@@ -514,7 +560,7 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
     dates = p.dates
     if dates is not None:
         assert len(dates) == n_subj_orig
-        dates = [tuple([int(dd) for dd in d])
+        dates = [tuple([int(dd) for dd in d]) if d is not None else None
                  for d in np.array(p.dates)[sinds]]
 
     decim = p.decim
@@ -589,7 +635,10 @@ def fetch_raw_files(p, subjects, run_indices):
                                   p.acq_ssh, finder])[0]
         remote_fnames = [x.strip() for x in stdout_.splitlines()]
         assert all(fname.startswith(p.acq_dir) for fname in remote_fnames)
-        remote_fnames = [fname[len(p.acq_dir) + 1:] for fname in remote_fnames]
+        # make the name "local" to the acq_dir, so that the name works
+        # remotely during rsync and locally during copyfile
+        remote_fnames = [fname[len(p.acq_dir):].lstrip('/')
+                         for fname in remote_fnames]
         want = set(op.basename(fname) for fname in fnames)
         got = set(op.basename(fname) for fname in remote_fnames)
         if want != got.intersection(want):
@@ -680,7 +729,8 @@ def push_raw_files(p, subjects, run_indices):
             else:
                 dig_kinds = (FIFF.FIFFV_POINT_EXTRA,)
             origin_head = fit_sphere_to_headshape(read_info(in_fif),
-                                                  dig_kinds=dig_kinds)[1]
+                                                  dig_kinds=dig_kinds,
+                                                  units='mm')[1]
             out_string = ' '.join(['%0.0f' % np.round(number)
                                    for number in origin_head])
             with open(out_pos, 'w') as fid:
@@ -723,8 +773,8 @@ def _check_trans_file(p):
 def run_sss(p, subjects, run_indices):
     """Run SSS preprocessing remotely (only designed for *nix platforms) or
     locally using Maxwell filtering in mne-python"""
-    if p.sss_type is 'python':
-        print(' Applying SSS locally using mne-python')
+    if p.sss_type == 'python':
+        print('  Applying SSS locally using mne-python')
         run_sss_locally(p, subjects, run_indices)
     else:
         for si, subj in enumerate(subjects):
@@ -846,7 +896,8 @@ def run_sss_command(fname_in, options, fname_out, host='kasga', port=22,
             pass
 
 
-def run_sss_positions(fname_in, fname_out, host='kasga', opts='', port=22):
+def run_sss_positions(fname_in, fname_out, host='kasga', opts='', port=22,
+                      prefix='  '):
     """Run Maxfilter remotely and fetch resulting file
 
     Parameters
@@ -861,6 +912,14 @@ def run_sss_positions(fname_in, fname_out, host='kasga', opts='', port=22):
         The SSH/scp host to run the command on
     opts : str
         Additional command-line options to pass to MaxFilter.
+    port : int
+        The SSH port.
+    prefix : str
+        The prefix to use when printing status updates.
+    port : int
+        The SSH port.
+    prefix : str
+        The prefix to use when printing status updates.
     """
     # let's make sure we can actually write where we want
     if not op.isfile(fname_in):
@@ -876,7 +935,7 @@ def run_sss_positions(fname_in, fname_out, host='kasga', opts='', port=22):
         else:
             break
 
-    print('  Copying file to %s' % host)
+    print('%sCopying file to %s' % (prefix, host))
     cmd = ['scp', '-P' + str(port)] + fnames_in + [host + ':~/']
     run_subprocess(cmd, stdout=None, stderr=None)
     t0 = time()
@@ -886,19 +945,20 @@ def run_sss_positions(fname_in, fname_out, host='kasga', opts='', port=22):
         remote_out = '~/temp_%s_raw_quat.fif' % t0
         remote_hp = '~/temp_%s_hp.txt' % t0
 
-        print('  Running maxfilter as %s' % host)
+        print('%sRunning MaxFilter (headpos estimation) as %s'
+              % (prefix, host))
         cmd = ['ssh', '-p', str(port), host,
                '/neuro/bin/util/maxfilter -f ' + remote_ins[fi] + ' -o ' +
-               remote_out + ' -headpos -format short -hp ' + remote_hp +
-               ' ' + opts]
+               remote_out +
+               ' -headpos -format short -hp ' + remote_hp + ' ' + opts]
         run_subprocess(cmd)
 
-        print('  Copying result to %s' % file_out)
-        cmd = ['scp', '-P' + str(port), host + ':' + remote_hp, op.join(pout,
-               file_out)]
+        print('%sCopying result to %s' % (prefix, file_out))
+        cmd = ['scp', '-P' + str(port), host + ':' + remote_hp,
+               op.join(pout, file_out)]
         run_subprocess(cmd)
 
-        print('  Cleaning up %s' % host)
+        print('%sCleaning up %s' % (prefix, host))
         cmd = ['ssh', '-p', str(port), host, 'rm -f %s %s %s'
                % (remote_ins[fi], remote_hp, remote_out)]
         run_subprocess(cmd)
@@ -924,13 +984,13 @@ def run_sss_locally(p, subjects, run_indices):
     ct_file = op.join(data_dir, 'ct_sparse.fif')
     assert isinstance(p.tsss_dur, float) and p.tsss_dur > 0
     st_duration = p.tsss_dur
-    assert isinstance(p.sss_regularize, string_types) or \
-        p.sss_regularize is None
+    assert (isinstance(p.sss_regularize, string_types) or
+            p.sss_regularize is None)
     reg = p.sss_regularize
 
     for si, subj in enumerate(subjects):
         if p.disp_files:
-            print('  Maxwell filtering subject %g/%g (%s).'
+            print('    Maxwell filtering subject %g/%g (%s).'
                   % (si + 1, len(subjects), subj))
         # locate raw files with splits
         raw_dir = op.join(p.work_dir, subj, p.raw_dir)
@@ -949,10 +1009,12 @@ def run_sss_locally(p, subjects, run_indices):
         for ii, (r, o) in enumerate(zip(raw_files, raw_files_out)):
             if not op.isfile(r):
                 raise NameError('File not found (' + r + ')')
-            raw = Raw(r, preload=True, allow_maxshield=True)
-            raw.load_bad_channels(prebad_file, force=True)
+            raw = Raw(r, preload=True, allow_maxshield='yes')
             raw.fix_mag_coil_types()
-            raw = filter_chpi(raw)
+            _load_meg_bads(raw, prebad_file, disp=ii == 0, prefix=' ' * 6)
+            print('      %s ...' % op.basename(r))
+            if p.filter_chpi:
+                raw = filter_chpi(raw)
 
             assert isinstance(p.trans_to, (string_types, tuple, type(None)))
             if p.trans_to is 'median':
@@ -971,32 +1033,81 @@ def run_sss_locally(p, subjects, run_indices):
             else:
                 pos = None
             # apply maxwell filter
-            raw_sss = maxwell_filter(raw, origin=p.sss_origin,
-                                     int_order=p.int_order,
-                                     ext_order=p.ext_order,
-                                     calibration=cal_file, cross_talk=ct_file,
-                                     st_correlation=p.st_correlation,
-                                     st_duration=st_duration,
-                                     destination=trans_to, coord_frame='head',
-                                     head_pos=pos, regularize=reg)
+            raw_sss = maxwell_filter(
+                raw, origin=p.sss_origin, int_order=p.int_order,
+                ext_order=p.ext_order, calibration=cal_file,
+                cross_talk=ct_file, st_correlation=p.st_correlation,
+                st_duration=st_duration, destination=trans_to,
+                coord_frame='head', head_pos=pos, regularize=reg)
 
             raw_sss.save(o, overwrite=True, buffer_size_sec=None)
-            #  process erm files if any
-            for ii, (r, o) in enumerate(zip(erm_files, erm_files_out)):
-                if not op.isfile(r):
-                    raise NameError('File not found (' + r + ')')
-                raw = Raw(r, preload=True, allow_maxshield=True)
-                raw.load_bad_channels(prebad_file, force=True)
-                # apply maxwell filter
-                raw_sss = maxwell_filter(raw, int_order=p.int_order,
-                                         ext_order=p.ext_order,
-                                         calibration=cal_file,
-                                         cross_talk=ct_file,
-                                         st_correlation=p.st_correlation,
-                                         st_duration=st_duration,
-                                         destination=None,
-                                         coord_frame='meg')
-                raw_sss.save(o, overwrite=True, buffer_size_sec=None)
+        #  process erm files if any
+        for ii, (r, o) in enumerate(zip(erm_files, erm_files_out)):
+            if not op.isfile(r):
+                raise NameError('File not found (' + r + ')')
+            raw = Raw(r, preload=True, allow_maxshield='yes')
+            raw.fix_mag_coil_types()
+            _load_meg_bads(raw, prebad_file, disp=False)
+            print('      %s ...' % op.basename(r))
+            # apply maxwell filter
+            raw_sss = maxwell_filter(
+                raw, int_order=p.int_order, ext_order=p.ext_order,
+                calibration=cal_file, cross_talk=ct_file,
+                st_correlation=p.st_correlation, st_duration=st_duration,
+                destination=None, coord_frame='meg')
+            raw_sss.save(o, overwrite=True, buffer_size_sec=None)
+
+
+def _load_meg_bads(raw, prebad_file, disp=True, prefix='     '):
+    """Helper to load MEG bad channels from a file (pre-MF)"""
+    with open(prebad_file, 'r') as fid:
+        lines = fid.readlines()
+    lines = [line.strip() for line in lines if len(line.strip()) > 0]
+    if len(lines) > 0:
+        try:
+            int(lines[0][0])
+        except ValueError:
+            # MNE-Python type file
+            bads = lines
+        else:
+            # Maxfilter type file
+            if len(lines) > 1:
+                raise RuntimeError('Could not parse bad file')
+            bads = ['MEG%04d' % int(bad) for bad in lines[0].split()]
+    else:
+        bads = list()
+    if disp:
+        pl = '' if len(bads) == 1 else 's'
+        print('%sMarking %s bad MEG channel%s using %s'
+              % (prefix, len(bads), pl, op.basename(prebad_file)))
+    raw.info['bads'] = bads
+    raw.info._check_consistency()
+
+
+def _load_meg_bads(raw, prebad_file, disp=True, prefix='     '):
+    """Helper to load MEG bad channels from a file (pre-MF)"""
+    with open(prebad_file, 'r') as fid:
+        lines = fid.readlines()
+    lines = [line.strip() for line in lines if len(line.strip()) > 0]
+    if len(lines) > 0:
+        try:
+            int(lines[0][0])
+        except ValueError:
+            # MNE-Python type file
+            bads = lines
+        else:
+            # Maxfilter type file
+            if len(lines) > 1:
+                raise RuntimeError('Could not parse bad file')
+            bads = ['MEG%04d' % int(bad) for bad in lines[0].split()]
+    else:
+        bads = list()
+    if disp:
+        pl = '' if len(bads) == 1 else 's'
+        print('%sMarking %s bad MEG channel%s using %s'
+              % (prefix, len(bads), pl, op.basename(prebad_file)))
+    raw.info['bads'] = bads
+    raw.info._check_consistency()
 
 
 def extract_expyfun_events(fname, return_offsets=False):
@@ -1032,8 +1143,7 @@ def extract_expyfun_events(fname, return_offsets=False):
     subtract 1 before doing so to yield the original binary values.
     """
     # Read events
-    with warnings.catch_warnings(record=True):
-        raw = Raw(fname, allow_maxshield=True)
+    raw = Raw(fname, allow_maxshield='yes')
     orig_events = find_events(raw, stim_channel='STI101', shortest_event=0)
     events = list()
     for ch in range(1, 9):
@@ -1099,8 +1209,10 @@ def fix_eeg_files(p, subjects, structurals=None, dates=None, run_indices=None):
         if structurals is not None and structurals[si] is not None and \
                 dates is not None:
             assert isinstance(structurals[si], str)
-            assert isinstance(dates[si], tuple) and len(dates[si]) == 3
-            assert all([isinstance(d, int) for d in dates[si]])
+            assert dates[si] is None or (isinstance(dates[si], tuple) and
+                                         len(dates[si]) == 3)
+            assert dates[si] is None or all([isinstance(d, int)
+                                             for d in dates[si]])
             anon = dict(first_name=subj, last_name=structurals[si],
                         birthday=dates[si])
         else:
@@ -1519,11 +1631,10 @@ def gen_covariances(p, subjects, run_indices):
             empty_cov_name = op.join(cov_dir, new_run + p.pca_extra +
                                      p.inv_tag + '-cov.fif')
             empty_fif = get_raw_fnames(p, subj, 'pca', 'only', False)[0]
-            raw = Raw(empty_fif, preload=True)
+            raw = Raw(empty_fif, preload=True).pick_types(meg=True, eog=True,
+                                                          exclude='bads')
             use_reject, use_flat = _restrict_reject_flat(p.reject, p.flat, raw)
-            picks = pick_types(raw.info, meg=True, eeg=False, exclude='bads')
-            cov = compute_raw_covariance(raw, reject=use_reject,
-                                         flat=use_flat, picks=picks)
+            cov = compute_raw_covariance(raw, reject=use_reject, flat=use_flat)
             write_cov(empty_cov_name, cov)
 
         # Make evoked covariances
@@ -1605,10 +1716,11 @@ def _raw_LRFCP(raw_names, sfreq, l_freq, h_freq, n_jobs, n_jobs_resample,
     raw = list()
     for rn in raw_names:
         r = Raw(rn, preload=True, allow_maxshield='yes')
+        r.pick_types(meg=True, eeg=True, eog=True, ecg=True, exclude=())
+        r.pick_types(meg=True, eeg=True, eog=True, ecg=True, exclude=())
         r.load_bad_channels(bad_file, force=force_bads)
         if sfreq is not None:
-            with warnings.catch_warnings(record=True):  # resamp of stim ch
-                r.resample(sfreq, n_jobs=n_jobs_resample)
+            r.resample(sfreq, n_jobs=n_jobs_resample, npad='auto')
         if l_freq is not None or h_freq is not None:
             r.filter(l_freq=l_freq, h_freq=h_freq, picks=None,
                      n_jobs=n_jobs, method=method,
@@ -1746,11 +1858,12 @@ def do_preprocessing_combined(p, subjects, run_indices):
 
         # Calculate and apply continuous projectors if requested
         projs = list()
-        raw_orig = _raw_LRFCP(pre_list, p.proj_sfreq, None, bad_file,
-                              p.n_jobs_fir, p.n_jobs_resample, projs, bad_file,
-                              p.disp_files, method='fft',
-                              filter_length=p.filter_length, force_bads=False,
-                              l_trans=p.hp_trans, h_trans=p.lp_trans)
+        raw_orig = _raw_LRFCP(
+            raw_names=pre_list, sfreq=p.proj_sfreq, l_freq=None, h_freq=None,
+            n_jobs=p.n_jobs_fir, n_jobs_resample=p.n_jobs_resample,
+            projs=projs, bad_file=bad_file, disp_files=p.disp_files,
+            method='fft', filter_length=p.filter_length, force_bads=False,
+            l_trans=p.hp_trans, h_trans=p.lp_trans)
 
         # Apply any user-supplied extra projectors
         if p.proj_extra is not None:
@@ -1765,12 +1878,13 @@ def do_preprocessing_combined(p, subjects, run_indices):
                 if p.disp_files:
                     print('    Computing continuous projectors using ERM.')
                 # Use empty room(s), but processed the same way
-                raw = _raw_LRFCP(empty_names, p.proj_sfreq, None, None,
-                                 p.n_jobs_fir, p.n_jobs_resample, projs,
-                                 bad_file, p.disp_files, method='fft',
-                                 filter_length=p.filter_length,
-                                 force_bads=True,
-                                 l_trans=p.hp_trans, h_trans=p.lp_trans)
+                raw = _raw_LRFCP(
+                    raw_names=empty_names, sfreq=p.proj_sfreq,
+                    l_freq=None, h_freq=None, n_jobs=p.n_jobs_fir,
+                    n_jobs_resample=p.n_jobs_resample, projs=projs,
+                    bad_file=bad_file, disp_files=p.disp_files, method='fft',
+                    filter_length=p.filter_length, force_bads=True,
+                    l_trans=p.hp_trans, h_trans=p.lp_trans)
             else:
                 if p.disp_files:
                     print('    Computing continuous projectors using data.')
@@ -1853,7 +1967,10 @@ def do_preprocessing_combined(p, subjects, run_indices):
         epochs = Epochs(raw_orig, events, None, p.tmin, p.tmax, preload=False,
                         baseline=_get_baseline(p), reject=use_reject,
                         flat=use_flat, proj=True)
-        epochs.drop_bad_epochs()
+        try:
+            epochs.drop_bad()
+        except AttributeError:  # old way
+            epochs.drop_bad_epochs()
         drop_logs.append(epochs.drop_log)
         del raw_orig
         del epochs
@@ -1900,21 +2017,23 @@ def apply_preprocessing_combined(p, subjects, run_indices):
                 if p.disp_files:
                     print('    Processing erm file %d/%d.'
                           % (ii + 1, len(erm_in)))
-            raw = _raw_LRFCP(r, None, p.hp_cut, p.lp_cut, p.n_jobs_fir,
-                             p.n_jobs_resample, projs, bad_file,
-                             disp_files=False, method='fft', apply_proj=False,
-                             filter_length=p.filter_length, force_bads=True,
-                             l_trans=p.hp_trans, h_trans=p.lp_trans)
+            raw = _raw_LRFCP(
+                raw_names=r, sfreq=None, l_freq=p.hp_cut, h_freq=p.lp_cut,
+                n_jobs=p.n_jobs_fir, n_jobs_resample=p.n_jobs_resample,
+                projs=projs, bad_file=bad_file, disp_files=False, method='fft',
+                apply_proj=False, filter_length=p.filter_length,
+                force_bads=True, l_trans=p.hp_trans, h_trans=p.lp_trans)
             raw.save(o, overwrite=True, buffer_size_sec=None)
         for ii, (r, o) in enumerate(zip(names_in, names_out)):
             if p.disp_files:
                 print('    Processing file %d/%d.'
                       % (ii + 1, len(names_in)))
-            raw = _raw_LRFCP(r, None, p.hp_cut, p.lp_cut, p.n_jobs_fir,
-                             p.n_jobs_resample, projs, bad_file,
-                             disp_files=False, method='fft', apply_proj=False,
-                             filter_length=p.filter_length, force_bads=False,
-                             l_trans=p.hp_trans, h_trans=p.lp_trans)
+            raw = _raw_LRFCP(
+                raw_names=r, sfreq=None, l_freq=p.hp_cut, h_freq=p.lp_cut,
+                n_jobs=p.n_jobs_fir, n_jobs_resample=p.n_jobs_resample,
+                projs=projs, bad_file=bad_file, disp_files=False, method='fft',
+                apply_proj=False, filter_length=p.filter_length,
+                force_bads=False, l_trans=p.hp_trans, h_trans=p.lp_trans)
             raw.save(o, overwrite=True, buffer_size_sec=None)
         # look at raw_clean for ExG events
         if p.plot_raw:
@@ -2086,6 +2205,298 @@ def _prebad(p, subj):
 def _headpos(p, file_in, file_out):
     """Helper for locating head position estimation file"""
     if not op.isfile(file_out):
-        run_sss_positions(file_in, file_out, host=p.sws_ssh)
-    pos = read_head_pos(file_out)
-    return pos
+        run_sss_positions(file_in, file_out, host=p.sws_ssh, port=p.sws_port,
+                          prefix='        ')
+    return read_head_pos(file_out)
+
+
+def info_sss_basis(info, origin='auto', int_order=8, ext_order=3,
+                   coord_frame='head', regularize='in', ignore_ref=True):
+    """Compute the SSS basis for a given measurement info structure
+
+    Parameters
+    ----------
+    info : instance of io.Info
+        The measurement info.
+    origin : array-like, shape (3,) | str
+        Origin of internal and external multipolar moment space in meters.
+        The default is ``'auto'``, which means a head-digitization-based
+        origin fit when ``coord_frame='head'``, and ``(0., 0., 0.)`` when
+        ``coord_frame='meg'``.
+    int_order : int
+        Order of internal component of spherical expansion.
+    ext_order : int
+        Order of external component of spherical expansion.
+    coord_frame : str
+        The coordinate frame that the ``origin`` is specified in, either
+        ``'meg'`` or ``'head'``. For empty-room recordings that do not have
+        a head<->meg transform ``info['dev_head_t']``, the MEG coordinate
+        frame should be used.
+    destination : str | array-like, shape (3,) | None
+        The destination location for the head. Can be ``None``, which
+        will not change the head position, or a string path to a FIF file
+        containing a MEG device<->head transformation, or a 3-element array
+        giving the coordinates to translate to (with no rotations).
+        For example, ``destination=(0, 0, 0.04)`` would translate the bases
+        as ``--trans default`` would in MaxFilter™ (i.e., to the default
+        head location).
+    regularize : str | None
+        Basis regularization type, must be "in", "svd" or None.
+        "in" is the same algorithm as the "-regularize in" option in
+        MaxFilter™. "svd" (new in v0.13) uses SVD-based regularization by
+        cutting off singular values of the basis matrix below the minimum
+        detectability threshold of an ideal head position (usually near
+        the device origin).
+    ignore_ref : bool
+        If True, do not include reference channels in compensation. This
+        option should be True for KIT files, since Maxwell filtering
+        with reference channels is not currently supported.
+    """
+    if coord_frame not in ('head', 'meg'):
+        raise ValueError('coord_frame must be either "head" or "meg", not "%s"'
+                         % coord_frame)
+    origin = _check_origin(origin, info, 'head')
+    regularize = _check_regularize(regularize, ('in', 'svd'))
+    meg_picks, mag_picks, grad_picks, good_picks, coil_scale, mag_or_fine = \
+        _get_mf_picks(info, int_order, ext_order, ignore_ref)
+    info_good = pick_info(info, good_picks, copy=True)
+    all_coils = _prep_mf_coils(info_good, ignore_ref=ignore_ref)
+    # remove MEG bads in "to" info
+    decomp_coil_scale = coil_scale[good_picks]
+    exp = dict(int_order=int_order, ext_order=ext_order, head_frame=True,
+               origin=origin)
+    # prepare regularization techniques
+    if _prep_regularize is None:
+        raise RuntimeError('mne-python needs to be on the experimental SVD '
+                           'branch to use this function')
+    _prep_regularize(regularize, all_coils, None, exp, ignore_ref,
+                     coil_scale, grad_picks, mag_picks, mag_or_fine)
+    # noinspection PyPep8Naming
+    S = _trans_sss_basis(exp, all_coils, info['dev_head_t'],
+                         coil_scale=decomp_coil_scale)
+    if regularize is not None:
+        # noinspection PyPep8Naming
+        S = _regularize(regularize, exp, S, mag_or_fine, t=0.)[0]
+    S /= np.linalg.norm(S, axis=0)
+    return S
+
+
+def plot_reconstruction(evoked, origin=(0., 0., 0.04)):
+    """Plot the reconstructed data for Evoked
+
+    Currently only works for MEG data.
+
+    Parameters
+    ----------
+    evoked : instance of Evoked
+        The evoked data.
+    origin : array-like, shape (3,)
+        The head origin to use.
+
+    Returns
+    -------
+    fig : instance of matplotlib.figure.Figure
+        The figure.
+    """
+    from mne.forward._field_interpolation import _map_meg_channels
+    evoked = evoked.copy().pick_types(meg=True, exclude='bads')
+    info_to = deepcopy(evoked.info)
+    info_to['projs'] = []
+    op = _map_meg_channels(
+        evoked.info, info_to, mode='accurate', origin=(0., 0., 0.04))
+    fig, axs = plt.subplots(3, 2, squeeze=False)
+    titles = dict(grad='Gradiometers (fT/cm)', mag='Magnetometers (fT)')
+    for mi, meg in enumerate(('grad', 'mag')):
+        picks = pick_types(evoked.info, meg=meg)
+        kwargs = dict(ylim=dict(grad=[-250, 250], mag=[-600, 600]),
+                      spatial_colors=True, picks=picks)
+        evoked.plot(axes=axs[0, mi], proj=False,
+                    titles=dict(grad='Proj off', mag=''), **kwargs)
+        evoked_remap = evoked.copy().apply_proj()
+        evoked_remap.info['projs'] = []
+        evoked_remap.plot(axes=axs[1, mi],
+                          titles=dict(grad='Proj on', mag=''), **kwargs)
+        evoked_remap.data = np.dot(op, evoked_remap.data)
+        evoked_remap.plot(axes=axs[2, mi],
+                          titles=dict(grad='Recon', mag=''), **kwargs)
+        axs[0, mi].set_title(titles[meg])
+        for ii in range(3):
+            if ii in (0, 1):
+                axs[ii, mi].set_xlabel('')
+            if ii in (1, 2):
+                axs[ii, mi].set_title('')
+    for ii in range(3):
+        axs[ii, 1].set_ylabel('')
+    axs[0, 0].set_ylabel('Original')
+    axs[1, 0].set_ylabel('Projection')
+    axs[2, 0].set_ylabel('Reconstruction')
+    fig.tight_layout()
+    return fig
+
+
+def plot_chpi_snr_raw(raw, win_length, n_harmonics):
+    """Compute and plot cHPI SNR from raw data
+
+    Parameters
+    ----------
+    win_length : float
+        Length of window to use for SNR estimates (seconds). A longer window
+        will naturally include more low frequency power, resulting in lower
+        SNR.
+    n_harmonics : int
+        Number of line frequency harmonics to include in the model.
+
+    Returns
+    -------
+    fig : instance of matplotlib.figure.Figure
+        cHPI SNR as function of time, residual variance.
+
+    Notes
+    -----
+    A general linear model including cHPI and line frequencies is fit into
+    each data window. The cHPI power obtained from the model is then divided
+    by the residual variance (variance of signal unexplained by the model) to
+    obtain the SNR.
+
+    The SNR may decrease either due to decrease of cHPI amplitudes (e.g.
+    head moving away from the helmet), or due to increase in the residual
+    variance. In case of broadband interference that overlaps with the cHPI
+    frequencies, the resulting decreased SNR accurately reflects the true
+    situation. However, increased narrowband interference outside the cHPI
+    and line frequencies would also cause an increase in the residual variance,
+    even though it wouldn't necessarily affect estimation of the cHPI
+    amplitudes. Thus, this method is intended for a rough overview of cHPI
+    signal quality. A more accurate picture of cHPI quality (at an increased
+    computational cost) can be obtained by examining the goodness-of-fit of
+    the cHPI coil fits.
+    """
+
+    # plotting parameters
+    legend_fontsize = 9
+    title_fontsize = 10
+    tick_fontsize = 10
+    label_fontsize = 10
+
+    # get some info from fiff
+    sfreq = raw.info['sfreq']
+    linefreq = raw.info['line_freq']
+    linefreqs = (np.arange(n_harmonics + 1) + 1) * linefreq
+    buflen = int(win_length * sfreq)
+    if buflen <= 0:
+        raise ValueError('Window length should be >0')
+    (cfreqs, _, _, _, _) = _get_hpi_info(raw.info)
+    print('Nominal cHPI frequencies: %s Hz' % cfreqs)
+    print('Sampling frequency: %s Hz' % sfreq)
+    print('Using line freqs: %s Hz' % linefreqs)
+    print('Using buffers of %s samples = %s seconds\n'
+          % (buflen, buflen/sfreq))
+
+    pick_meg = pick_types(raw.info, meg=True, exclude=[])
+    pick_mag = pick_types(raw.info, meg='mag', exclude=[])
+    pick_grad = pick_types(raw.info, meg='grad', exclude=[])
+    nchan = len(pick_meg)
+
+    # create general linear model for the data
+    t = np.arange(buflen) / float(sfreq)
+    model = np.empty((len(t), 2+2*(len(linefreqs)+len(cfreqs))))
+    model[:, 0] = t
+    model[:, 1] = np.ones(t.shape)
+    # add sine and cosine term for each freq
+    allfreqs = np.concatenate([linefreqs, cfreqs])
+    model[:, 2::2] = np.cos(2 * np.pi * t[:, np.newaxis] * allfreqs)
+    model[:, 3::2] = np.sin(2 * np.pi * t[:, np.newaxis] * allfreqs)
+    inv_model = scipy.linalg.pinv(model)
+
+    # drop last buffer to avoid overrun
+    bufs = np.arange(0, raw.n_times, buflen)[:-1]
+    tvec = bufs/sfreq
+    snr_avg_grad = np.zeros([len(cfreqs), len(bufs)])
+    hpi_pow_grad = np.zeros([len(cfreqs), len(bufs)])
+    snr_avg_mag = np.zeros([len(cfreqs), len(bufs)])
+    resid_vars = np.zeros([nchan, len(bufs)])
+    for ind, buf0 in enumerate(bufs):
+        print('Buffer %s/%s' % (ind+1, len(bufs)))
+        megbuf = raw[pick_meg, buf0:buf0+buflen][0].T
+        coeffs = np.dot(inv_model, megbuf)
+        coeffs_hpi = coeffs[2+2*len(linefreqs):]
+        resid_vars[:, ind] = np.var(megbuf-np.dot(model, coeffs), 0)
+        # get total power by combining sine and cosine terms
+        # sinusoidal of amplitude A has power of A**2/2
+        hpi_pow = (coeffs_hpi[0::2, :]**2 + coeffs_hpi[1::2, :]**2)/2
+        hpi_pow_grad[:, ind] = hpi_pow[:, pick_grad].mean(1)
+        # divide average HPI power by average variance
+        snr_avg_grad[:, ind] = hpi_pow_grad[:, ind] / \
+            resid_vars[pick_grad, ind].mean()
+        snr_avg_mag[:, ind] = hpi_pow[:, pick_mag].mean(1) / \
+            resid_vars[pick_mag, ind].mean()
+
+    cfreqs_legend = ['%s Hz' % fre for fre in cfreqs]
+    fig, axs = plt.subplots(4, 1, sharex=True)
+
+    # SNR plots for gradiometers and magnetometers
+    ax = axs[0]
+    lines1 = ax.plot(tvec, 10*np.log10(snr_avg_grad.transpose()))
+    ax.set_xlim([tvec.min(), tvec.max()])
+    ax.set(ylabel='SNR (dB)')
+    ax.yaxis.label.set_fontsize(label_fontsize)
+    ax.set_title('Mean cHPI power / mean residual variance, gradiometers',
+                 fontsize=title_fontsize)
+    ax.tick_params(axis='both', which='major', labelsize=tick_fontsize)
+    ax = axs[1]
+    lines2 = ax.plot(tvec, 10*np.log10(snr_avg_mag.transpose()))
+    ax.set_xlim([tvec.min(), tvec.max()])
+    ax.set(ylabel='SNR (dB)')
+    ax.yaxis.label.set_fontsize(label_fontsize)
+    ax.set_title('Mean cHPI power / mean residual variance, magnetometers',
+                 fontsize=title_fontsize)
+    ax.tick_params(axis='both', which='major', labelsize=tick_fontsize)
+    ax = axs[2]
+    lines3 = ax.plot(tvec, hpi_pow_grad.transpose())
+    ax.set_xlim([tvec.min(), tvec.max()])
+    ax.set(ylabel='Power (T/m)$^2$')
+    ax.yaxis.label.set_fontsize(label_fontsize)
+    ax.set_title('Mean cHPI power, gradiometers',
+                 fontsize=title_fontsize)
+    ax.tick_params(axis='both', which='major', labelsize=tick_fontsize)
+    # residual (unexplained) variance as function of time
+    ax = axs[3]
+    cls = plt.get_cmap('plasma')(np.linspace(0., 0.7, len(pick_meg)))
+    ax.set_prop_cycle(color=cls)
+    ax.semilogy(tvec, resid_vars[pick_grad, :].transpose(), alpha=.4)
+    ax.set_xlim([tvec.min(), tvec.max()])
+    ax.set(ylabel='Var. (T/m)$^2$', xlabel='Time (s)')
+    ax.xaxis.label.set_fontsize(label_fontsize)
+    ax.yaxis.label.set_fontsize(label_fontsize)
+    ax.set_title('Residual (unexplained) variance, all gradiometer channels',
+                 fontsize=title_fontsize)
+    ax.tick_params(axis='both', which='major', labelsize=tick_fontsize)
+    tight_layout(pad=.5, w_pad=.1, h_pad=.2)  # from mne.viz
+    # tight_layout will screw these up
+    ax = axs[0]
+    box = ax.get_position()
+    ax.set_position([box.x0, box.y0, box.width * 0.8, box.height])
+    # order curve legends according to mean of data
+    sind = np.argsort(snr_avg_grad.mean(axis=1))[::-1]
+    ax.legend(np.array(lines1)[sind], np.array(cfreqs_legend)[sind],
+              prop={'size': legend_fontsize}, bbox_to_anchor=(1.02, 0.5, ),
+              loc='center left')
+    ax = axs[1]
+    box = ax.get_position()
+    ax.set_position([box.x0, box.y0, box.width * 0.8, box.height])
+    sind = np.argsort(snr_avg_mag.mean(axis=1))[::-1]
+    ax.legend(np.array(lines2)[sind], np.array(cfreqs_legend)[sind],
+              prop={'size': legend_fontsize}, bbox_to_anchor=(1.02, 0.5, ),
+              loc='center left')
+    ax = axs[2]
+    box = ax.get_position()
+    ax.set_position([box.x0, box.y0, box.width * 0.8, box.height])
+    sind = np.argsort(hpi_pow_grad.mean(axis=1))[::-1]
+    ax.legend(np.array(lines3)[sind], np.array(cfreqs_legend)[sind],
+              prop={'size': legend_fontsize}, bbox_to_anchor=(1.02, 0.5, ),
+              loc='center left')
+    ax = axs[3]
+    box = ax.get_position()
+    ax.set_position([box.x0, box.y0, box.width * 0.8, box.height])
+    plt.show()
+
+    return fig
