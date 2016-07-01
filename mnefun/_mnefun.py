@@ -359,6 +359,7 @@ class Params(Frozen):
         self.sss_origin = 'auto'
         self.sss_regularize = 'in'
         self.filter_chpi = True
+        self.filter_chpi = True
         # boolean for whether data set(s) have an individual mri
         self.on_process = None
         # Use more than EXTRA points to fit headshape
@@ -398,6 +399,21 @@ class Params(Frozen):
     @property
     def pca_fif_tag(self):
         return self.pca_extra + self.sss_fif_tag
+
+    def convert_subjects(self, subj_template, struc_template=None):
+        """Helper to convert subject names
+
+        Parameters
+        ----------
+        subj_template : str
+            Subject template to use.
+        struc_template : str
+            Structural template to use.
+        """
+        if struc_template is not None:
+            self.structurals = [struc_template % subj
+                                for subj in self.subjects]
+        self.subjects = [subj_template % subj for subj in self.subjects]
 
     def convert_subjects(self, subj_template, struc_template=None):
         """Helper to convert subject names
@@ -900,6 +916,10 @@ def run_sss_positions(fname_in, fname_out, host='kasga', opts='', port=22,
         The SSH port.
     prefix : str
         The prefix to use when printing status updates.
+    port : int
+        The SSH port.
+    prefix : str
+        The prefix to use when printing status updates.
     """
     # let's make sure we can actually write where we want
     if not op.isfile(fname_in):
@@ -1036,6 +1056,32 @@ def run_sss_locally(p, subjects, run_indices):
                 st_correlation=p.st_correlation, st_duration=st_duration,
                 destination=None, coord_frame='meg')
             raw_sss.save(o, overwrite=True, buffer_size_sec=None)
+
+
+def _load_meg_bads(raw, prebad_file, disp=True, prefix='     '):
+    """Helper to load MEG bad channels from a file (pre-MF)"""
+    with open(prebad_file, 'r') as fid:
+        lines = fid.readlines()
+    lines = [line.strip() for line in lines if len(line.strip()) > 0]
+    if len(lines) > 0:
+        try:
+            int(lines[0][0])
+        except ValueError:
+            # MNE-Python type file
+            bads = lines
+        else:
+            # Maxfilter type file
+            if len(lines) > 1:
+                raise RuntimeError('Could not parse bad file')
+            bads = ['MEG%04d' % int(bad) for bad in lines[0].split()]
+    else:
+        bads = list()
+    if disp:
+        pl = '' if len(bads) == 1 else 's'
+        print('%sMarking %s bad MEG channel%s using %s'
+              % (prefix, len(bads), pl, op.basename(prebad_file)))
+    raw.info['bads'] = bads
+    raw.info._check_consistency()
 
 
 def _load_meg_bads(raw, prebad_file, disp=True, prefix='     '):
@@ -1671,6 +1717,7 @@ def _raw_LRFCP(raw_names, sfreq, l_freq, h_freq, n_jobs, n_jobs_resample,
     for rn in raw_names:
         r = Raw(rn, preload=True, allow_maxshield='yes')
         r.pick_types(meg=True, eeg=True, eog=True, ecg=True, exclude=())
+        r.pick_types(meg=True, eeg=True, eog=True, ecg=True, exclude=())
         r.load_bad_channels(bad_file, force=force_bads)
         if sfreq is not None:
             r.resample(sfreq, n_jobs=n_jobs_resample, npad='auto')
@@ -2018,53 +2065,6 @@ def timestring(t):
 
     return "%d:%02d:%02d.%03d" % tuple(reduce(rediv, [[t * 1000, ], 1000, 60,
                                                       60]))
-
-
-# noinspection PyPep8Naming,PyPep8Naming,PyPep8Naming
-def anova_time(X):
-    """A mass-univariate two-way ANOVA (with time as a co-variate)
-
-    Parameters
-    ----------
-    X : array
-        X should have the following dimensions:
-            subjects x (2 conditions x N time points) x spatial locations
-        This then calculates the paired t-values at each spatial location
-        using time as a co-variate.
-
-    Returns
-    -------
-    t : array
-        t-values from the contrast, has the same length as the number of
-        spatial locations.
-    p : array
-        Corresponding p values of the contrast.
-    dof : int
-        Degrees of freedom, with conservative Greenhouse-Geisser
-        correction based on the number of time points (n_time - 1).
-    """
-    import patsy
-    from scipy import linalg, stats
-
-    n_subjects, n_nested, n_sources = X.shape
-    n_time = n_nested / 2
-    # Turn Y into (2 x n_time x n_subjects) x n_sources
-    Y = np.sqrt(np.reshape(X, (2 * n_time * n_subjects, n_sources), order='F'))
-    cv, tv, sv = np.meshgrid(np.arange(2.0), np.arange(n_time),
-                             np.arange(n_subjects), indexing='ij')
-    dmat = patsy.dmatrix('C(cv) + C(tv) + C(sv)',
-                         dict(sv=sv.ravel(), tv=tv.ravel(), cv=cv.ravel()))
-    c = np.zeros((1, dmat.shape[1]))
-    c[0, 1] = 1  # Contrast for just picking up condition difference
-    b = np.dot(linalg.pinv(dmat), Y)
-    d = Y - np.dot(dmat, b)
-    r = dmat.shape[0] - np.linalg.matrix_rank(dmat)
-    R = np.diag(np.dot(d.T, d))[:, np.newaxis] / r
-    e = np.sqrt(R * np.dot(c, np.dot(linalg.pinv(np.dot(dmat.T, dmat)), c.T)))
-    t = (np.dot(c, b) / e.T).T
-    dof = r / (n_time - 1)  # Greenhouse-Geisser correction to the DOF
-    p = np.sign(t) * 2 * stats.t.cdf(-abs(t), dof)
-    return t, p, dof
 
 
 def source_script(script_name):
