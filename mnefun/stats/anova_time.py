@@ -1,4 +1,8 @@
+# -*- coding: utf-8 -*-
+# Copyright (c) 2015, LABS^N
+# Distributed under the (new) BSD License. See LICENSE.txt for more info.
 def anova_time(X):
+
     """A mass-univariate two-way ANOVA (with time as a co-variate)
 
     Parameters
