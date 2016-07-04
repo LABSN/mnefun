@@ -2334,7 +2334,7 @@ def plot_reconstruction(evoked, origin=(0., 0., 0.04)):
     return fig
 
 
-def plot_chpi_snr_raw(raw, win_length, n_harmonics):
+def plot_chpi_snr_raw(raw, win_length, n_harmonics=None):
     """Compute and plot cHPI SNR from raw data
 
     Parameters
@@ -2343,8 +2343,9 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics):
         Length of window to use for SNR estimates (seconds). A longer window
         will naturally include more low frequency power, resulting in lower
         SNR.
-    n_harmonics : int
-        Number of line frequency harmonics to include in the model.
+    n_harmonics : int or None
+        Number of line frequency harmonics to include in the model. If None,
+        use all harmonics up to the MEG analog lowpass corner.
 
     Returns
     -------
@@ -2380,7 +2381,10 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics):
     # get some info from fiff
     sfreq = raw.info['sfreq']
     linefreq = raw.info['line_freq']
-    linefreqs = (np.arange(n_harmonics + 1) + 1) * linefreq
+    if n_harmonics is not None:
+        linefreqs = (np.arange(n_harmonics + 1) + 1) * linefreq
+    else:
+        linefreqs = np.arange(linefreq, raw.info['lowpass'], linefreq)
     buflen = int(win_length * sfreq)
     if buflen <= 0:
         raise ValueError('Window length should be >0')
