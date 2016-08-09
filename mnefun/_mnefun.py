@@ -1731,13 +1731,12 @@ def do_preprocessing_combined(p, subjects, run_indices):
                   '        %s' % bad_file)
             if not op.isdir(bad_dir):
                 os.mkdir(bad_dir)
-            # do autobad without applying eeg average ref projection
+            # do autobad
             raw = _raw_LRFCP(raw_names, p.proj_sfreq, None, None, p.n_jobs_fir,
                              p.n_jobs_resample, list(), None, p.disp_files,
                              method='fft', filter_length=p.filter_length,
                              apply_proj=False, force_bads=False,
-                             l_trans=p.hp_trans, h_trans=p.lp_trans,
-                             eeg_ref=False)
+                             l_trans=p.hp_trans, h_trans=p.lp_trans)
             events = fixed_len_events(p, raw)
             # do not mark eog channels bad
             meg, eeg = 'meg' in raw, 'eeg' in raw
@@ -1818,7 +1817,11 @@ def do_preprocessing_combined(p, subjects, run_indices):
             n_jobs=p.n_jobs_fir, n_jobs_resample=p.n_jobs_resample,
             projs=projs, bad_file=bad_file, disp_files=p.disp_files,
             method='fft', filter_length=p.filter_length, force_bads=False,
-            l_trans=p.hp_trans, h_trans=p.lp_trans)
+            l_trans=p.hp_trans, h_trans=p.lp_trans, eeg_ref=False)
+        for ii in raw_orig.info['projs']:
+            if ii['desc'] == 'Average EEG reference':
+                eeg_ref_proj = ii
+                raw_orig.add_proj(eeg_ref_proj).apply_proj()
 
         # Apply any user-supplied extra projectors
         if p.proj_extra is not None:
