@@ -1660,7 +1660,7 @@ def _raw_LRFCP(raw_names, sfreq, l_freq, h_freq, n_jobs, n_jobs_resample,
                projs, bad_file, disp_files=False, method='fft',
                filter_length=32768, apply_proj=True, preload=True,
                force_bads=False, l_trans=0.5, h_trans=0.5,
-               allow_maxshield=False):
+               allow_maxshield=False, eeg_ref=True):
     """Helper to load, filter, concatenate, then project raw files
     """
     if isinstance(raw_names, str):
@@ -1669,7 +1669,8 @@ def _raw_LRFCP(raw_names, sfreq, l_freq, h_freq, n_jobs, n_jobs_resample,
         print('    Loading and filtering %d files.' % len(raw_names))
     raw = list()
     for rn in raw_names:
-        r = Raw(rn, preload=True, allow_maxshield='yes')
+        r = Raw(rn, preload=True, allow_maxshield='yes',
+                add_eeg_ref=eeg_ref)
         r.pick_types(meg=True, eeg=True, eog=True, ecg=True, exclude=())
         r.load_bad_channels(bad_file, force=force_bads)
         if sfreq is not None:
@@ -1730,12 +1731,13 @@ def do_preprocessing_combined(p, subjects, run_indices):
                   '        %s' % bad_file)
             if not op.isdir(bad_dir):
                 os.mkdir(bad_dir)
-            # do autobad
+            # do autobad without applying eeg average ref projection
             raw = _raw_LRFCP(raw_names, p.proj_sfreq, None, None, p.n_jobs_fir,
                              p.n_jobs_resample, list(), None, p.disp_files,
                              method='fft', filter_length=p.filter_length,
                              apply_proj=False, force_bads=False,
-                             l_trans=p.hp_trans, h_trans=p.lp_trans)
+                             l_trans=p.hp_trans, h_trans=p.lp_trans,
+                             eeg_ref=False)
             events = fixed_len_events(p, raw)
             # do not mark eog channels bad
             meg, eeg = 'meg' in raw, 'eeg' in raw
@@ -1837,7 +1839,7 @@ def do_preprocessing_combined(p, subjects, run_indices):
                     n_jobs_resample=p.n_jobs_resample, projs=projs,
                     bad_file=bad_file, disp_files=p.disp_files, method='fft',
                     filter_length=p.filter_length, force_bads=True,
-                    l_trans=p.hp_trans, h_trans=p.lp_trans)
+                    l_trans=p.hp_trans, h_trans=p.lp_trans, add_eeg_ref=True)
             else:
                 if p.disp_files:
                     print('    Computing continuous projectors using data.')
