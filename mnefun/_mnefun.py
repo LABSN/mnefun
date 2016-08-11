@@ -1660,7 +1660,7 @@ def _raw_LRFCP(raw_names, sfreq, l_freq, h_freq, n_jobs, n_jobs_resample,
                projs, bad_file, disp_files=False, method='fft',
                filter_length=32768, apply_proj=True, preload=True,
                force_bads=False, l_trans=0.5, h_trans=0.5,
-               allow_maxshield=False, eeg_ref=True):
+               allow_maxshield=False):
     """Helper to load, filter, concatenate, then project raw files
     """
     if isinstance(raw_names, str):
@@ -1670,9 +1670,10 @@ def _raw_LRFCP(raw_names, sfreq, l_freq, h_freq, n_jobs, n_jobs_resample,
     raw = list()
     for rn in raw_names:
         r = Raw(rn, preload=True, allow_maxshield='yes',
-                add_eeg_ref=eeg_ref)
-        r.pick_types(meg=True, eeg=True, eog=True, ecg=True, exclude=())
+                add_eeg_ref=False)
         r.load_bad_channels(bad_file, force=force_bads)
+        r.pick_types(meg=True, eeg=True, eog=True, ecg=True, exclude=[])
+        r.add_eeg_average_proj()
         if sfreq is not None:
             r.resample(sfreq, n_jobs=n_jobs_resample, npad='auto')
         if l_freq is not None or h_freq is not None:
@@ -1735,7 +1736,7 @@ def do_preprocessing_combined(p, subjects, run_indices):
             raw = _raw_LRFCP(raw_names, p.proj_sfreq, None, None, p.n_jobs_fir,
                              p.n_jobs_resample, list(), None, p.disp_files,
                              method='fft', filter_length=p.filter_length,
-                             apply_proj=False, force_bads=False,
+                             apply_proj=True, force_bads=False,
                              l_trans=p.hp_trans, h_trans=p.lp_trans)
             events = fixed_len_events(p, raw)
             # do not mark eog channels bad
@@ -1817,12 +1818,7 @@ def do_preprocessing_combined(p, subjects, run_indices):
             n_jobs=p.n_jobs_fir, n_jobs_resample=p.n_jobs_resample,
             projs=projs, bad_file=bad_file, disp_files=p.disp_files,
             method='fft', filter_length=p.filter_length, force_bads=False,
-            l_trans=p.hp_trans, h_trans=p.lp_trans, eeg_ref=False)
-        for ii in raw_orig.info['projs']:
-            if ii['desc'] == 'Average EEG reference':
-                eeg_ref_proj = ii
-                raw_orig.add_proj(eeg_ref_proj).apply_proj()
-
+            l_trans=p.hp_trans, h_trans=p.lp_trans)
         # Apply any user-supplied extra projectors
         if p.proj_extra is not None:
             if p.disp_files:
@@ -1842,7 +1838,7 @@ def do_preprocessing_combined(p, subjects, run_indices):
                     n_jobs_resample=p.n_jobs_resample, projs=projs,
                     bad_file=bad_file, disp_files=p.disp_files, method='fft',
                     filter_length=p.filter_length, force_bads=True,
-                    l_trans=p.hp_trans, h_trans=p.lp_trans, add_eeg_ref=True)
+                    l_trans=p.hp_trans, h_trans=p.lp_trans)
             else:
                 if p.disp_files:
                     print('    Computing continuous projectors using data.')
