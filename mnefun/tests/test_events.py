@@ -11,10 +11,10 @@ def test_event():
     with patch('mnefun._mnefun.inspect'):
         with patch('mnefun._mnefun.save_epochs') as func:
             mnefun.do_processing(params,
-                write_epochs=True, 
-                print_status=False
-            )
-            handler.assert_called_with('Doing epoch EQ/DQ', func, func(), params)
+                                 write_epochs=True,
+                                 print_status=False)
+            handler.assert_called_with('Doing epoch EQ/DQ',
+                                       func, func(), params)
 
 
 def setdefaults(params):
