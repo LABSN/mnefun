@@ -1322,6 +1322,8 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
                         preload=True, decim=decim[si], on_missing=p.on_missing,
                         reject_tmin=p.reject_tmin, reject_tmax=p.reject_tmax)
         del raw
+        if epochs.events.shape[0] < 1:
+            raise ValueError('No valid epochs')
         drop_logs.append(epochs.drop_log)
         ch_namess.append(epochs.ch_names)
         # only kept trials that were not dropped
