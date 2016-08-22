@@ -20,7 +20,7 @@ def default_score(p, subjects, run_indices):
 
         for raw_fname, eve_fname in zip(raw_fnames, eve_fnames):
             with warnings.catch_warnings(record=True):
-                raw = mne.io.read_raw_fif(raw_fname, allow_maxshield=True)
+                raw = mne.io.read_raw_fif(raw_fname, allow_maxshield='yes')
             events = mne.find_events(raw, stim_channel='STI101',
                                      shortest_event=1)
             mne.write_events(eve_fname, events)
