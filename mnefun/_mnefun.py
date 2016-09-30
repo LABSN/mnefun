@@ -13,7 +13,7 @@ from shutil import move, copy2
 import subprocess
 import glob
 from collections import Counter
-from time import time
+import time
 
 import numpy as np
 import scipy
@@ -290,7 +290,7 @@ class Params(Frozen):
         self.work_dir = os.getcwd()
         self.n_jobs = n_jobs
         self.n_jobs_mkl = n_jobs_mkl
-        self.n_jobs_fir = 'cuda'  # Jobs when using method='fft'
+        self.n_jobs_fir = 'cuda'  # Jobs when using method='fir'
         self.n_jobs_resample = n_jobs_resample
         self.filter_length = filter_length
         self.cont_lp = 5
@@ -298,6 +298,8 @@ class Params(Frozen):
         self.hp_cut = hp_cut
         self.lp_trans = lp_trans
         self.hp_trans = hp_trans
+        self.phase = 'zero-double'
+        self.fir_window = 'hann'
         self.disp_files = True
         self.plot_drop_logs = True  # plot drop logs after do_preprocessing_...
         self.proj_sfreq = proj_sfreq
@@ -570,7 +572,7 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
     outs = [None] * len(bools)
     for ii, (b, text, func) in enumerate(zip(bools, texts, funcs)):
         if b:
-            t0 = time()
+            t0 = time.time()
             print(text + '. ')
             if func is None:
                 raise ValueError('function is None')
@@ -587,7 +589,7 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
                                 run_indices)
             else:
                 outs[ii] = func(p, subjects, run_indices)
-            print('  (' + timestring(time() - t0) + ')')
+            print('  (' + timestring(time.time() - t0) + ')')
             if p.on_process is not None:
                 p.on_process(text, func, outs[ii], p)
     print("Done")
@@ -655,7 +657,7 @@ def fetch_raw_files(p, subjects, run_indices):
 
 def calc_median_hp(p, subj, out_file, ridx):
     """Calculate median head position"""
-    print('    Estimating median head position for %s... ' % subj)
+    print('        Estimating median head position for %s... ' % subj)
     raw_files = get_raw_fnames(p, subj, 'raw', False, False, ridx)
     ts = []
     qs = []
@@ -811,7 +813,8 @@ def fetch_sss_files(p, subjects, run_indices):
 
 
 def run_sss_command(fname_in, options, fname_out, host='kasga', port=22,
-                    fname_pos=None, stdout=None, stderr=None, prefix=''):
+                    fname_pos=None, stdout=None, stderr=None, prefix='',
+                    work_dir='~/'):
     """Run Maxfilter remotely and fetch resulting file
 
     Parameters
@@ -833,6 +836,8 @@ def run_sss_command(fname_in, options, fname_out, host='kasga', port=22,
         Where to send stderr.
     prefix : str
         The text to prefix to messages.
+    work_dir : str
+        Where to store the temporary files.
     """
     # let's make sure we can actually write where we want
     if not op.isfile(fname_in):
@@ -843,24 +848,24 @@ def run_sss_command(fname_in, options, fname_out, host='kasga', port=22,
         raise ValueError('options cannot contain -o, -f, or -hp, these are '
                          'set automatically')
     port = str(int(port))
-    t0 = time()
-    remote_in = '~/temp_%s_raw.fif' % t0
-    remote_out = '~/temp_%s_raw_sss.fif' % t0
-    remote_pos = '~/temp_%s_raw_sss.pos' % t0
-    print(prefix + 'Copying file to %s' % host)
+    t0 = time.time()
+    remote_in = op.join(work_dir, 'temp_%s_raw.fif' % t0)
+    remote_out = op.join(work_dir, 'temp_%s_raw_sss.fif' % t0)
+    remote_pos = op.join(work_dir, 'temp_%s_raw_sss.pos' % t0)
+    print('%sOn %s: copying' % (prefix, host), end='')
     cmd = ['scp', '-P' + port, fname_in, host + ':' + remote_in]
     run_subprocess(cmd, stdout=stdout, stderr=stderr)
 
     if fname_pos is not None:
         options += ' -hp ' + remote_pos
 
-    print(prefix + 'Running maxfilter on %s' % host)
+    print(', MaxFilter', end='')
     cmd = ['ssh', '-p', port, host,
            'maxfilter -f ' + remote_in + ' -o ' + remote_out + ' ' + options]
     try:
         run_subprocess(cmd, stdout=stdout, stderr=stderr)
 
-        print(prefix + 'Copying result to %s' % fname_out)
+        print(', copying to %s' % (op.basename(fname_out),), end='')
         if fname_pos is not None:
             try:
                 cmd = ['scp', '-P' + port, host + ':' + remote_pos, fname_pos]
@@ -870,7 +875,7 @@ def run_sss_command(fname_in, options, fname_out, host='kasga', port=22,
         cmd = ['scp', '-P' + port, host + ':' + remote_out, fname_out]
         run_subprocess(cmd, stdout=stdout, stderr=stderr)
     finally:
-        print(prefix + 'Cleaning up %s' % host)
+        print(', cleaning', end='')
         files = [remote_in, remote_out]
         files += [remote_pos] if fname_pos is not None else []
         cmd = ['ssh', '-p', port, host, 'rm -f ' + ' '.join(files)]
@@ -878,10 +883,11 @@ def run_sss_command(fname_in, options, fname_out, host='kasga', port=22,
             run_subprocess(cmd, stdout=stdout, stderr=stderr)
         except Exception:
             pass
+        print(' (%i sec)' % (time.time() - t0,))
 
 
 def run_sss_positions(fname_in, fname_out, host='kasga', opts='', port=22,
-                      prefix='  '):
+                      prefix='  ', work_dir='~/'):
     """Run Maxfilter remotely and fetch resulting file
 
     Parameters
@@ -900,6 +906,8 @@ def run_sss_positions(fname_in, fname_out, host='kasga', opts='', port=22,
         The SSH port.
     prefix : str
         The prefix to use when printing status updates.
+    work_dir : str
+        Where to store the temporary files.
     """
     # let's make sure we can actually write where we want
     if not op.isfile(fname_in):
@@ -915,30 +923,32 @@ def run_sss_positions(fname_in, fname_out, host='kasga', opts='', port=22,
         else:
             break
 
-    print('%sCopying file to %s' % (prefix, host))
-    cmd = ['scp', '-P' + str(port)] + fnames_in + [host + ':~/']
-    run_subprocess(cmd, stdout=None, stderr=None)
-    t0 = time()
-    remote_ins = ['~/' + op.basename(f) for f in fnames_in]
-    fnames_out = [op.basename(r)[:-4] + '.tmp' for r in remote_ins]
-    for fi, file_out in enumerate(fnames_out):
-        remote_out = '~/temp_%s_raw_quat.fif' % t0
-        remote_hp = '~/temp_%s_hp.txt' % t0
+    t0 = time.time()
+    print('%sOn %s: copying' % (prefix, host), end='')
+    cmd = ['rsync', '--partial', '-ave', 'ssh -p %s' % port, '--include', '*/']
+    for fname in fnames_in:
+        cmd += ['--include', op.basename(fname)]
+    cmd += ['--exclude', '*', op.dirname(fnames_in[0]) + '/',
+            '%s:%s' % (host, work_dir)]
+    run_subprocess(cmd)
 
-        print('%sRunning MaxFilter (headpos estimation) as %s'
-              % (prefix, host))
+    remote_ins = [op.join(work_dir, op.basename(f)) for f in fnames_in]
+    fnames_out = [op.basename(r)[:-4] + '.pos' for r in remote_ins]
+    for fi, file_out in enumerate(fnames_out):
+        remote_out = op.join(work_dir, 'temp_%s_raw_quat.fif' % t0)
+        remote_hp = op.join(work_dir, 'temp_%s_hp.txt' % t0)
+
+        print(', running -headpos', end='')
         cmd = ['ssh', '-p', str(port), host,
                '/neuro/bin/util/maxfilter -f ' + remote_ins[fi] + ' -o ' +
                remote_out +
                ' -headpos -format short -hp ' + remote_hp + ' ' + opts]
         run_subprocess(cmd)
 
-        print('%sCopying result to %s' % (prefix, file_out))
+        print(', copying', end='')
         cmd = ['scp', '-P' + str(port), host + ':' + remote_hp,
                op.join(pout, file_out)]
         run_subprocess(cmd)
-
-        print('%sCleaning up %s' % (prefix, host))
         cmd = ['ssh', '-p', str(port), host, 'rm -f %s %s %s'
                % (remote_ins[fi], remote_hp, remote_out)]
         run_subprocess(cmd)
@@ -949,15 +959,17 @@ def run_sss_positions(fname_in, fname_out, host='kasga', opts='', port=22,
         data.append(read_head_pos(op.join(pout, f)))
         os.remove(op.join(pout, f))
     pos_data = np.concatenate(np.array(data))
+    print(', writing', end='')
     write_head_pos(fname_out, pos_data)
+    print(' (%i sec)' % (time.time() - t0,))
 
 
 def run_sss_locally(p, subjects, run_indices):
     """Run SSS locally using maxwell filter in python
 
-    For details see
-    ---------------
-    mne.preprocessing.maxwell
+    See Also
+    --------
+    mne.preprocessing.maxwell_filter
     """
     data_dir = op.join(op.dirname(__file__), 'data')
     cal_file = op.join(data_dir, 'sss_cal.dat')
@@ -973,7 +985,6 @@ def run_sss_locally(p, subjects, run_indices):
             print('    Maxwell filtering subject %g/%g (%s).'
                   % (si + 1, len(subjects), subj))
         # locate raw files with splits
-        raw_dir = op.join(p.work_dir, subj, p.raw_dir)
         sss_dir = op.join(p.work_dir, subj, p.sss_dir)
         if not op.isdir(sss_dir):
             os.mkdir(sss_dir)
@@ -992,10 +1003,7 @@ def run_sss_locally(p, subjects, run_indices):
             raw = Raw(r, preload=True, allow_maxshield='yes')
             raw.fix_mag_coil_types()
             _load_meg_bads(raw, prebad_file, disp=ii == 0, prefix=' ' * 6)
-            print('      %s ...' % op.basename(r))
-            if p.filter_chpi:
-                raw = filter_chpi(raw)
-
+            print('      Processing %s ...' % op.basename(r))
             assert isinstance(p.trans_to, (string_types, tuple, type(None)))
             if p.trans_to is 'median':
                 trans_to = op.join(p.work_dir, subj, p.raw_dir,
@@ -1005,21 +1013,27 @@ def run_sss_locally(p, subjects, run_indices):
             else:
                 trans_to = p.trans_to
 
-            if p.movecomp is not None:
-                # estimate head position for movement compensation
-                # pos = _calculate_chpi_positions(raw)
-                file_out = op.join(raw_dir, op.basename(r)[:-4] + '.pos')
-                pos = _headpos(p, r, file_out)
-            else:
-                pos = None
+            # estimate head position for movement compensation
+            # pos = _calculate_chpi_positions(raw)
+            pos = _headpos(p, r)
+
+            # filter cHPI signals
+            if p.filter_chpi:
+                t0 = time.time()
+                print('        Filtering cHPI signals ... ', end='')
+                raw = filter_chpi(raw)
+                print('%i sec' % (time.time() - t0,))
+
             # apply maxwell filter
+            t0 = time.time()
+            print('        Running maxwell_filter ... ', end='')
             raw_sss = maxwell_filter(
                 raw, origin=p.sss_origin, int_order=p.int_order,
                 ext_order=p.ext_order, calibration=cal_file,
                 cross_talk=ct_file, st_correlation=p.st_correlation,
                 st_duration=st_duration, destination=trans_to,
                 coord_frame='head', head_pos=pos, regularize=reg)
-
+            print('%i sec' % (time.time() - t0,))
             raw_sss.save(o, overwrite=True, buffer_size_sec=None)
         #  process erm files if any
         for ii, (r, o) in enumerate(zip(erm_files, erm_files_out)):
@@ -1029,12 +1043,15 @@ def run_sss_locally(p, subjects, run_indices):
             raw.fix_mag_coil_types()
             _load_meg_bads(raw, prebad_file, disp=False)
             print('      %s ...' % op.basename(r))
+            t0 = time.time()
+            print('        Running maxwell_filter ... ', end='')
             # apply maxwell filter
             raw_sss = maxwell_filter(
                 raw, int_order=p.int_order, ext_order=p.ext_order,
                 calibration=cal_file, cross_talk=ct_file,
                 st_correlation=p.st_correlation, st_duration=st_duration,
                 destination=None, coord_frame='meg')
+            print('%i sec' % (time.time() - t0,))
             raw_sss.save(o, overwrite=True, buffer_size_sec=None)
 
 
@@ -1322,6 +1339,8 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
                         preload=True, decim=decim[si], on_missing=p.on_missing,
                         reject_tmin=p.reject_tmin, reject_tmax=p.reject_tmax)
         del raw
+        if epochs.events.shape[0] < 1:
+            raise ValueError('No valid epochs')
         drop_logs.append(epochs.drop_log)
         ch_namess.append(epochs.ch_names)
         # only kept trials that were not dropped
@@ -1331,7 +1350,7 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
         mat_file, fif_file = epochs_fnames
         # now deal with conditions to save evoked
         if p.disp_files:
-            print('    Saving evoked data to disk.')
+            print('    Matching trial counts and saving data to disk.')
         for analysis, names, numbers, match, fn in zip(analyses, out_names,
                                                        out_numbers, must_match,
                                                        evoked_fnames):
@@ -1380,9 +1399,12 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
                 evokeds.append(e[name].average())
                 evokeds.append(e[name].standard_error())
             write_evokeds(fn, evokeds)
+            naves = [str(n) for n in sorted(set([evoked.nave
+                                                 for evoked in evokeds]))]
+            naves = ', '.join(naves)
             if p.disp_files:
                 print('      Analysis "%s": %s epochs / condition'
-                      % (analysis, evokeds[0].nave))
+                      % (analysis, naves))
 
         if p.disp_files:
             print('    Saving epochs to disk.')
@@ -1657,12 +1679,12 @@ def _cals(raw):
 
 # noinspection PyPep8Naming
 def _raw_LRFCP(raw_names, sfreq, l_freq, h_freq, n_jobs, n_jobs_resample,
-               projs, bad_file, disp_files=False, method='fft',
+               projs, bad_file, disp_files=False, method='fir',
                filter_length=32768, apply_proj=True, preload=True,
                force_bads=False, l_trans=0.5, h_trans=0.5,
-               allow_maxshield=False):
-    """Helper to load, filter, concatenate, then project raw files
-    """
+               allow_maxshield=False, phase='zero-double', fir_window='hann',
+               pick=True):
+    """Helper to load, filter, concatenate, then project raw files"""
     if isinstance(raw_names, str):
         raw_names = [raw_names]
     if disp_files:
@@ -1670,15 +1692,19 @@ def _raw_LRFCP(raw_names, sfreq, l_freq, h_freq, n_jobs, n_jobs_resample,
     raw = list()
     for rn in raw_names:
         r = Raw(rn, preload=True, allow_maxshield='yes')
-        r.pick_types(meg=True, eeg=True, eog=True, ecg=True, exclude=())
+        if pick:
+            r.pick_types(meg=True, eeg=True, eog=True, ecg=True, exclude=())
         r.load_bad_channels(bad_file, force=force_bads)
+        r.pick_types(meg=True, eeg=True, eog=True, ecg=True, exclude=[])
+        r.add_eeg_average_proj()
         if sfreq is not None:
             r.resample(sfreq, n_jobs=n_jobs_resample, npad='auto')
         if l_freq is not None or h_freq is not None:
             r.filter(l_freq=l_freq, h_freq=h_freq, picks=None,
                      n_jobs=n_jobs, method=method,
-                     filter_length=filter_length,
-                     l_trans_bandwidth=l_trans, h_trans_bandwidth=h_trans)
+                     filter_length=filter_length, phase=phase,
+                     l_trans_bandwidth=l_trans, h_trans_bandwidth=h_trans,
+                     fir_window=fir_window)
         raw.append(r)
     _fix_raw_eog_cals(raw, raw_names)
     raws_del = raw[1:]
@@ -1733,9 +1759,10 @@ def do_preprocessing_combined(p, subjects, run_indices):
             # do autobad
             raw = _raw_LRFCP(raw_names, p.proj_sfreq, None, None, p.n_jobs_fir,
                              p.n_jobs_resample, list(), None, p.disp_files,
-                             method='fft', filter_length=p.filter_length,
+                             method='fir', filter_length=p.filter_length,
                              apply_proj=False, force_bads=False,
-                             l_trans=p.hp_trans, h_trans=p.lp_trans)
+                             l_trans=p.hp_trans, h_trans=p.lp_trans,
+                             phase=p.phase, fir_window=p.fir_window, pick=True)
             events = fixed_len_events(p, raw)
             # do not mark eog channels bad
             meg, eeg = 'meg' in raw, 'eeg' in raw
@@ -1815,8 +1842,9 @@ def do_preprocessing_combined(p, subjects, run_indices):
             raw_names=pre_list, sfreq=p.proj_sfreq, l_freq=None, h_freq=None,
             n_jobs=p.n_jobs_fir, n_jobs_resample=p.n_jobs_resample,
             projs=projs, bad_file=bad_file, disp_files=p.disp_files,
-            method='fft', filter_length=p.filter_length, force_bads=False,
-            l_trans=p.hp_trans, h_trans=p.lp_trans)
+            method='fir', filter_length=p.filter_length, force_bads=False,
+            l_trans=p.hp_trans, h_trans=p.lp_trans, phase=p.phase,
+            fir_window=p.fir_window, pick=True)
 
         # Apply any user-supplied extra projectors
         if p.proj_extra is not None:
@@ -1835,15 +1863,17 @@ def do_preprocessing_combined(p, subjects, run_indices):
                     raw_names=empty_names, sfreq=p.proj_sfreq,
                     l_freq=None, h_freq=None, n_jobs=p.n_jobs_fir,
                     n_jobs_resample=p.n_jobs_resample, projs=projs,
-                    bad_file=bad_file, disp_files=p.disp_files, method='fft',
+                    bad_file=bad_file, disp_files=p.disp_files, method='fir',
                     filter_length=p.filter_length, force_bads=True,
-                    l_trans=p.hp_trans, h_trans=p.lp_trans)
+                    l_trans=p.hp_trans, h_trans=p.lp_trans,
+                    phase=p.phase, fir_window=p.fir_window)
             else:
                 if p.disp_files:
                     print('    Computing continuous projectors using data.')
                 raw = raw_orig.copy()
-            raw.filter(None, p.cont_lp, n_jobs=p.n_jobs_fir, method='fft',
-                       filter_length=p.filter_length)
+            raw.filter(None, p.cont_lp, n_jobs=p.n_jobs_fir, method='fir',
+                       filter_length=p.filter_length, h_trans_bandwidth=0.5,
+                       fir_window=p.fir_window, phase=p.phase)
             raw.add_proj(projs)
             raw.apply_proj()
             pr = compute_proj_raw(raw, duration=1, n_grad=proj_nums[2][0],
@@ -1859,7 +1889,9 @@ def do_preprocessing_combined(p, subjects, run_indices):
                 print('    Computing ECG projectors.')
             raw = raw_orig.copy()
             raw.filter(ecg_f_lims[0], ecg_f_lims[1], n_jobs=p.n_jobs_fir,
-                       method='fft', filter_length=p.filter_length)
+                       method='fir', filter_length=p.filter_length,
+                       l_trans_bandwidth=0.5, h_trans_bandwidth=0.5,
+                       phase='zero-double', fir_window='hann')
             raw.add_proj(projs)
             raw.apply_proj()
             pr, ecg_events = \
@@ -1884,7 +1916,9 @@ def do_preprocessing_combined(p, subjects, run_indices):
                 print('    Computing EOG projectors.')
             raw = raw_orig.copy()
             raw.filter(eog_f_lims[0], eog_f_lims[1], n_jobs=p.n_jobs_fir,
-                       method='fft', filter_length=p.filter_length)
+                       method='fir', filter_length=p.filter_length,
+                       l_trans_bandwidth=0.5, h_trans_bandwidth=0.5,
+                       phase='zero-double', fir_window='hann')
             raw.add_proj(projs)
             raw.apply_proj()
             pr, eog_events = \
@@ -1907,10 +1941,10 @@ def do_preprocessing_combined(p, subjects, run_indices):
         write_proj(all_proj, projs)
 
         # look at raw_orig for trial DQs now, it will be quick
-        raw_orig.filter(p.hp_cut, p.lp_cut, n_jobs=p.n_jobs_fir, method='fft',
+        raw_orig.filter(p.hp_cut, p.lp_cut, n_jobs=p.n_jobs_fir, method='fir',
                         filter_length=p.filter_length,
-                        l_trans_bandwidth=p.hp_trans,
-                        h_trans_bandwidth=p.lp_trans)
+                        l_trans_bandwidth=p.hp_trans, phase=p.phase,
+                        h_trans_bandwidth=p.lp_trans, fir_window=p.fir_window)
         raw_orig.add_proj(projs)
         raw_orig.apply_proj()
         # now let's epoch with 1-sec windows to look for DQs
@@ -1973,9 +2007,10 @@ def apply_preprocessing_combined(p, subjects, run_indices):
             raw = _raw_LRFCP(
                 raw_names=r, sfreq=None, l_freq=p.hp_cut, h_freq=p.lp_cut,
                 n_jobs=p.n_jobs_fir, n_jobs_resample=p.n_jobs_resample,
-                projs=projs, bad_file=bad_file, disp_files=False, method='fft',
+                projs=projs, bad_file=bad_file, disp_files=False, method='fir',
                 apply_proj=False, filter_length=p.filter_length,
-                force_bads=True, l_trans=p.hp_trans, h_trans=p.lp_trans)
+                force_bads=True, l_trans=p.hp_trans, h_trans=p.lp_trans,
+                phase=p.phase, fir_window=p.fir_window, pick=False)
             raw.save(o, overwrite=True, buffer_size_sec=None)
         for ii, (r, o) in enumerate(zip(names_in, names_out)):
             if p.disp_files:
@@ -1984,9 +2019,11 @@ def apply_preprocessing_combined(p, subjects, run_indices):
             raw = _raw_LRFCP(
                 raw_names=r, sfreq=None, l_freq=p.hp_cut, h_freq=p.lp_cut,
                 n_jobs=p.n_jobs_fir, n_jobs_resample=p.n_jobs_resample,
-                projs=projs, bad_file=bad_file, disp_files=False, method='fft',
+                projs=projs, bad_file=bad_file, disp_files=False, method='fir',
                 apply_proj=False, filter_length=p.filter_length,
-                force_bads=False, l_trans=p.hp_trans, h_trans=p.lp_trans)
+                force_bads=False, l_trans=p.hp_trans, h_trans=p.lp_trans,
+                phase=p.phase, fir_window=p.fir_window,
+                pick=False)
             raw.save(o, overwrite=True, buffer_size_sec=None)
         # look at raw_clean for ExG events
         if p.plot_raw:
@@ -2108,7 +2145,7 @@ def _viz_raw_ssp_events(p, subj, ridx):
     ev = ev[np.argsort(ev[:, 0], axis=0)]
     raw = _raw_LRFCP(pre_list, p.proj_sfreq, None, None, p.n_jobs_fir,
                      p.n_jobs_resample, projs, None, p.disp_files,
-                     method='fft', filter_length=p.filter_length,
+                     method='fir', filter_length=p.filter_length,
                      force_bads=False, l_trans=p.hp_trans, h_trans=p.lp_trans)
     raw.plot(events=ev, event_color=colors)
 
@@ -2202,12 +2239,16 @@ def _prebad(p, subj):
     return prebad_file
 
 
-def _headpos(p, file_in, file_out):
+def _headpos(p, raw_fname):
     """Helper for locating head position estimation file"""
-    if not op.isfile(file_out):
-        run_sss_positions(file_in, file_out, host=p.sws_ssh, port=p.sws_port,
-                          prefix='        ')
-    return read_head_pos(file_out)
+    if p.movecomp is None:
+        return None
+    pos_fname = raw_fname[:-4] + '.pos'
+    if not op.isfile(pos_fname):
+        run_sss_positions(raw_fname, pos_fname,
+                          host=p.sws_ssh, port=p.sws_port, prefix='        ',
+                          work_dir=p.sws_dir)
+    return read_head_pos(pos_fname)
 
 
 def info_sss_basis(info, origin='auto', int_order=8, ext_order=3,
@@ -2334,7 +2375,7 @@ def plot_reconstruction(evoked, origin=(0., 0., 0.04)):
     return fig
 
 
-def plot_chpi_snr_raw(raw, win_length, n_harmonics):
+def plot_chpi_snr_raw(raw, win_length, n_harmonics=None):
     """Compute and plot cHPI SNR from raw data
 
     Parameters
@@ -2343,8 +2384,9 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics):
         Length of window to use for SNR estimates (seconds). A longer window
         will naturally include more low frequency power, resulting in lower
         SNR.
-    n_harmonics : int
-        Number of line frequency harmonics to include in the model.
+    n_harmonics : int or None
+        Number of line frequency harmonics to include in the model. If None,
+        use all harmonics up to the MEG analog lowpass corner.
 
     Returns
     -------
@@ -2380,7 +2422,10 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics):
     # get some info from fiff
     sfreq = raw.info['sfreq']
     linefreq = raw.info['line_freq']
-    linefreqs = (np.arange(n_harmonics + 1) + 1) * linefreq
+    if n_harmonics is not None:
+        linefreqs = (np.arange(n_harmonics + 1) + 1) * linefreq
+    else:
+        linefreqs = np.arange(linefreq, raw.info['lowpass'], linefreq)
     buflen = int(win_length * sfreq)
     if buflen <= 0:
         raise ValueError('Window length should be >0')

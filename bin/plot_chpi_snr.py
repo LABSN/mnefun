@@ -22,15 +22,14 @@ def run():
 
     # default parameters
     default_winlen = 1  # window length, seconds
-    default_nharm = 2  # number of line harmonics to include
+    default_nharm = None  # number of line harmonics to include
 
     parser = argparse.ArgumentParser()
     parser.add_argument('fiff_file', help='Name of raw fiff file')
     parser.add_argument('--winlen', type=float, default=default_winlen,
                         help='Buffer length for SNR estimates (s)')
     parser.add_argument('--nharm', type=int, default=default_nharm,
-                        choices=[0, 1, 2, 3, 4], help='Number of line'
-                        'frequency harmonics to include')
+                        help='Number of line frequency harmonics to include')
     args = parser.parse_args()
 
     raw = mne.io.Raw(args.fiff_file, allow_maxshield='yes')

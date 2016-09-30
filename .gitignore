@@ -48,3 +48,5 @@ examples/funloc/run_sss.sh
 
 *~
 /examples/funloc/
+env/
+*.whl
