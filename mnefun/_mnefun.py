@@ -651,12 +651,13 @@ def fetch_raw_files(p, subjects, run_indices):
         run_subprocess(cmd)
         # move files to root raw_dir
         for fname in remote_fnames:
-            move(op.join(raw_dir, fname[len(p.acq_dir):].lstrip('/')),
+            from_ = fname.index(subj)
+            move(op.join(raw_dir, fname[from_:].lstrip('/')),
                  op.join(raw_dir, op.basename(fname)))
         # prune the extra directories we made
         for fname in remote_fnames:
-            #TODO:should we just use subj_dir instead of [len(p.acq_dir):].lstrip('/')
-            next_ = op.split(fname[len(p.acq_dir):].lstrip('/'))[0]
+            from_ = fname.index(subj)
+            next_ = op.split(fname[from_:].lstrip('/'))[0]
             while len(next_) > 0:
                 if op.isdir(op.join(raw_dir, next_)):
                     os.rmdir(op.join(raw_dir, next_))  # safe; goes if empty
