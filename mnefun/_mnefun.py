@@ -63,7 +63,8 @@ except ImportError:
     except ImportError:
         from mne.io.chpi import (_quat_to_rot as quat_to_rot,
                                  _rot_to_quat as rot_to_quat)
-from mne.io import Raw, concatenate_raws, read_info, write_info
+from mne.io import (Raw, concatenate_raws, read_info, write_info,
+                    set_eeg_reference)
 from mne.io.pick import pick_types_forward, pick_types
 from mne.io.meas_info import _empty_info
 from mne.cov import regularize
@@ -1696,7 +1697,7 @@ def _raw_LRFCP(raw_names, sfreq, l_freq, h_freq, n_jobs, n_jobs_resample,
             r.pick_types(meg=True, eeg=True, eog=True, ecg=True, exclude=())
         r.load_bad_channels(bad_file, force=force_bads)
         r.pick_types(meg=True, eeg=True, eog=True, ecg=True, exclude=[])
-        r.add_eeg_average_proj()
+        r.set_eeg_reference()
         if sfreq is not None:
             r.resample(sfreq, n_jobs=n_jobs_resample, npad='auto')
         if l_freq is not None or h_freq is not None:
