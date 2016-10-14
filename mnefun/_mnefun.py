@@ -610,18 +610,24 @@ def fetch_raw_files(p, subjects, run_indices):
         raw_dir = op.join(subj_dir, p.raw_dir)
         if not op.isdir(raw_dir):
             os.mkdir(raw_dir)
-        finder_stem = 'find %s ' % p.acq_dir
-        # build remote raw file finder
-        fnames = get_raw_fnames(p, subj, 'raw', True, False, run_indices[si])
+        fnames = get_raw_fnames(p, subj, 'raw', True, False,
+                                run_indices[si])
         assert len(fnames) > 0
-        finder = (finder_stem +
+        # build remote raw file finder
+        for remote_dir in ['/sinuhe_data01', '/data101', '/sinuhe/data01',
+                           '/sinuhe/data02','/sinuhe/data03']:
+            finder_stem = 'find %s/%s ' % (remote_dir, p.acq_dir)
+            finder = (finder_stem +
                   ' -o '.join(['-type f -regex ' + _regex_convert(f)
                                for f in fnames]))
-        stdout_ = run_subprocess(['ssh', '-p', str(p.acq_port),
-                                  p.acq_ssh, finder])[0]
+            stdout_ = run_subprocess(['ssh', '-p', str(p.acq_port),
+                                      p.acq_ssh, finder])[0]
+            if len(stdout_) > 0:
+                break
         remote_fnames = [x.strip() for x in stdout_.splitlines()]
-        assert all(fname.startswith(p.acq_dir) for fname in remote_fnames)
-        # make the name "local" to the acq_dir, so that the name works
+        assert all(fname.startswith(remote_dir+'/'+p.acq_dir)\
+                   for fname in remote_fnames)
+        # make the name "local" to the acq dir, so that the name works
         # remotely during rsync and locally during copyfile
         remote_fnames = [fname[len(p.acq_dir):].lstrip('/')
                          for fname in remote_fnames]
@@ -640,15 +646,17 @@ def fetch_raw_files(p, subjects, run_indices):
                '--include', '*/']
         for fname in remote_fnames:
             cmd += ['--include', op.basename(fname)]
-        remote_loc = '%s:%s' % (p.acq_ssh, op.join(p.acq_dir, ''))
+        remote_loc = '%s:%s' % (p.acq_ssh, op.join(remote_dir, p.acq_dir, ''))
         cmd += ['--exclude', '*', remote_loc, op.join(raw_dir, '')]
         run_subprocess(cmd)
         # move files to root raw_dir
         for fname in remote_fnames:
-            move(op.join(raw_dir, fname), op.join(raw_dir, op.basename(fname)))
+            move(op.join(raw_dir, fname[len(p.acq_dir):].lstrip('/')),
+                 op.join(raw_dir, op.basename(fname)))
         # prune the extra directories we made
         for fname in remote_fnames:
-            next_ = op.split(fname)[0]
+            #TODO:should we just use subj_dir instead of [len(p.acq_dir):].lstrip('/')
+            next_ = op.split(fname[len(p.acq_dir):].lstrip('/'))[0]
             while len(next_) > 0:
                 if op.isdir(op.join(raw_dir, next_)):
                     os.rmdir(op.join(raw_dir, next_))  # safe; goes if empty
