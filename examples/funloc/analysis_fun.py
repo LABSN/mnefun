@@ -47,12 +47,17 @@ params.subjects = ['subj_01', 'subj_02']
 params.structurals = [None, 'AKCLEE_110_slim']  # None means use sphere
 params.dates = [(2014, 2, 14), None]  # Use "None" to more fully anonymize
 params.score = score  # Scoring function used to slice data into trials
-params.subject_indices = np.arange(2)  # Define which subjects to run
+params.subject_indices = [0]  # Define which subjects to run
 params.plot_drop_logs = False  # Turn off so plots do not halt processing
 
 # Set parameters for remotely connecting to acquisition computer
 params.acq_ssh = 'minea'  # Could also be e.g., "eric@minea.ilabs.uw.edu"
-params.acq_dir = 'eric_non_space' # name of remote dir containing data
+# Pass list of paths to search and fetch raw data
+params.acq_dir = ['/sinuhe_data01/eric_non_space',
+                  '/data101/eric_non_space',
+                  '/sinuhe/data01/eric_non_space',
+                  '/sinuhe/data02/eric_non_space',
+                  '/sinuhe/data03/eric_non_space']
 
 # Set parameters for remotely connecting to SSS workstation ('sws')
 params.sws_ssh = 'kasga'

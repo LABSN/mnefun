@@ -567,13 +567,6 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
     assert all(r is None or np.in1d(r, np.arange(len(p.run_names))).all()
                for r in run_indices)
 
-    if isinstance(p.acq_dir, string_types):
-        p.acq_dir = [loc + '/%s' % p.acq_dir for loc in ['/sinuhe_data01',
-                                                         '/data101',
-                                                         '/sinuhe/data01',
-                                                         '/sinuhe/data02',
-                                                         '/sinuhe/data03']]
-
     # Actually do the work
 
     outs = [None] * len(bools)
@@ -621,6 +614,7 @@ def fetch_raw_files(p, subjects, run_indices):
                                 run_indices[si])
         assert len(fnames) > 0
         # build remote raw file finder
+        assert type(p.acq_dir) in (list, string_types)
         for remote_dir in p.acq_dir:
             finder_stem = 'find %s ' % remote_dir
             finder = (finder_stem +
