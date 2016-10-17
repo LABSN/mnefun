@@ -567,6 +567,13 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
     assert all(r is None or np.in1d(r, np.arange(len(p.run_names))).all()
                for r in run_indices)
 
+    if isinstance(p.acq_dir, string_types):
+        p.acq_dir = [loc + '/%s' % p.acq_dir for loc in ['/sinuhe_data01',
+                                                         '/data101',
+                                                         '/sinuhe/data01',
+                                                         '/sinuhe/data02',
+                                                         '/sinuhe/data03']]
+
     # Actually do the work
 
     outs = [None] * len(bools)
@@ -614,9 +621,8 @@ def fetch_raw_files(p, subjects, run_indices):
                                 run_indices[si])
         assert len(fnames) > 0
         # build remote raw file finder
-        for remote_dir in ['/sinuhe_data01', '/data101', '/sinuhe/data01',
-                           '/sinuhe/data02','/sinuhe/data03']:
-            finder_stem = 'find %s/%s ' % (remote_dir, p.acq_dir)
+        for remote_dir in p.acq_dir:
+            finder_stem = 'find %s ' % remote_dir
             finder = (finder_stem +
                   ' -o '.join(['-type f -regex ' + _regex_convert(f)
                                for f in fnames]))
@@ -625,11 +631,11 @@ def fetch_raw_files(p, subjects, run_indices):
             if len(stdout_) > 0:
                 break
         remote_fnames = [x.strip() for x in stdout_.splitlines()]
-        assert all(fname.startswith(remote_dir+'/'+p.acq_dir)\
+        assert all(fname.startswith(remote_dir + '/')
                    for fname in remote_fnames)
         # make the name "local" to the acq dir, so that the name works
         # remotely during rsync and locally during copyfile
-        remote_fnames = [fname[len(p.acq_dir):].lstrip('/')
+        remote_fnames = [fname[len(remote_dir):].lstrip('/')
                          for fname in remote_fnames]
         want = set(op.basename(fname) for fname in fnames)
         got = set(op.basename(fname) for fname in remote_fnames)
@@ -646,7 +652,7 @@ def fetch_raw_files(p, subjects, run_indices):
                '--include', '*/']
         for fname in remote_fnames:
             cmd += ['--include', op.basename(fname)]
-        remote_loc = '%s:%s' % (p.acq_ssh, op.join(remote_dir, p.acq_dir, ''))
+        remote_loc = '%s:%s' % (p.acq_ssh, op.join(remote_dir, ''))
         cmd += ['--exclude', '*', remote_loc, op.join(raw_dir, '')]
         run_subprocess(cmd)
         # move files to root raw_dir
