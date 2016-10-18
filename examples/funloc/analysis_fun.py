@@ -47,7 +47,7 @@ params.subjects = ['subj_01', 'subj_02']
 params.structurals = [None, 'AKCLEE_110_slim']  # None means use sphere
 params.dates = [(2014, 2, 14), None]  # Use "None" to more fully anonymize
 params.score = score  # Scoring function used to slice data into trials
-params.subject_indices = [0]  # Define which subjects to run
+params.subject_indices = np.arange(2)  # Define which subjects to run
 params.plot_drop_logs = False  # Turn off so plots do not halt processing
 
 # Set parameters for remotely connecting to acquisition computer

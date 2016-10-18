@@ -614,23 +614,23 @@ def fetch_raw_files(p, subjects, run_indices):
                                 run_indices[si])
         assert len(fnames) > 0
         # build remote raw file finder
-        assert type(p.acq_dir) in (list, string_types)
-        for remote_dir in p.acq_dir:
-            finder_stem = 'find %s ' % remote_dir
-            finder = (finder_stem +
-                  ' -o '.join(['-type f -regex ' + _regex_convert(f)
-                               for f in fnames]))
-            stdout_ = run_subprocess(['ssh', '-p', str(p.acq_port),
-                                      p.acq_ssh, finder])[0]
-            if len(stdout_) > 0:
-                break
+        if isinstance(p.acq_dir, string_types):
+            use_dir = [p.acq_dir]
+        else:
+            use_dir = p.acq_dir
+        finder_stem = 'find ' + ' '.join(use_dir)
+        finder = (finder_stem + ' -o '.join([' -type f -regex ' +
+                                             _regex_convert(f)
+                                             for f in fnames]))
+        stdout_ = run_subprocess(['ssh', '-p', str(p.acq_port),
+                                  p.acq_ssh, finder])[0]
         remote_fnames = [x.strip() for x in stdout_.splitlines()]
-        assert all(fname.startswith(remote_dir + '/')
-                   for fname in remote_fnames)
+        #assert all(fname.startswith(remote_dir + '/')
+        #           for fname in remote_fnames)
         # make the name "local" to the acq dir, so that the name works
         # remotely during rsync and locally during copyfile
-        remote_fnames = [fname[len(remote_dir):].lstrip('/')
-                         for fname in remote_fnames]
+        remote_dir = [fn[:fn.index(op.basename(fn))] for fn in remote_fnames][0]
+        remote_fnames = [op.basename(fname) for fname in remote_fnames]
         want = set(op.basename(fname) for fname in fnames)
         got = set(op.basename(fname) for fname in remote_fnames)
         if want != got.intersection(want):
