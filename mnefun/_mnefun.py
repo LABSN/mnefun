@@ -625,8 +625,8 @@ def fetch_raw_files(p, subjects, run_indices):
         stdout_ = run_subprocess(['ssh', '-p', str(p.acq_port),
                                   p.acq_ssh, finder])[0]
         remote_fnames = [x.strip() for x in stdout_.splitlines()]
-        #assert all(fname.startswith(remote_dir + '/')
-        #           for fname in remote_fnames)
+        assert any(fname.startswith(rd + '/') for rd in use_dir
+                   for fname in remote_fnames)
         # make the name "local" to the acq dir, so that the name works
         # remotely during rsync and locally during copyfile
         remote_dir = [fn[:fn.index(op.basename(fn))] for fn in remote_fnames][0]
