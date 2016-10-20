@@ -52,7 +52,12 @@ params.plot_drop_logs = False  # Turn off so plots do not halt processing
 
 # Set parameters for remotely connecting to acquisition computer
 params.acq_ssh = 'minea'  # Could also be e.g., "eric@minea.ilabs.uw.edu"
-params.acq_dir = '/net/sinuhe/data02/eric_non_space'
+# Pass list of paths to search and fetch raw data
+params.acq_dir = ['/sinuhe_data01/eric_non_space',
+                  '/data101/eric_non_space',
+                  '/sinuhe/data01/eric_non_space',
+                  '/sinuhe/data02/eric_non_space',
+                  '/sinuhe/data03/eric_non_space']
 
 # Set parameters for remotely connecting to SSS workstation ('sws')
 params.sws_ssh = 'kasga'
