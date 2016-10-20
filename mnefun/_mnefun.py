@@ -1115,7 +1115,8 @@ def extract_expyfun_events(fname, return_offsets=False):
     subtract 1 before doing so to yield the original binary values.
     """
     # Read events
-    raw = Raw(fname, allow_maxshield='yes')
+    raw = Raw(fname, allow_maxshield='yes', preload=True)
+    raw.pick_types(meg=False, stim=True)
     orig_events = find_events(raw, stim_channel='STI101', shortest_event=0)
     events = list()
     for ch in range(1, 9):
@@ -2083,24 +2084,27 @@ def anova_time(X):
     """
     import patsy
     from scipy import linalg, stats
-
     n_subjects, n_nested, n_sources = X.shape
-    n_time = n_nested / 2
+    n_time = n_nested // 2
     # Turn Y into (2 x n_time x n_subjects) x n_sources
-    Y = np.sqrt(np.reshape(X, (2 * n_time * n_subjects, n_sources), order='F'))
+    X = np.reshape(X, (2 * n_time * n_subjects, n_sources), order='F')
+    np.sqrt(X, out=X)
     cv, tv, sv = np.meshgrid(np.arange(2.0), np.arange(n_time),
                              np.arange(n_subjects), indexing='ij')
     dmat = patsy.dmatrix('C(cv) + C(tv) + C(sv)',
                          dict(sv=sv.ravel(), tv=tv.ravel(), cv=cv.ravel()))
+    dof = dmat.shape[0] - np.linalg.matrix_rank(dmat)
     c = np.zeros((1, dmat.shape[1]))
     c[0, 1] = 1  # Contrast for just picking up condition difference
-    b = np.dot(linalg.pinv(dmat), Y)
-    d = Y - np.dot(dmat, b)
-    r = dmat.shape[0] - np.linalg.matrix_rank(dmat)
-    R = np.diag(np.dot(d.T, d))[:, np.newaxis] / r
-    e = np.sqrt(R * np.dot(c, np.dot(linalg.pinv(np.dot(dmat.T, dmat)), c.T)))
+    # Equivalent, but slower here:
+    b = np.dot(linalg.pinv(dmat), X)
+    X -= np.dot(dmat, b)
+    X *= X
+    R = np.sum(X, axis=0)[:, np.newaxis]
+    R /= dof
+    e = np.sqrt(R * np.dot(c, linalg.lstsq(np.dot(dmat.T, dmat), c.T)[0]))
     t = (np.dot(c, b) / e.T).T
-    dof = r / (n_time - 1)  # Greenhouse-Geisser correction to the DOF
+    dof = dof / float(n_time - 1)  # Greenhouse-Geisser correction to the DOF
     p = np.sign(t) * 2 * stats.t.cdf(-abs(t), dof)
     return t, p, dof
 
