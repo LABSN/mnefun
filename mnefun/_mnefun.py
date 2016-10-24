@@ -2495,6 +2495,9 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics=None):
     # SNR plots for gradiometers and magnetometers
     ax = axs[0]
     lines1 = ax.plot(tvec, 10*np.log10(snr_avg_grad.transpose()))
+    lines1_med = ax.plot(tvec, 10*np.log10(np.median(snr_avg_grad,
+                                               axis=0).transpose()),
+                         lw=3, ls='--', color='k', label='Median')
     ax.set_xlim([tvec.min(), tvec.max()])
     ax.set(ylabel='SNR (dB)')
     ax.yaxis.label.set_fontsize(label_fontsize)
@@ -2503,6 +2506,9 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics=None):
     ax.tick_params(axis='both', which='major', labelsize=tick_fontsize)
     ax = axs[1]
     lines2 = ax.plot(tvec, 10*np.log10(snr_avg_mag.transpose()))
+    lines2_med = ax.plot(tvec, 10 * np.log10(np.median(snr_avg_mag,
+                                                       axis=0).transpose()),
+                         lw=3, ls='--', color='k', label='Median')
     ax.set_xlim([tvec.min(), tvec.max()])
     ax.set(ylabel='SNR (dB)')
     ax.yaxis.label.set_fontsize(label_fontsize)
