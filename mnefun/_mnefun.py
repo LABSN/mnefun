@@ -1707,7 +1707,8 @@ def _raw_LRFCP(raw_names, sfreq, l_freq, h_freq, n_jobs, n_jobs_resample,
             r.pick_types(meg=True, eeg=True, eog=True, ecg=True, exclude=())
         r.load_bad_channels(bad_file, force=force_bads)
         r.pick_types(meg=True, eeg=True, eog=True, ecg=True, exclude=[])
-        r.set_eeg_reference()
+        if 'eeg' in r:
+            r.set_eeg_reference()
         if sfreq is not None:
             r.resample(sfreq, n_jobs=n_jobs_resample, npad='auto')
         if l_freq is not None or h_freq is not None:
