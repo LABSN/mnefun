@@ -1042,7 +1042,8 @@ def run_sss_locally(p, subjects, run_indices):
                 ext_order=p.ext_order, calibration=cal_file,
                 cross_talk=ct_file, st_correlation=p.st_correlation,
                 st_duration=st_duration, destination=trans_to,
-                coord_frame='head', head_pos=pos, regularize=reg)
+                coord_frame='head', head_pos=pos, regularize=reg,
+                bad_condition='warning')
             print('%i sec' % (time.time() - t0,))
             raw_sss.save(o, overwrite=True, buffer_size_sec=None)
         #  process erm files if any
@@ -2495,8 +2496,7 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics=None):
     # SNR plots for gradiometers and magnetometers
     ax = axs[0]
     lines1 = ax.plot(tvec, 10*np.log10(snr_avg_grad.transpose()))
-    lines1_med = ax.plot(tvec, 10*np.log10(np.median(snr_avg_grad,
-                                               axis=0).transpose()),
+    lines1_med = ax.plot(tvec, 10*np.log10(np.median(snr_avg_grad, axis=0)),
                          lw=3, ls='--', color='k', label='Median')
     ax.set_xlim([tvec.min(), tvec.max()])
     ax.set(ylabel='SNR (dB)')
@@ -2506,8 +2506,7 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics=None):
     ax.tick_params(axis='both', which='major', labelsize=tick_fontsize)
     ax = axs[1]
     lines2 = ax.plot(tvec, 10*np.log10(snr_avg_mag.transpose()))
-    lines2_med = ax.plot(tvec, 10 * np.log10(np.median(snr_avg_mag,
-                                                       axis=0).transpose()),
+    lines2_med = ax.plot(tvec, 10 * np.log10(np.median(snr_avg_mag, axis=0)),
                          lw=3, ls='--', color='k', label='Median')
     ax.set_xlim([tvec.min(), tvec.max()])
     ax.set(ylabel='SNR (dB)')
@@ -2542,7 +2541,8 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics=None):
     ax.set_position([box.x0, box.y0, box.width * 0.8, box.height])
     # order curve legends according to mean of data
     sind = np.argsort(snr_avg_grad.mean(axis=1))[::-1]
-    ax.legend(np.array(lines1)[sind], np.array(cfreqs_legend)[sind],
+    ax.legend(np.concatenate((np.array(lines1)[sind], lines1_med)),
+              np.concatenate((np.array(cfreqs_legend)[sind], 'Median')),
               prop={'size': legend_fontsize}, bbox_to_anchor=(1.02, 0.5, ),
               loc='center left')
     ax = axs[1]
