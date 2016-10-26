@@ -53,6 +53,7 @@ from mne.label import read_label
 from mne.epochs import combine_event_ids
 from mne.chpi import (filter_chpi, read_head_pos, write_head_pos,
                       _get_hpi_info)
+from mne.io.proj import _needs_eeg_average_ref_proj
 
 try:
     from mne.chpi import quat_to_rot, rot_to_quat
@@ -1708,7 +1709,8 @@ def _raw_LRFCP(raw_names, sfreq, l_freq, h_freq, n_jobs, n_jobs_resample,
             r.pick_types(meg=True, eeg=True, eog=True, ecg=True, exclude=())
         r.load_bad_channels(bad_file, force=force_bads)
         r.pick_types(meg=True, eeg=True, eog=True, ecg=True, exclude=[])
-        r.set_eeg_reference()
+        if _needs_eeg_average_ref_proj(r.info):
+            r.set_eeg_reference()
         if sfreq is not None:
             r.resample(sfreq, n_jobs=n_jobs_resample, npad='auto')
         if l_freq is not None or h_freq is not None:
