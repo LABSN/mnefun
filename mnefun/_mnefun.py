@@ -28,7 +28,7 @@ from mne import (compute_proj_raw, make_fixed_length_events, Epochs,
                  write_proj, read_proj, setup_source_space,
                  make_forward_solution, get_config, write_evokeds,
                  make_sphere_model, setup_volume_source_space,
-                 read_bem_solution, pick_info)
+                 read_bem_solution, pick_info, AcqParserFIF)
 
 try:
     from mne import compute_raw_covariance  # up-to-date mne-python
@@ -2391,20 +2391,9 @@ def plot_reconstruction(evoked, origin=(0., 0., 0.04)):
     return fig
 
 
-def _chpi_snr_epochs(epochs, n_lineharm=2, channels='grad', hpi_coil='median'):
-    """ Return estimated SNR of continuous HPI for each epoch in epochs
-    (mne.Epochs object). SNR estimation is done by fitting a GLM to the data,
-    comparing to residual (unexplained) variance and averaging the resulting
-    SNR across channels.
-    Parameters:
-    epochs: mne.epochs instance with a single condition
-    n_lineharm: number of line frequency harmonics to use in the GLM
-    channels: 'grad', 'mag': which channels to consider in SNR averaging
-    hpi_coil: 'best', 'worst', 'median': which hpi coil to track SNR for.
-    'best' selects best coil at each epoch. 'median' selects the coil with
-    the median SNR value at each epoch. 'worst' selects the coil with lowest
-    SNR at each epoch.
-
+def _chpi_snr_epochs(epochs, n_lineharm=5, channels='grad', hpi_coil='median'):
+    """ Compute SNR of continuous HPI for each epoch in epochs
+    (mne.Epochs instance).
     """
 
     if len(epochs.event_id) > 1:
@@ -2415,18 +2404,14 @@ def _chpi_snr_epochs(epochs, n_lineharm=2, channels='grad', hpi_coil='median'):
     nepochs, nchan, buflen = alldata.shape
     sfreq = epochs.info['sfreq']
     t = np.linspace(0, buflen/sfreq, endpoint=False, num=buflen)
-    cfreqs = list(chpi_freqs(epochs.info))
-    # this cannot be used yet, see
-    # https://github.com/mne-tools/mne-python/pull/3670
-    # (cfreqs, _, _, _, _) = _get_hpi_info(epochs.info)
+    (cfreqs, _, _, _, _) = _get_hpi_info(epochs.info)
     ncoils = len(cfreqs)
     linefreq = epochs.info['line_freq']
     linefreqs = (np.arange(n_lineharm+1)+1) * linefreq
 
     # gradiometer and magmeter indices
-    pick_meg = mne.pick_types(epochs.info, meg=True)
-    pick_mag = mne.pick_types(epochs.info, meg='mag')
-    pick_grad = mne.pick_types(epochs.info, meg='grad')
+    pick_mag = pick_types(epochs.info, meg='mag')
+    pick_grad = pick_types(epochs.info, meg='grad')
 
     # create linear model
     model = np.c_[t, np.ones(t.shape)]  # model slope and DC
@@ -2452,7 +2437,6 @@ def _chpi_snr_epochs(epochs, n_lineharm=2, channels='grad', hpi_coil='median'):
                                          resid_vars[pick_grad, epn].mean())
         snr_avg_mag[:, epn] = np.divide((hpi_amps**2/2)[:, pick_mag].mean(1),
                                         resid_vars[pick_mag, epn].mean())
-
     if hpi_coil == 'median':
         fun = np.median
     elif hpi_coil == 'best':
@@ -2466,12 +2450,11 @@ def _chpi_snr_epochs(epochs, n_lineharm=2, channels='grad', hpi_coil='median'):
         snr = fun(snr_avg_grad, axis=0)
     elif channels == 'mag':
         snr = fun(snr_avg_mag, axis=0)
-
     return snr
 
 
 def _weigh_epochs(epochs, weights):
-    """ Weigh epochs in mne.Epochs object (elementwise multiply by
+    """ Weigh epochs in mne.Epochs instance (=elementwise multiply by
     weights vector). """
     epochs.load_data()
     weights = np.array(weights)  # will accept either list or numpy array
@@ -2485,105 +2468,104 @@ def _weigh_epochs(epochs, weights):
     epochs._data *= n_epochs * w_ / np.sum(w_)
 
 
-def chpi_weighted_average(raw_snr, raw_epochs=None, reject=None, nharm=None,
-                          epoch_start=None, epoch_end=None, plot_snr=False,
-                          stim_channel=None, stim_mask=None):
-                              
-    mne.set_log_level('ERROR')  # reduce mne output
+def chpi_weighted_average(raw_snr, raw_epochs=None, reject=False, flat=False,
+                          nharm=None, epoch_start=None, epoch_end=None,
+                          stim_channel=None, mask=None):
 
-    if args.epochs_file:
-        fnbase = os.path.basename(os.path.splitext(args.epochs_file)[0])
-    else:
-        fnbase = os.path.basename(os.path.splitext(args.snr_file)[0])
-    verbose = False
+    """ Average epochs weighted by SNR of continuous HPI (cHPI).
 
-    """ Load cHPI SNR file. It is typically not maxfiltered, so ignore
-    MaxShield warnings. """
-    raw_chpi = mne.io.Raw(args.snr_file, allow_maxshield='yes',
-                          verbose=verbose)
-    picks = mne.pick_types(raw_chpi.info, meg=True)
+    Parameters
+    ----------
 
-    """ If using a separate file for the actual data epochs, load it. """
-    if args.epochs_file:
-        raw_epochs = mne.io.Raw(args.epochs_file, allow_maxshield=True,
-                                verbose=verbose)
+    raw_chpi : instance of Raw
+        The raw instance to get the cHPI SNR from. This file must not be
+        MaxFiltered, because MaxFilter removes the cHPI signals.
+    raw_epochs : instance of Raw | None
+        The raw instance to get the data epochs from. If not specified, use
+        epochs from raw_chpi.
+    reject : boolean
+        Whether to use the rejection parameters from the data acquisition.
+    flat : boolean
+        Whether to use the flatness criteria from the data acquisition.
+    nharm : int
+        Number of line frequency harmonics to use.
+    epoch_start : float
+        Start of epoch relative to the zero time. If not specified, taken from
+        the data acquisition settings.
+    epoch_end : float
+        End of epoch relative to the zero time. If not specified, taken from
+        the data acquisition settings.
+    stim_channel : str
+        The trigger channel to get the events from.
+    mask : int | None
+        The digital mask to apply to the trigger channel values.
 
-    """ Get averaging parameters. These should be identical for the SNR and
-    epochs files. """
-    ap = AcqParserFIF(raw_chpi.info)
+    Returns
+    -------
+    evokeds : list of Evoked
+        The cHPI weighted average for each category.
+    snrs : list of np.array
+        Per-epoch SNR vectors for each category.
 
-    """ For each category, compute the SNR weights and the weighted
-    average. """
-    figs = False
+    """
+
+    # mne.set_log_level('ERROR')  # reduce mne output
+    ap = AcqParserFIF(raw_snr.info)  # should be identical for both files
     evokeds = []
+    snrs = []
+
     for cat in ap.categories:
         print('\nProcessing category: %s' % cat['comment'])
         print('Loading epochs for cHPI SNR...')
-        cond = ap.get_condition(raw_chpi, cat, stim_channel=args.stim_channel,
-                                mask=args.stim_mask)
+        cond = ap.get_condition(raw_snr, cat, stim_channel=stim_channel,
+                                mask=mask)
         if len(cond['events']) == 0:  # if no events, go to next category
-            print('No events for category % s' % cat['comment'])
+            print('No events found for category % s' % cat['comment'])
             continue
-        if args.epoch_start:
-            epoch_start = args.epoch_start
-            epoch_end = args.epoch_end
-        else:
+
+        if epoch_start is None:
             epoch_start = cond['tmin']
+        if epoch_end is None:
             epoch_end = cond['tmax']
-        reject = ap.reject if args.reject else None
-        flat = ap.flat if args.reject else None
-        # do not apply artifact rejection for the chpi epochs
-        chpi_epochs = mne.Epochs(raw_chpi, **cond)
-        print('Computing SNR...')
-        w_snr = chpi_snr_epochs(chpi_epochs, n_lineharm=args.nharm,
-                                channels='grad', hpi_coil='median')
-        if not args.epochs_file:
-            data_epochs = mne.Epochs(raw_chpi, reject=reject, flat=flat,
-                                     **cond)
+        cond.pop('tmin')  # to avoid duplicate kwargs below
+        cond.pop('tmax')
+
+        reject = ap.reject if reject is True else None
+        flat = ap.flat if flat is True else None
+
+        # do not apply artifact rejection for the cHPI epochs
+        chpi_epochs = Epochs(raw_snr, tmin=epoch_start, tmax=epoch_end, **cond)
+        w_snr = _chpi_snr_epochs(chpi_epochs, n_lineharm=nharm,
+                                 channels='grad', hpi_coil='median')
+        print('Loading data epochs...')
+        if not raw_epochs:
+            data_epochs = Epochs(raw_snr, reject=reject, flat=flat,
+                                 tmin=epoch_start, tmax=epoch_end, **cond)
         else:
-            print('Loading epochs for averaging...')
-            data_epochs = mne.Epochs(raw_epochs, reject=reject, flat=flat,
-                                     **cond)
+            data_epochs = Epochs(raw_epochs, reject=reject, flat=flat,
+                                 tmin=epoch_start, tmax=epoch_end, **cond)
         data_epochs.load_data()
-        # epochs that are ok, or dropped due to actual rejection criteria
-        drop_log = [l for l in data_epochs.drop_log if not l or l[0] not in ['NO_DATA', 'TOO_SHORT']]
-        # epochs that are ok, can be used to index snr epochs
+        # epochs that are either ok or dropped due to rejection criteria
+        drop_log = ([l for l in data_epochs.drop_log if not l or
+                    l[0] not in ['NO_DATA', 'TOO_SHORT']])
+        # epochs that are ok
         eps_ok = [i for i, l in enumerate(drop_log) if not l]
         n_ok = len(eps_ok)
         n_dropped = len(drop_log) - n_ok
         print('%d epochs ok, %d epochs rejected' % (n_ok, n_dropped))
         if n_ok == 0:
-            print('Skipping category')
+            print('No epochs, skipping category')
             continue
+
         print('Computing weighted average...')
         w_snr_ok = w_snr[eps_ok]
-        weigh_epochs(data_epochs, w_snr_ok)
+        _weigh_epochs(data_epochs, w_snr_ok)
         evoked = data_epochs.average()
         evoked.comment = cat['comment']
         evokeds.append(evoked)
+        snrs.append(w_snr_ok)
 
-        if args.plot_snr and eps_ok:
-            plt.figure()
-            plt.plot(eps_ok, 20*np.log10(w_snr_ok))
-            plt.title('Per-epoch SNR for category: ' + cat['comment'])
-            plt.xlabel('Epoch n (good epochs only)')
-            plt.ylabel('CHPI SNR (dB)')
-            figs = True
-
-    """ Write all resulting evoked objects to a fiff file. """
-    if evokeds:
-        fn = fnbase + '_chpi_weighted-ave.fif'
-        print('Saving', fn)
-        mne.write_evokeds(fn, evokeds)
-
-    if args.plot_snr and figs:
-        plt.show()
-
-
-
-
-
-
+    return evokeds, snrs
 
 
 def plot_chpi_snr_raw(raw, win_length, n_harmonics=None):
