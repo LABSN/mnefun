@@ -2496,9 +2496,9 @@ def chpi_weighted_average(raw_snr, raw_epochs=None, reject=False, flat=False,
     raw_epochs : instance of Raw | None
         The raw instance to get the data epochs from. If not specified, use
         epochs from raw_chpi.
-    reject : boolean
+    reject : bool
         Whether to use the rejection parameters from the data acquisition.
-    flat : boolean
+    flat : bool
         Whether to use the flatness criteria from the data acquisition.
     nharm : int
         Number of line frequency harmonics to use.
