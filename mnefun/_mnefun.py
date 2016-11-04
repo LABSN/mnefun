@@ -2394,6 +2394,20 @@ def plot_reconstruction(evoked, origin=(0., 0., 0.04)):
 def _chpi_snr_epochs(epochs, n_lineharm=5, channels='grad', hpi_coil='median'):
     """ Compute SNR of continuous HPI for each epoch in epochs
     (mne.Epochs instance).
+
+    Parameters
+    ----------
+
+    n_lineharm : int
+        Number of line harmonics to use
+
+    channels : 'grad' | 'mag'
+        Which channels to use for the SNR estimate
+
+    hpi_coil = 'median' | 'best' | 'worst'
+        How to compute the SNR. 'best', 'worst' and 'median' picks the
+        highest, lowest and median SNR at each time point, respectively.
+        (Note that the corresponding coil may change over time)
     """
 
     if len(epochs.event_id) > 1:
@@ -2454,7 +2468,7 @@ def _chpi_snr_epochs(epochs, n_lineharm=5, channels='grad', hpi_coil='median'):
 
 
 def _weigh_epochs(epochs, weights):
-    """ Weigh epochs in mne.Epochs instance (=elementwise multiply by
+    """ Weigh epochs in mne.Epochs instance (= elementwise multiply by
     weights vector). """
     epochs.load_data()
     weights = np.array(weights)  # will accept either list or numpy array
@@ -2471,7 +2485,6 @@ def _weigh_epochs(epochs, weights):
 def chpi_weighted_average(raw_snr, raw_epochs=None, reject=False, flat=False,
                           nharm=None, epoch_start=None, epoch_end=None,
                           stim_channel=None, mask=None):
-
     """ Average epochs weighted by SNR of continuous HPI (cHPI).
 
     Parameters
@@ -2506,20 +2519,18 @@ def chpi_weighted_average(raw_snr, raw_epochs=None, reject=False, flat=False,
         The cHPI weighted average for each category.
     snrs : list of np.array
         Per-epoch SNR vectors for each category.
-
     """
 
-    # mne.set_log_level('ERROR')  # reduce mne output
     ap = AcqParserFIF(raw_snr.info)  # should be identical for both files
+
     evokeds = []
     snrs = []
-
     for cat in ap.categories:
         print('\nProcessing category: %s' % cat['comment'])
         print('Loading epochs for cHPI SNR...')
         cond = ap.get_condition(raw_snr, cat, stim_channel=stim_channel,
                                 mask=mask)
-        if len(cond['events']) == 0:  # if no events, go to next category
+        if len(cond['events']) == 0:
             print('No events found for category % s' % cat['comment'])
             continue
 
