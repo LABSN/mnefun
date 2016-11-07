@@ -18,7 +18,9 @@ import time
 import numpy as np
 import scipy
 from scipy import io as spio
+from scipy.spatial.distance import euclidean
 import matplotlib.pyplot as plt
+import matplotlib.mlab as mlab
 from numpy.testing import assert_allclose
 
 from mne import (compute_proj_raw, make_fixed_length_events, Epochs,
@@ -52,7 +54,7 @@ from mne.minimum_norm import make_inverse_operator
 from mne.label import read_label
 from mne.epochs import combine_event_ids
 from mne.chpi import (filter_chpi, read_head_pos, write_head_pos,
-                      _get_hpi_info)
+                      _get_hpi_info, head_pos_to_trans_rot_t)
 from mne.io.proj import _needs_eeg_average_ref_proj
 
 try:
@@ -2561,3 +2563,92 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics=None):
     plt.show()
 
     return fig
+
+
+def _rotation_angles(rot):
+    """return linear transformation for coordinate vector
+    From Matlab code written by Samu Taulu
+
+    Parameters
+    ----------
+    rot : array
+
+    """
+    beta = -np.arcsin(rot[2, 0])
+    cosb = np.cos(beta)
+    alpha = np.arcsin(rot[2,1]/cosb)
+    gamma = np.arccos(rot[0,0]/cosb)
+    return alpha, beta, gamma
+
+
+def plot_head_movement(pos):
+    """Visualize head movement and rotations from cHPI positions data"""
+    translations, rotations, times = head_pos_to_trans_rot_t(pos)
+
+    # find euclidean distance between successive translations
+    euc_dist = np.zeros(len(times) - 1)
+    for ii in np.arange(len(times) - 1):
+        euc_dist[ii] = euclidean(translations[ii], translations[ii + 1])
+
+    angles = np.zeros((len(times), 3))
+    for k in np.arange(0, len(times)):
+        angles[k] = _rotation_angles(rotations[k])
+
+    # plotting parameters
+    title_fontsize = 10
+    tick_fontsize = 10
+    label_fontsize = 10
+
+    # histogram of head displacement data
+    euc_dist *= 100
+    mu = euc_dist.mean()
+    sigma = euc_dist.std()
+    fig = plt.figure()
+    n, bins, patches = plt.hist(euc_dist, 100, normed=1,
+                                facecolor='blue',
+                                alpha=0.5)
+    y = mlab.normpdf(bins, mu, sigma)
+    l = plt.plot(bins, y, 'g--', linewidth=2)
+    plt.xlabel('Displacement (cm)')
+    plt.ylabel('Probability')
+    plt.title(
+        r'$\mathrm{Head\ displacement:}\ \mu=%.2f cm,\ \sigma=%.2f$' % (
+        mu, sigma))
+    #plt.axis([min(bins), max(bins), min(n), max(n)])
+    plt.grid(True)
+    plt.show()
+
+    # plot head movement
+    fig, ((ax1, ax2), (ax3, ax4), (ax5, ax6)) = plt.subplots(3, 2, sharex=True,
+                                                             figsize=(20, 10))
+    ax1.plot(times, translations[:, 0] * 100)
+    ax1.set_xlim([min(times), max(times)])
+    ax1.set_title('Translations', fontsize=title_fontsize)
+    ax1.set_ylabel('x / cm')
+    ax1.yaxis.label.set_fontsize(label_fontsize)
+    ax1.tick_params(axis='both', which='major', labelsize=tick_fontsize)
+    ax2.plot(times, angles[:, 0])
+    ax2.set_title('Rotations', fontsize=title_fontsize)
+    ax2.set_ylabel(r"$\alpha$ \ rad")
+    ax2.yaxis.label.set_fontsize(label_fontsize)
+    ax2.tick_params(axis='both', which='major', labelsize=tick_fontsize)
+    ax3.plot(times, translations[:, 1] * 100)
+    ax3.set_ylabel('y / cm')
+    ax3.yaxis.label.set_fontsize(label_fontsize)
+    ax3.tick_params(axis='both', which='major', labelsize=tick_fontsize)
+    ax4.plot(times, angles[:, 1])
+    ax4.set_ylabel(r"$\beta$ \ rad")
+    ax4.yaxis.label.set_fontsize(label_fontsize)
+    ax4.tick_params(axis='both', which='major', labelsize=tick_fontsize)
+    ax5.plot(times, translations[:, 2] * 100)
+    ax5.set_ylabel('z / cm')
+    ax5.set_xlabel('time / s')
+    ax5.yaxis.label.set_fontsize(label_fontsize)
+    ax5.tick_params(axis='both', which='major', labelsize=tick_fontsize)
+    ax6.plot(times, angles[:, 2])
+    ax6.set_ylabel(r"$\gamma$ \ rad")
+    ax6.set_xlabel('time / s')
+    ax6.yaxis.label.set_fontsize(label_fontsize)
+    ax6.tick_params(axis='both', which='major', labelsize=tick_fontsize)
+
+
