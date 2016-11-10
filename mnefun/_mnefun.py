@@ -1388,7 +1388,7 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
                 # first, equalize trial counts (this will make a copy)
                 e = epochs[list(in_names[numbers > 0])]
                 if len(in_names_match) > 1:
-                    e.equalize_event_counts(in_names_match, copy=False)
+                    e.equalize_event_counts(in_names_match)
 
                 # second, collapse relevant types
                 for num, name in zip(new_numbers, names):
