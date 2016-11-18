@@ -2392,7 +2392,7 @@ def plot_reconstruction(evoked, origin=(0., 0., 0.04)):
     return fig
 
 
-def plot_chpi_snr_raw(raw, win_length, n_harmonics=None):
+def plot_chpi_snr_raw(raw, win_length, n_harmonics=None, show=True):
     """Compute and plot cHPI SNR from raw data
 
     Parameters
@@ -2404,6 +2404,8 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics=None):
     n_harmonics : int or None
         Number of line frequency harmonics to include in the model. If None,
         use all harmonics up to the MEG analog lowpass corner.
+    show : bool
+        Show figure if True.
 
     Returns
     -------
@@ -2577,6 +2579,6 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics=None):
     ax = axs[3]
     box = ax.get_position()
     ax.set_position([box.x0, box.y0, box.width * 0.8, box.height])
-    plt.show()
+    plt.show(show)
 
     return fig
