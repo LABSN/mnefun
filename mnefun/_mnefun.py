@@ -2234,7 +2234,12 @@ def plot_raw_psd(p, subjects, run_indices=None, tmin=0., fmin=2, n_fft=2048):
             if len(fname) < 1:
                 warnings.warn('Unable to find %s data file.' % file_type)
             with warnings.catch_warnings(record=True):
-                raw = Raw(fname, preload=True, allow_maxshield=True)
+                raw = _raw_LRFCP(fname, p.proj_sfreq, None, None, p.n_jobs_fir,
+                             p.n_jobs_resample, list(), None, p.disp_files,
+                             method='fir', filter_length=p.filter_length,
+                             apply_proj=False, force_bads=False,
+                             l_trans=p.hp_trans, h_trans=p.lp_trans,
+                             phase=p.phase, fir_window=p.fir_window, pick=True)
             if file_type == 'pca':
                 fmax = p.lp_cut
             else:
