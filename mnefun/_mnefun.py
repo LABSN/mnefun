@@ -2464,6 +2464,9 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics=None, show=True):
     pick_mag = pick_types(raw.info, meg='mag', exclude=[])
     pick_grad = pick_types(raw.info, meg='grad', exclude=[])
     nchan = len(pick_meg)
+    # grad and mag indices into an array that already has meg channels only
+    pick_mag_ = np.in1d(pick_meg, pick_mag).nonzero()[0]
+    pick_grad_ = np.in1d(pick_meg, pick_grad).nonzero()[0]
 
     # create general linear model for the data
     t = np.arange(buflen) / float(sfreq)
@@ -2492,19 +2495,19 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics=None, show=True):
         # get total power by combining sine and cosine terms
         # sinusoidal of amplitude A has power of A**2/2
         hpi_pow = (coeffs_hpi[0::2, :]**2 + coeffs_hpi[1::2, :]**2)/2
-        hpi_pow_grad[:, ind] = hpi_pow[:, pick_grad].mean(1)
+        hpi_pow_grad[:, ind] = hpi_pow[:, pick_grad_].mean(1)
         # divide average HPI power by average variance
         snr_avg_grad[:, ind] = hpi_pow_grad[:, ind] / \
-            resid_vars[pick_grad, ind].mean()
-        snr_avg_mag[:, ind] = hpi_pow[:, pick_mag].mean(1) / \
-            resid_vars[pick_mag, ind].mean()
+            resid_vars[pick_grad_, ind].mean()
+        snr_avg_mag[:, ind] = hpi_pow[:, pick_mag_].mean(1) / \
+            resid_vars[pick_mag_, ind].mean()
 
     cfreqs_legend = ['%s Hz' % fre for fre in cfreqs]
     fig, axs = plt.subplots(4, 1, sharex=True)
 
     # SNR plots for gradiometers and magnetometers
     ax = axs[0]
-    lines1 = ax.plot(tvec, 10*np.log10(snr_avg_grad.transpose()))
+    lines1 = ax.plot(tvec, 10*np.log10(snr_avg_grad.T))
     lines1_med = ax.plot(tvec, 10*np.log10(np.median(snr_avg_grad, axis=0)),
                          lw=2, ls=':', color='k')
     ax.set_xlim([tvec.min(), tvec.max()])
@@ -2514,7 +2517,7 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics=None, show=True):
                  fontsize=title_fontsize)
     ax.tick_params(axis='both', which='major', labelsize=tick_fontsize)
     ax = axs[1]
-    lines2 = ax.plot(tvec, 10*np.log10(snr_avg_mag.transpose()))
+    lines2 = ax.plot(tvec, 10*np.log10(snr_avg_mag.T))
     lines2_med = ax.plot(tvec, 10 * np.log10(np.median(snr_avg_mag, axis=0)),
                          lw=2, ls=':', color='k')
     ax.set_xlim([tvec.min(), tvec.max()])
@@ -2524,7 +2527,7 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics=None, show=True):
                  fontsize=title_fontsize)
     ax.tick_params(axis='both', which='major', labelsize=tick_fontsize)
     ax = axs[2]
-    lines3 = ax.plot(tvec, hpi_pow_grad.transpose())
+    lines3 = ax.plot(tvec, hpi_pow_grad.T)
     lines3_med = ax.plot(tvec, np.median(hpi_pow_grad, axis=0),
                          lw=2, ls=':', color='k')
     ax.set_xlim([tvec.min(), tvec.max()])
@@ -2537,7 +2540,7 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics=None, show=True):
     ax = axs[3]
     cls = plt.get_cmap('plasma')(np.linspace(0., 0.7, len(pick_meg)))
     ax.set_prop_cycle(color=cls)
-    ax.semilogy(tvec, resid_vars[pick_grad, :].transpose(), alpha=.4)
+    ax.semilogy(tvec, resid_vars[pick_grad_, :].T, alpha=.4)
     ax.set_xlim([tvec.min(), tvec.max()])
     ax.set(ylabel='Var. (T/m)$^2$', xlabel='Time (s)')
     ax.xaxis.label.set_fontsize(label_fontsize)
