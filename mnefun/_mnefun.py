@@ -2397,7 +2397,6 @@ def plot_reconstruction(evoked, origin=(0., 0., 0.04)):
     return fig
 
 
-<<<<<<< HEAD
 def _chpi_snr_epochs(epochs, n_lineharm=5, channels='grad', hpi_coil='median'):
     """ Compute SNR of continuous HPI for each epoch in epochs
     (mne.Epochs instance).
