@@ -28,7 +28,7 @@ from mne import (compute_proj_raw, make_fixed_length_events, Epochs,
                  write_proj, read_proj, setup_source_space,
                  make_forward_solution, get_config, write_evokeds,
                  make_sphere_model, setup_volume_source_space,
-                 read_bem_solution, pick_info)
+                 read_bem_solution, pick_info, write_forward_solution)
 
 try:
     from mne import compute_raw_covariance  # up-to-date mne-python
@@ -1587,9 +1587,9 @@ def gen_forwards(p, subjects, structurals, run_indices):
                                                      p.inv_runs)):
             fwd_name = op.join(fwd_dir, safe_inserter(inv_name, subj) +
                                p.inv_tag + '-fwd.fif')
-            make_forward_solution(info, trans, src, bem,
-                                  fname=fwd_name, n_jobs=p.n_jobs,
-                                  mindist=p.fwd_mindist, overwrite=True)
+            fwd = make_forward_solution(
+                info, trans, src, bem, n_jobs=p.n_jobs, mindist=p.fwd_mindist)
+            write_forward_solution(fwd_name, fwd, overwrite=True)
 
 
 def gen_covariances(p, subjects, run_indices):
