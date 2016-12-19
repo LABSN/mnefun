@@ -1043,7 +1043,8 @@ def run_sss_locally(p, subjects, run_indices):
                 ext_order=p.ext_order, calibration=cal_file,
                 cross_talk=ct_file, st_correlation=p.st_correlation,
                 st_duration=st_duration, destination=trans_to,
-                coord_frame='head', head_pos=pos, regularize=reg)
+                coord_frame='head', head_pos=pos, regularize=reg,
+                bad_condition='warning')
             print('%i sec' % (time.time() - t0,))
             raw_sss.save(o, overwrite=True, buffer_size_sec=None)
         #  process erm files if any
@@ -1388,7 +1389,7 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
                 # first, equalize trial counts (this will make a copy)
                 e = epochs[list(in_names[numbers > 0])]
                 if len(in_names_match) > 1:
-                    e.equalize_event_counts(in_names_match, copy=False)
+                    e.equalize_event_counts(in_names_match)
 
                 # second, collapse relevant types
                 for num, name in zip(new_numbers, names):
@@ -2234,7 +2235,12 @@ def plot_raw_psd(p, subjects, run_indices=None, tmin=0., fmin=2, n_fft=2048):
             if len(fname) < 1:
                 warnings.warn('Unable to find %s data file.' % file_type)
             with warnings.catch_warnings(record=True):
-                raw = Raw(fname, preload=True, allow_maxshield=True)
+                raw = _raw_LRFCP(fname, p.proj_sfreq, None, None, p.n_jobs_fir,
+                             p.n_jobs_resample, list(), None, p.disp_files,
+                             method='fir', filter_length=p.filter_length,
+                             apply_proj=False, force_bads=False,
+                             l_trans=p.hp_trans, h_trans=p.lp_trans,
+                             phase=p.phase, fir_window=p.fir_window, pick=True)
             if file_type == 'pca':
                 fmax = p.lp_cut
             else:
@@ -2391,6 +2397,7 @@ def plot_reconstruction(evoked, origin=(0., 0., 0.04)):
     return fig
 
 
+<<<<<<< HEAD
 def _chpi_snr_epochs(epochs, n_lineharm=5, channels='grad', hpi_coil='median'):
     """ Compute SNR of continuous HPI for each epoch in epochs
     (mne.Epochs instance).
@@ -2579,7 +2586,7 @@ def chpi_weighted_average(raw_snr, raw_epochs=None, reject=False, flat=False,
     return evokeds, snrs
 
 
-def plot_chpi_snr_raw(raw, win_length, n_harmonics=None):
+def plot_chpi_snr_raw(raw, win_length, n_harmonics=None, show=True):
     """Compute and plot cHPI SNR from raw data
 
     Parameters
@@ -2591,6 +2598,8 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics=None):
     n_harmonics : int or None
         Number of line frequency harmonics to include in the model. If None,
         use all harmonics up to the MEG analog lowpass corner.
+    show : bool
+        Show figure if True.
 
     Returns
     -------
@@ -2618,7 +2627,7 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics=None):
     """
 
     # plotting parameters
-    legend_fontsize = 9
+    legend_fontsize = 10
     title_fontsize = 10
     tick_fontsize = 10
     label_fontsize = 10
@@ -2644,6 +2653,9 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics=None):
     pick_mag = pick_types(raw.info, meg='mag', exclude=[])
     pick_grad = pick_types(raw.info, meg='grad', exclude=[])
     nchan = len(pick_meg)
+    # grad and mag indices into an array that already has meg channels only
+    pick_mag_ = np.in1d(pick_meg, pick_mag).nonzero()[0]
+    pick_grad_ = np.in1d(pick_meg, pick_grad).nonzero()[0]
 
     # create general linear model for the data
     t = np.arange(buflen) / float(sfreq)
@@ -2672,19 +2684,21 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics=None):
         # get total power by combining sine and cosine terms
         # sinusoidal of amplitude A has power of A**2/2
         hpi_pow = (coeffs_hpi[0::2, :]**2 + coeffs_hpi[1::2, :]**2)/2
-        hpi_pow_grad[:, ind] = hpi_pow[:, pick_grad].mean(1)
+        hpi_pow_grad[:, ind] = hpi_pow[:, pick_grad_].mean(1)
         # divide average HPI power by average variance
         snr_avg_grad[:, ind] = hpi_pow_grad[:, ind] / \
-            resid_vars[pick_grad, ind].mean()
-        snr_avg_mag[:, ind] = hpi_pow[:, pick_mag].mean(1) / \
-            resid_vars[pick_mag, ind].mean()
+            resid_vars[pick_grad_, ind].mean()
+        snr_avg_mag[:, ind] = hpi_pow[:, pick_mag_].mean(1) / \
+            resid_vars[pick_mag_, ind].mean()
 
     cfreqs_legend = ['%s Hz' % fre for fre in cfreqs]
     fig, axs = plt.subplots(4, 1, sharex=True)
 
     # SNR plots for gradiometers and magnetometers
     ax = axs[0]
-    lines1 = ax.plot(tvec, 10*np.log10(snr_avg_grad.transpose()))
+    lines1 = ax.plot(tvec, 10*np.log10(snr_avg_grad.T))
+    lines1_med = ax.plot(tvec, 10*np.log10(np.median(snr_avg_grad, axis=0)),
+                         lw=2, ls=':', color='k')
     ax.set_xlim([tvec.min(), tvec.max()])
     ax.set(ylabel='SNR (dB)')
     ax.yaxis.label.set_fontsize(label_fontsize)
@@ -2692,7 +2706,9 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics=None):
                  fontsize=title_fontsize)
     ax.tick_params(axis='both', which='major', labelsize=tick_fontsize)
     ax = axs[1]
-    lines2 = ax.plot(tvec, 10*np.log10(snr_avg_mag.transpose()))
+    lines2 = ax.plot(tvec, 10*np.log10(snr_avg_mag.T))
+    lines2_med = ax.plot(tvec, 10 * np.log10(np.median(snr_avg_mag, axis=0)),
+                         lw=2, ls=':', color='k')
     ax.set_xlim([tvec.min(), tvec.max()])
     ax.set(ylabel='SNR (dB)')
     ax.yaxis.label.set_fontsize(label_fontsize)
@@ -2700,7 +2716,9 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics=None):
                  fontsize=title_fontsize)
     ax.tick_params(axis='both', which='major', labelsize=tick_fontsize)
     ax = axs[2]
-    lines3 = ax.plot(tvec, hpi_pow_grad.transpose())
+    lines3 = ax.plot(tvec, hpi_pow_grad.T)
+    lines3_med = ax.plot(tvec, np.median(hpi_pow_grad, axis=0),
+                         lw=2, ls=':', color='k')
     ax.set_xlim([tvec.min(), tvec.max()])
     ax.set(ylabel='Power (T/m)$^2$')
     ax.yaxis.label.set_fontsize(label_fontsize)
@@ -2711,7 +2729,7 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics=None):
     ax = axs[3]
     cls = plt.get_cmap('plasma')(np.linspace(0., 0.7, len(pick_meg)))
     ax.set_prop_cycle(color=cls)
-    ax.semilogy(tvec, resid_vars[pick_grad, :].transpose(), alpha=.4)
+    ax.semilogy(tvec, resid_vars[pick_grad_, :].T, alpha=.4)
     ax.set_xlim([tvec.min(), tvec.max()])
     ax.set(ylabel='Var. (T/m)$^2$', xlabel='Time (s)')
     ax.xaxis.label.set_fontsize(label_fontsize)
@@ -2726,26 +2744,38 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics=None):
     ax.set_position([box.x0, box.y0, box.width * 0.8, box.height])
     # order curve legends according to mean of data
     sind = np.argsort(snr_avg_grad.mean(axis=1))[::-1]
-    ax.legend(np.array(lines1)[sind], np.array(cfreqs_legend)[sind],
+    handles = [lines1[i] for i in sind]
+    handles.append(lines1_med[0])
+    labels = [cfreqs_legend[i] for i in sind]
+    labels.append('Median')
+    ax.legend(handles, labels,
               prop={'size': legend_fontsize}, bbox_to_anchor=(1.02, 0.5, ),
-              loc='center left')
+              loc='center left', borderpad=1)
     ax = axs[1]
     box = ax.get_position()
     ax.set_position([box.x0, box.y0, box.width * 0.8, box.height])
     sind = np.argsort(snr_avg_mag.mean(axis=1))[::-1]
-    ax.legend(np.array(lines2)[sind], np.array(cfreqs_legend)[sind],
+    handles = [lines2[i] for i in sind]
+    handles.append(lines2_med[0])
+    labels = [cfreqs_legend[i] for i in sind]
+    labels.append('Median')
+    ax.legend(handles, labels,
               prop={'size': legend_fontsize}, bbox_to_anchor=(1.02, 0.5, ),
-              loc='center left')
+              loc='center left', borderpad=1)
     ax = axs[2]
     box = ax.get_position()
     ax.set_position([box.x0, box.y0, box.width * 0.8, box.height])
     sind = np.argsort(hpi_pow_grad.mean(axis=1))[::-1]
-    ax.legend(np.array(lines3)[sind], np.array(cfreqs_legend)[sind],
+    handles = [lines3[i] for i in sind]
+    handles.append(lines3_med[0])
+    labels = [cfreqs_legend[i] for i in sind]
+    labels.append('Median')
+    ax.legend(handles, labels,
               prop={'size': legend_fontsize}, bbox_to_anchor=(1.02, 0.5, ),
-              loc='center left')
+              loc='center left', borderpad=1)
     ax = axs[3]
     box = ax.get_position()
     ax.set_position([box.x0, box.y0, box.width * 0.8, box.height])
-    plt.show()
+    plt.show(show)
 
     return fig
