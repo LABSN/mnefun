@@ -39,10 +39,6 @@ nosetests.xml
 # PyCharm
 .idea/**
 
-# subject files
-examples/funloc/subj*
-examples/funloc/run_sss.sh
-
 *.orig
 *.DS_store
 
