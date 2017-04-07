@@ -123,7 +123,6 @@ mnefun.do_processing(
     gen_ssp=True,       # Generate SSP vectors
     apply_ssp=True,     # Apply SSP vectors and filtering
     plot_psd=True,      # Plot raw data power spectra
-    plot_hp=True,       # plot head movement from raw data
     write_epochs=True,  # Write epochs to disk
     gen_covs=True,      # Generate covariances
 
