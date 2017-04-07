@@ -240,6 +240,8 @@ class Params(Frozen):
     sss_origin : array-like, shape (3,) | str
         Origin of internal and external multipolar moment space in meters.
         Default is center of sphere fit to digitized head points.
+    plot_hp : bool
+        Plot head movement traces from raw data
 
     Returns
     -------
@@ -305,6 +307,7 @@ class Params(Frozen):
         self.fir_window = 'hann'
         self.disp_files = True
         self.plot_drop_logs = True  # plot drop logs after do_preprocessing_...
+        self.plot_head_position = False
         self.proj_sfreq = proj_sfreq
         self.decim = decim
         self.drop_thresh = drop_thresh
@@ -1034,6 +1037,11 @@ def run_sss_locally(p, subjects, run_indices):
             # estimate head position for movement compensation
             # pos = _calculate_chpi_positions(raw)
             pos = _headpos(p, r)
+
+            # plot head movement traces if requested
+            if p.plot_head_position:
+                fig = plot_head_positions(pos=pos)
+                fig.savefig(r[:-4] + '_hp.png', format='png', dpi=100)
 
             # filter cHPI signals
             if p.filter_chpi:
