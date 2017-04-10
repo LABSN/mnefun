@@ -240,8 +240,6 @@ class Params(Frozen):
     sss_origin : array-like, shape (3,) | str
         Origin of internal and external multipolar moment space in meters.
         Default is center of sphere fit to digitized head points.
-    plot_hp : bool
-        Plot head movement traces from raw data
 
     Returns
     -------
@@ -435,9 +433,8 @@ def _get_baseline(p):
 def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
                   do_sss=False, fetch_sss=False, do_ch_fix=False,
                   gen_ssp=False, apply_ssp=False, plot_psd=False,
-                  plot_hp=False, write_epochs=False, gen_covs=False,
-                  gen_fwd=False, gen_inv=False, gen_report=False,
-                  print_status=True):
+                  write_epochs=False, gen_covs=False, gen_fwd=False,
+                  gen_inv=False, gen_report=False, print_status=True):
     """Do M/EEG data processing
 
     Parameters
@@ -462,8 +459,6 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
         Apply SSP vectors and filtering.
     plot_psd : bool
         Plot continuous raw data power spectra
-    plot_hp : bool
-        Plot head movement traces from raw data
     write_epochs : bool
         Write epochs to disk.
     gen_covs : bool
@@ -490,7 +485,6 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
              gen_ssp,
              apply_ssp,
              plot_psd,
-             plot_hp,
              write_epochs,
              gen_covs,
              gen_fwd,
@@ -507,7 +501,6 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
              'Preprocessing files',
              'Applying preprocessing',
              'Plotting raw data power',
-             'Plotting head movement',
              'Doing epoch EQ/DQ',
              'Generating covariances',
              'Generating forward models',
@@ -530,7 +523,6 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
              do_preprocessing_combined,
              apply_preprocessing_combined,
              plot_raw_psd,
-             plot_head_movement,
              save_epochs,
              gen_covariances,
              gen_forwards,
@@ -2605,28 +2597,3 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics=None, show=True):
     plt.show(show)
 
     return fig
-
-
-def plot_head_movement(p, subjects, run_indices=None):
-    """Plot subject's head movement from cHPI data in raw files
-
-    Parameters
-    ----------
-    p : instance of Parameters
-        Analysis parameters.
-    subjects : list of str
-        Subject names to analyze (e.g., ['Eric_SoP_001', ...]).
-    run_indices : array-like | None
-        Run indices to include.
-    """
-    if run_indices is None:
-        run_indices = [None] * len(subjects)
-    for si, subj in enumerate(subjects):
-        fname = get_raw_fnames(p, subj, 'raw', False, False,
-                               run_indices[si])[0]
-        if len(fname) < 1:
-            raise IOError('Unable to find %s data file.' % fname)
-        pos = _headpos(p, fname)
-        plot_head_positions(pos)
-        plt.savefig(fname[:-4] + '_hp.png')
-        plt.close()
