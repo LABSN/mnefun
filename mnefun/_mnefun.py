@@ -71,6 +71,7 @@ from mne.io.meas_info import _empty_info
 from mne.cov import regularize
 from mne.minimum_norm import write_inverse_operator
 from mne.viz import plot_drop_log, tight_layout
+from mne.viz._3d import plot_head_positions
 from mne.utils import run_subprocess
 from mne.report import Report
 from mne.io.constants import FIFF
@@ -304,6 +305,7 @@ class Params(Frozen):
         self.fir_window = 'hann'
         self.disp_files = True
         self.plot_drop_logs = True  # plot drop logs after do_preprocessing_...
+        self.plot_head_position = False
         self.proj_sfreq = proj_sfreq
         self.decim = decim
         self.drop_thresh = drop_thresh
@@ -1027,6 +1029,11 @@ def run_sss_locally(p, subjects, run_indices):
             # estimate head position for movement compensation
             # pos = _calculate_chpi_positions(raw)
             pos = _headpos(p, r)
+
+            # plot head movement traces if requested
+            if p.plot_head_position:
+                fig = plot_head_positions(pos=pos)
+                fig.savefig(r[:-4] + '_hp.png', format='png', dpi=100)
 
             # filter cHPI signals
             if p.filter_chpi:
