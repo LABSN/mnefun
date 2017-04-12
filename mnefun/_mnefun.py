@@ -305,7 +305,7 @@ class Params(Frozen):
         self.fir_window = 'hann'
         self.fir_design = 'firwin2'
         self.disp_files = True
-        self.plot_drop_logs = True  # plot drop logs after do_preprocessing_...
+        self.plot_drop_logs = False
         self.proj_sfreq = proj_sfreq
         self.decim = decim
         self.drop_thresh = drop_thresh
