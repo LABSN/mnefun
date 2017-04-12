@@ -37,11 +37,13 @@ nosetests.xml
 .pydevproject
 
 # PyCharm
-.idea/**
+.idea/
 
 # subject files
-examples/funloc/subj*
+examples/funloc/subj*/**/
+examples/funloc/subj_*/**/*.html
 examples/funloc/run_sss.sh
+examples/funloc/.ipynb_checkpoints/
 
 *.orig
 *.DS_store
@@ -49,3 +51,4 @@ examples/funloc/run_sss.sh
 *~
 env/
 *.whl
+.cache/
