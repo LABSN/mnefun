@@ -21,6 +21,7 @@ from scipy import io as spio
 import matplotlib.pyplot as plt
 from numpy.testing import assert_allclose
 
+import mne
 from mne import (compute_proj_raw, make_fixed_length_events, Epochs,
                  find_events, read_events, write_events, concatenate_events,
                  read_cov, compute_covariance, write_cov,
@@ -64,8 +65,7 @@ except ImportError:
     except ImportError:
         from mne.io.chpi import (_quat_to_rot as quat_to_rot,
                                  _rot_to_quat as rot_to_quat)
-from mne.io import (Raw, concatenate_raws, read_info, write_info,
-                    set_eeg_reference)
+from mne.io import read_raw_fif, concatenate_raws, read_info, write_info
 from mne.io.pick import pick_types_forward, pick_types
 from mne.io.meas_info import _empty_info
 from mne.cov import regularize
@@ -240,6 +240,8 @@ class Params(Frozen):
     sss_origin : array-like, shape (3,) | str
         Origin of internal and external multipolar moment space in meters.
         Default is center of sphere fit to digitized head points.
+    fir_design : str
+        Can be "firwin2" or "firwin".
 
     Returns
     -------
@@ -268,7 +270,7 @@ class Params(Frozen):
                  cov_method='empirical', ssp_eog_reject=None,
                  ssp_ecg_reject=None, baseline='individual',
                  reject_tmin=None, reject_tmax=None,
-                 lp_trans=0.5, hp_trans=0.5):
+                 lp_trans=0.5, hp_trans=0.5, fir_design='firwin2'):
         self.reject = dict(eog=np.inf, grad=1500e-13, mag=5000e-15, eeg=150e-6)
         self.flat = dict(eog=0, grad=1e-13, mag=1e-15, eeg=1e-6)
         if ssp_eog_reject is None:
@@ -303,6 +305,7 @@ class Params(Frozen):
         self.hp_trans = hp_trans
         self.phase = 'zero-double'
         self.fir_window = 'hann'
+        self.fir_design = 'firwin2'
         self.disp_files = True
         self.plot_drop_logs = True  # plot drop logs after do_preprocessing_...
         self.plot_head_position = False
@@ -416,9 +419,22 @@ class Params(Frozen):
             Structural template to use.
         """
         if struc_template is not None:
-            self.structurals = [struc_template % subj
-                                for subj in self.subjects]
-        self.subjects = [subj_template % subj for subj in self.subjects]
+            if isinstance(struc_template, string_types):
+                def fun(x):
+                    return struc_template % x
+            else:
+                fun = struc_template
+            new = [fun(subj) for subj in self.subjects]
+            assert all(isinstance(subj, string_types) for subj in new)
+            self.structurals = new
+        if isinstance(subj_template, string_types):
+            def fun(x):
+                return subj_template % x
+        else:
+            fun = subj_template
+        new = [fun(subj) for subj in self.subjects]
+        assert all(isinstance(subj, string_types) for subj in new)
+        self.subjects = new
 
 
 def _get_baseline(p):
@@ -633,7 +649,8 @@ def fetch_raw_files(p, subjects, run_indices):
                    for fname in remote_fnames)
         # make the name "local" to the acq dir, so that the name works
         # remotely during rsync and locally during copyfile
-        remote_dir = [fn[:fn.index(op.basename(fn))] for fn in remote_fnames][0]
+        remote_dir = [fn[:fn.index(op.basename(fn))]
+                      for fn in remote_fnames][0]
         remote_fnames = [op.basename(fname) for fname in remote_fnames]
         want = set(op.basename(fname) for fname in fnames)
         got = set(op.basename(fname) for fname in remote_fnames)
@@ -1013,7 +1030,7 @@ def run_sss_locally(p, subjects, run_indices):
         for ii, (r, o) in enumerate(zip(raw_files, raw_files_out)):
             if not op.isfile(r):
                 raise NameError('File not found (' + r + ')')
-            raw = Raw(r, preload=True, allow_maxshield='yes')
+            raw = read_raw_fif(r, preload=True, allow_maxshield='yes')
             raw.fix_mag_coil_types()
             _load_meg_bads(raw, prebad_file, disp=ii == 0, prefix=' ' * 6)
             print('      Processing %s ...' % op.basename(r))
@@ -1058,7 +1075,7 @@ def run_sss_locally(p, subjects, run_indices):
         for ii, (r, o) in enumerate(zip(erm_files, erm_files_out)):
             if not op.isfile(r):
                 raise NameError('File not found (' + r + ')')
-            raw = Raw(r, preload=True, allow_maxshield='yes')
+            raw = read_raw_fif(r, preload=True, allow_maxshield='yes')
             raw.fix_mag_coil_types()
             _load_meg_bads(raw, prebad_file, disp=False)
             print('      %s ...' % op.basename(r))
@@ -1133,7 +1150,7 @@ def extract_expyfun_events(fname, return_offsets=False):
     subtract 1 before doing so to yield the original binary values.
     """
     # Read events
-    raw = Raw(fname, allow_maxshield='yes', preload=True)
+    raw = read_raw_fif(fname, allow_maxshield='yes', preload=True)
     raw.pick_types(meg=False, stim=True)
     orig_events = find_events(raw, stim_channel='STI101', shortest_event=0)
     events = list()
@@ -1327,11 +1344,11 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
         first_samps = []
         last_samps = []
         for raw_fname in raw_names:
-            raw = Raw(raw_fname, preload=False)
+            raw = read_raw_fif(raw_fname, preload=False)
             first_samps.append(raw._first_samps[0])
             last_samps.append(raw._last_samps[-1])
         # read in raw files
-        raw = [Raw(fname, preload=False) for fname in raw_names]
+        raw = [read_raw_fif(fname, preload=False) for fname in raw_names]
         _fix_raw_eog_cals(raw, raw_names)  # EOG epoch scales might be bad!
         raw = concatenate_raws(raw)
 
@@ -1470,7 +1487,7 @@ def gen_inverses(p, subjects, run_indices):
         # Shouldn't matter which raw file we use
         raw_fname = get_raw_fnames(p, subj, 'pca', True, False,
                                    run_indices[si])[0]
-        raw = Raw(raw_fname)
+        raw = read_raw_fif(raw_fname)
         meg, eeg = 'meg' in raw, 'eeg' in raw
 
         if meg:
@@ -1627,8 +1644,8 @@ def gen_covariances(p, subjects, run_indices):
             empty_cov_name = op.join(cov_dir, new_run + p.pca_extra +
                                      p.inv_tag + '-cov.fif')
             empty_fif = get_raw_fnames(p, subj, 'pca', 'only', False)[0]
-            raw = Raw(empty_fif, preload=True).pick_types(meg=True, eog=True,
-                                                          exclude='bads')
+            raw = read_raw_fif(empty_fif, preload=True)
+            raw.pick_types(meg=True, eog=True, exclude='bads')
             use_reject, use_flat = _restrict_reject_flat(p.reject, p.flat, raw)
             cov = compute_raw_covariance(raw, reject=use_reject, flat=use_flat)
             write_cov(empty_cov_name, cov)
@@ -1646,7 +1663,7 @@ def gen_covariances(p, subjects, run_indices):
             first_samps = []
             last_samps = []
             for raw_fname in raw_fnames:
-                raws.append(Raw(raw_fname, preload=False))
+                raws.append(read_raw_fif(raw_fname, preload=False))
                 first_samps.append(raws[-1]._first_samps[0])
                 last_samps.append(raws[-1]._last_samps[-1])
             _fix_raw_eog_cals(raws, raw_fnames)  # safe b/c cov only needs MEEG
@@ -1697,13 +1714,28 @@ def _cals(raw):
         return raw.cals
 
 
+def _get_fir_kwargs(fir_design):
+    """Get FIR kwargs in backward-compatible way."""
+    fir_kwargs = dict()
+    if fir_design != 'firwin2':
+        # only pass if necessary (backward compat)
+        fir_kwargs.update(fir_design=fir_design)
+    old_kwargs = dict()
+    if 'fir_design' in mne.fixes._get_args(mne.filter.filter_data):
+        old_kwargs.update(fir_design='firwin2')
+    elif len(fir_kwargs):
+        raise RuntimeError('cannot use fir_design=%s with old MNE'
+                           % fir_design)
+    return fir_kwargs, old_kwargs
+
+
 # noinspection PyPep8Naming
 def _raw_LRFCP(raw_names, sfreq, l_freq, h_freq, n_jobs, n_jobs_resample,
                projs, bad_file, disp_files=False, method='fir',
                filter_length=32768, apply_proj=True, preload=True,
                force_bads=False, l_trans=0.5, h_trans=0.5,
                allow_maxshield=False, phase='zero-double', fir_window='hann',
-               pick=True):
+               fir_design='firwin2', pick=True):
     """Helper to load, filter, concatenate, then project raw files"""
     if isinstance(raw_names, str):
         raw_names = [raw_names]
@@ -1711,7 +1743,7 @@ def _raw_LRFCP(raw_names, sfreq, l_freq, h_freq, n_jobs, n_jobs_resample,
         print('    Loading and filtering %d files.' % len(raw_names))
     raw = list()
     for rn in raw_names:
-        r = Raw(rn, preload=True, allow_maxshield='yes')
+        r = read_raw_fif(rn, preload=True, allow_maxshield='yes')
         if pick:
             r.pick_types(meg=True, eeg=True, eog=True, ecg=True, exclude=())
         r.load_bad_channels(bad_file, force=force_bads)
@@ -1720,12 +1752,13 @@ def _raw_LRFCP(raw_names, sfreq, l_freq, h_freq, n_jobs, n_jobs_resample,
             r.set_eeg_reference()
         if sfreq is not None:
             r.resample(sfreq, n_jobs=n_jobs_resample, npad='auto')
+        fir_kwargs = _get_fir_kwargs(fir_design)[0]
         if l_freq is not None or h_freq is not None:
             r.filter(l_freq=l_freq, h_freq=h_freq, picks=None,
                      n_jobs=n_jobs, method=method,
                      filter_length=filter_length, phase=phase,
                      l_trans_bandwidth=l_trans, h_trans_bandwidth=h_trans,
-                     fir_window=fir_window)
+                     fir_window=fir_window, **fir_kwargs)
         raw.append(r)
     _fix_raw_eog_cals(raw, raw_names)
     raws_del = raw[1:]
@@ -1772,6 +1805,7 @@ def do_preprocessing_combined(p, subjects, run_indices):
                 raise NameError('File not found (' + r + ')')
 
         bad_file = op.join(bad_dir, 'bad_ch_' + subj + p.bad_tag)
+        fir_kwargs, old_kwargs = _get_fir_kwargs(p.fir_design)
         if isinstance(p.auto_bad, float):
             print('    Creating bad channel file, marking bad channels:\n'
                   '        %s' % bad_file)
@@ -1783,7 +1817,8 @@ def do_preprocessing_combined(p, subjects, run_indices):
                              method='fir', filter_length=p.filter_length,
                              apply_proj=False, force_bads=False,
                              l_trans=p.hp_trans, h_trans=p.lp_trans,
-                             phase=p.phase, fir_window=p.fir_window, pick=True)
+                             phase=p.phase, fir_window=p.fir_window,
+                             pick=True, **fir_kwargs)
             events = fixed_len_events(p, raw)
             # do not mark eog channels bad
             meg, eeg = 'meg' in raw, 'eeg' in raw
@@ -1865,7 +1900,7 @@ def do_preprocessing_combined(p, subjects, run_indices):
             projs=projs, bad_file=bad_file, disp_files=p.disp_files,
             method='fir', filter_length=p.filter_length, force_bads=False,
             l_trans=p.hp_trans, h_trans=p.lp_trans, phase=p.phase,
-            fir_window=p.fir_window, pick=True)
+            fir_window=p.fir_window, pick=True, **fir_kwargs)
 
         # Apply any user-supplied extra projectors
         if p.proj_extra is not None:
@@ -1887,14 +1922,14 @@ def do_preprocessing_combined(p, subjects, run_indices):
                     bad_file=bad_file, disp_files=p.disp_files, method='fir',
                     filter_length=p.filter_length, force_bads=True,
                     l_trans=p.hp_trans, h_trans=p.lp_trans,
-                    phase=p.phase, fir_window=p.fir_window)
+                    phase=p.phase, fir_window=p.fir_window, **fir_kwargs)
             else:
                 if p.disp_files:
                     print('    Computing continuous projectors using data.')
                 raw = raw_orig.copy()
             raw.filter(None, p.cont_lp, n_jobs=p.n_jobs_fir, method='fir',
                        filter_length=p.filter_length, h_trans_bandwidth=0.5,
-                       fir_window=p.fir_window, phase=p.phase)
+                       fir_window=p.fir_window, phase=p.phase, **fir_kwargs)
             raw.add_proj(projs)
             raw.apply_proj()
             pr = compute_proj_raw(raw, duration=1, n_grad=proj_nums[2][0],
@@ -1909,10 +1944,12 @@ def do_preprocessing_combined(p, subjects, run_indices):
             if p.disp_files:
                 print('    Computing ECG projectors.')
             raw = raw_orig.copy()
+
             raw.filter(ecg_f_lims[0], ecg_f_lims[1], n_jobs=p.n_jobs_fir,
                        method='fir', filter_length=p.filter_length,
                        l_trans_bandwidth=0.5, h_trans_bandwidth=0.5,
-                       phase='zero-double', fir_window='hann')
+                       phase='zero-double', fir_window='hann',
+                       **old_kwargs)
             raw.add_proj(projs)
             raw.apply_proj()
             pr, ecg_events = \
@@ -1939,7 +1976,8 @@ def do_preprocessing_combined(p, subjects, run_indices):
             raw.filter(eog_f_lims[0], eog_f_lims[1], n_jobs=p.n_jobs_fir,
                        method='fir', filter_length=p.filter_length,
                        l_trans_bandwidth=0.5, h_trans_bandwidth=0.5,
-                       phase='zero-double', fir_window='hann')
+                       phase='zero-double', fir_window='hann',
+                       **old_kwargs)
             raw.add_proj(projs)
             raw.apply_proj()
             pr, eog_events = \
@@ -1965,7 +2003,8 @@ def do_preprocessing_combined(p, subjects, run_indices):
         raw_orig.filter(p.hp_cut, p.lp_cut, n_jobs=p.n_jobs_fir, method='fir',
                         filter_length=p.filter_length,
                         l_trans_bandwidth=p.hp_trans, phase=p.phase,
-                        h_trans_bandwidth=p.lp_trans, fir_window=p.fir_window)
+                        h_trans_bandwidth=p.lp_trans, fir_window=p.fir_window,
+                        **fir_kwargs)
         raw_orig.add_proj(projs)
         raw_orig.apply_proj()
         # now let's epoch with 1-sec windows to look for DQs
@@ -2020,6 +2059,7 @@ def apply_preprocessing_combined(p, subjects, run_indices):
         bad_file = None if not op.isfile(bad_file) else bad_file
         all_proj = op.join(pca_dir, 'preproc_all-proj.fif')
         projs = read_proj(all_proj)
+        fir_kwargs = _get_fir_kwargs(p.fir_design)[0]
         if len(erm_in) > 0:
             for ii, (r, o) in enumerate(zip(erm_in, erm_out)):
                 if p.disp_files:
@@ -2031,7 +2071,8 @@ def apply_preprocessing_combined(p, subjects, run_indices):
                 projs=projs, bad_file=bad_file, disp_files=False, method='fir',
                 apply_proj=False, filter_length=p.filter_length,
                 force_bads=True, l_trans=p.hp_trans, h_trans=p.lp_trans,
-                phase=p.phase, fir_window=p.fir_window, pick=False)
+                phase=p.phase, fir_window=p.fir_window, pick=False,
+                **fir_kwargs)
             raw.save(o, overwrite=True, buffer_size_sec=None)
         for ii, (r, o) in enumerate(zip(names_in, names_out)):
             if p.disp_files:
@@ -2043,8 +2084,8 @@ def apply_preprocessing_combined(p, subjects, run_indices):
                 projs=projs, bad_file=bad_file, disp_files=False, method='fir',
                 apply_proj=False, filter_length=p.filter_length,
                 force_bads=False, l_trans=p.hp_trans, h_trans=p.lp_trans,
-                phase=p.phase, fir_window=p.fir_window,
-                pick=False)
+                phase=p.phase, fir_window=p.fir_window, pick=False,
+                **fir_kwargs)
             raw.save(o, overwrite=True, buffer_size_sec=None)
         # look at raw_clean for ExG events
         if p.plot_raw:
@@ -2235,6 +2276,7 @@ def plot_raw_psd(p, subjects, run_indices=None, tmin=0., fmin=2, n_fft=2048):
     """
     if run_indices is None:
         run_indices = [None] * len(subjects)
+    fir_kwargs = _get_fir_kwargs(p.fir_design)[0]
     for si, subj in enumerate(subjects):
         for file_type in ['raw', 'sss', 'pca']:
             fname = get_raw_fnames(p, subj, file_type, False, False,
@@ -2242,12 +2284,13 @@ def plot_raw_psd(p, subjects, run_indices=None, tmin=0., fmin=2, n_fft=2048):
             if len(fname) < 1:
                 warnings.warn('Unable to find %s data file.' % file_type)
             with warnings.catch_warnings(record=True):
-                raw = _raw_LRFCP(fname, p.proj_sfreq, None, None, p.n_jobs_fir,
-                             p.n_jobs_resample, list(), None, p.disp_files,
-                             method='fir', filter_length=p.filter_length,
-                             apply_proj=False, force_bads=False,
-                             l_trans=p.hp_trans, h_trans=p.lp_trans,
-                             phase=p.phase, fir_window=p.fir_window, pick=True)
+                raw = _raw_LRFCP(
+                    fname, p.proj_sfreq, None, None, p.n_jobs_fir,
+                    p.n_jobs_resample, list(), None, p.disp_files,
+                    method='fir', filter_length=p.filter_length,
+                    apply_proj=False, force_bads=False, l_trans=p.hp_trans,
+                    h_trans=p.lp_trans, phase=p.phase, fir_window=p.fir_window,
+                    pick=True, **fir_kwargs)
             if file_type == 'pca':
                 fmax = p.lp_cut
             else:
