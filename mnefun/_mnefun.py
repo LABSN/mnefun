@@ -1004,11 +1004,13 @@ def run_sss_locally(p, subjects, run_indices):
     mne.preprocessing.maxwell_filter
     """
     data_dir = op.join(op.dirname(__file__), 'data')
-    if p.cal_file and p.ct_file is None:
+    if p.cal_file is None:
         cal_file = op.join(data_dir, 'sss_cal.dat')
-        ct_file = op.join(data_dir, 'ct_sparse.fif')
     else:
         cal_file = p.cal_file
+    if p.ct_file is None:
+        ct_file = op.join(data_dir, 'ct_sparse.fif')
+    else:
         ct_file = p.ct_file
     assert isinstance(p.tsss_dur, float) and p.tsss_dur > 0
     st_duration = p.tsss_dur
