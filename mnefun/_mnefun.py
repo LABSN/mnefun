@@ -1872,7 +1872,7 @@ def do_preprocessing_combined(p, subjects, run_indices):
                                                % (stype, n_bad_type, thresh))
 
                 print('    The following channels resulted in greater than '
-                      '{0:.0f}% trials dropped:\n'.format(p.auto_bad))
+                      '{:.0f}% trials dropped:\n'.format(p.auto_bad * 100))
                 print(badchs)
                 with open(bad_file, 'w') as f:
                     f.write('\n'.join(badchs))
