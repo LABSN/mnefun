@@ -355,6 +355,8 @@ class Params(Frozen):
         self.keep_orig = False
         # This is used by fix_eeg_channels to fix original files
         self.raw_fif_tag = '_raw.fif'
+        self.cal_file = None
+        self.ct_file = None
         # SSS denoising params
         self.sss_type = 'maxfilter'
         self.mf_args = ''
@@ -1002,8 +1004,14 @@ def run_sss_locally(p, subjects, run_indices):
     mne.preprocessing.maxwell_filter
     """
     data_dir = op.join(op.dirname(__file__), 'data')
-    cal_file = op.join(data_dir, 'sss_cal.dat')
-    ct_file = op.join(data_dir, 'ct_sparse.fif')
+    if p.cal_file is None:
+        cal_file = op.join(data_dir, 'sss_cal.dat')
+    else:
+        cal_file = p.cal_file
+    if p.ct_file is None:
+        ct_file = op.join(data_dir, 'ct_sparse.fif')
+    else:
+        ct_file = p.ct_file
     assert isinstance(p.tsss_dur, float) and p.tsss_dur > 0
     st_duration = p.tsss_dur
     assert (isinstance(p.sss_regularize, string_types) or
