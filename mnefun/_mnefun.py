@@ -1594,7 +1594,7 @@ def gen_forwards(p, subjects, structurals, run_indices):
                                      structurals[si] + '-oct-6-src.fif')
             if not op.isfile(src_space_file):
                 print('  Creating source space for %s...' % subj)
-                src = setup_source_space(structurals[si], 'oct6',
+                src = setup_source_space(structurals[si], spacing='oct6',
                                          n_jobs=p.n_jobs)
                 write_source_spaces(src_space_file, src)
             src = read_source_spaces(src_space_file)
