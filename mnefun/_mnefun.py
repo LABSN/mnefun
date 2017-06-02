@@ -29,7 +29,8 @@ from mne import (compute_proj_raw, make_fixed_length_events, Epochs,
                  write_proj, read_proj, setup_source_space,
                  make_forward_solution, get_config, write_evokeds,
                  make_sphere_model, setup_volume_source_space,
-                 read_bem_solution, pick_info, write_forward_solution)
+                 read_bem_solution, pick_info, write_source_spaces,
+                 read_source_spaces, write_forward_solution)
 
 try:
     from mne import compute_raw_covariance  # up-to-date mne-python
@@ -1597,12 +1598,14 @@ def gen_forwards(p, subjects, structurals, run_indices):
                                 subj + '-trans_head2mri.txt')
                 if not op.isfile(trans):
                     raise IOError('Unable to find head<->MRI trans file')
-            src = op.join(subjects_dir, structurals[si], 'bem',
-                          structurals[si] + '-oct-6-src.fif')
-            if not op.isfile(src):
+            src_space_file = op.join(subjects_dir, structurals[si], 'bem',
+                                     structurals[si] + '-oct-6-src.fif')
+            if not op.isfile(src_space_file):
                 print('  Creating source space for %s...' % subj)
-                setup_source_space(structurals[si], src, 'oct6',
-                                   n_jobs=p.n_jobs)
+                src = setup_source_space(structurals[si], spacing='oct6',
+                                         n_jobs=p.n_jobs)
+                write_source_spaces(src_space_file, src)
+            src = read_source_spaces(src_space_file)
             bem = op.join(subjects_dir, structurals[si], 'bem',
                           structurals[si] + '-' + p.bem_type + '-bem-sol.fif')
             bem_type = ('%s-layer BEM' %
