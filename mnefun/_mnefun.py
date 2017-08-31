@@ -658,8 +658,8 @@ def fetch_raw_files(p, subjects, run_indices):
         want = set(op.basename(fname) for fname in fnames)
         got = set(op.basename(fname) for fname in remote_fnames)
         if want != got.intersection(want):
-            raise RuntimeError('Could not find all files.\nWanted: %s\nGot: %s'
-                               % (want, got.intersection(want)))
+            raise RuntimeError('Could not find all files, missing:\n' +
+                               '\n'.join(sorted(want - got)))
         if len(remote_fnames) != len(fnames):
             warnings.warn('Found more files than expected on remote server.\n'
                           'Likely split files were found. Please confirm '
@@ -1922,7 +1922,7 @@ def do_preprocessing_combined(p, subjects, run_indices):
 
         # Calculate and apply ERM projectors
         proj_nums = np.array(proj_nums, int)
-        if projs.shape != (3, 3):
+        if proj_nums.shape != (3, 3):
             raise ValueError('proj_nums must be an array with shape (3, 3), '
                              'got %s' % (projs.shape,))
         if any(proj_nums[2]):
