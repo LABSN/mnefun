@@ -665,7 +665,7 @@ def fetch_raw_files(p, subjects, run_indices):
                           'Likely split files were found. Please confirm '
                           'results.')
         print('  Pulling %s files for %s...' % (len(remote_fnames), subj))
-        cmd = ['rsync', '-ave', 'ssh -p %s' % p.sws_port,
+        cmd = ['rsync', '-ave', 'ssh -p %s' % p.acq_port,
                '--prune-empty-dirs', '--partial',
                '--include', '*/']
         for fname in remote_fnames:
@@ -1921,6 +1921,10 @@ def do_preprocessing_combined(p, subjects, run_indices):
             projs = read_proj(extra_proj)
 
         # Calculate and apply ERM projectors
+        proj_nums = np.array(proj_nums, int)
+        if projs.shape != (3, 3):
+            raise ValueError('proj_nums must be an array with shape (3, 3), '
+                             'got %s' % (projs.shape,))
         if any(proj_nums[2]):
             if len(empty_names) >= 1:
                 if p.disp_files:
