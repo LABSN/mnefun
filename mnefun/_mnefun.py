@@ -18,7 +18,9 @@ import time
 import numpy as np
 import scipy
 from scipy import io as spio
+from scipy.spatial.distance import euclidean
 import matplotlib.pyplot as plt
+import matplotlib.mlab as mlab
 from numpy.testing import assert_allclose
 
 import mne
@@ -54,7 +56,7 @@ from mne.minimum_norm import make_inverse_operator
 from mne.label import read_label
 from mne.epochs import combine_event_ids
 from mne.chpi import (filter_chpi, read_head_pos, write_head_pos,
-                      _get_hpi_info)
+                      _get_hpi_info, head_pos_to_trans_rot_t)
 from mne.io.proj import _needs_eeg_average_ref_proj
 
 try:
@@ -76,6 +78,7 @@ from mne.viz._3d import plot_head_positions
 from mne.utils import run_subprocess
 from mne.report import Report
 from mne.io.constants import FIFF
+from mne.transforms import _angle_between_quats
 
 from ._paths import (get_raw_fnames, get_event_fnames, get_report_fnames,
                      get_epochs_evokeds_fnames, safe_inserter, _regex_convert)
@@ -2657,3 +2660,127 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics=None, show=True):
     plt.show(show)
 
     return fig
+
+
+def _rotation_angles(rot):
+    """return linear transformation for coordinate vector
+    adapted from Matlab code written by Samu Taulu
+
+    Parameters
+    ----------
+    rot : array
+
+    Returns
+    -------
+    beta : array
+    cosb : array
+    alpha : array
+    gamma : array
+    """
+    beta = -np.arcsin(rot[2, 0])
+    cosb = np.cos(beta)
+    alpha = np.arcsin(rot[2, 1]/cosb)
+    gamma = np.arccos(rot[0, 0]/cosb)
+    return alpha, beta, gamma
+
+
+def viz_cHPI_data(pos):
+    """Visualize head movement/velocity, and rotations from cHPI data"""
+    poss, rots, times = head_pos_to_trans_rot_t(pos)
+
+    # Euclid distance between head positions
+    poss_norm = np.zeros(len(times))
+    n = 1
+    for ii in np.arange(len(times) - 1):
+        poss_norm[ii] = np.linalg.norm(poss[ii])
+        n += 1
+    poss_pdf = np.bincount(poss_norm, weights=weights)
+
+    #  Angular velocities between head positions
+    delta = np.zeros((len(times)))
+    n = 1
+    for j in range(len(times) - 1):
+        delta[j] = _angle_between_quats(poss[j], poss[n])
+        n += 1
+
+    #  Rotation angles
+    angles = np.zeros((len(times), 3))
+    for k in range(len(times)):
+        angles[k] = _rotation_angles(rots[k])
+
+    weights = np.diff(times)
+    pos_norm = np.linalg.norm((poss[1:] + poss[:-1]) / 2., axis=-1)
+    hist, edges = np.histogram(pos_norm, weights=weights)
+
+
+    #  plotting parameters
+    plt.rcParams['ytick.labelsize'] = 'medium'
+    plt.rcParams['xtick.labelsize'] = 'medium'
+    plt.rcParams['axes.labelsize'] = 'medium'
+    plt.rcParams['axes.titlesize'] = 'medium'
+    plt.rcParams['grid.color'] = '0.75'
+    plt.rcParams['grid.linestyle'] = ':'
+    from scipy.interpolate import UnivariateSpline
+    # delta pdf
+    p, x = np.histogram(delta, bins='auto', density=False)
+    x = x[:-1] + (x[1] - x[0]) / 2  # convert bin edges to centers
+    f = UnivariateSpline(x, p, s=len(times))
+    plt.figure()
+    plt.plot(x, f(x))
+    plt.hist(delta, bins='auto')
+    plt.xlabel('delta')
+    plt.ylabel('Frequency')
+
+    # histogram of head displacement data
+    weights = np.unique(np.diff(times)[0]) * np.ones(times.shape)
+    nbins = np.bincount(poss_norm.astype(int), weights=weights)
+    poss_norm *= 100
+    n, bins, patches = plt.hist(delta,
+                                normed=False,
+                                facecolor='blue',
+                                alpha=0.5)
+    plt.title(
+        r'$\mathrm{Head\ displacement:}\ \mu=%.2f cm,\ \sigma=%.2f$' % (
+        mu, sigma))
+
+    #  plot movements
+    nm = ['x / cm', 'y / cm', 'z / cm']
+    fig, axes = plt.subplots(3, 1, sharex='all')
+    for i, ax in enumerate(axes):
+        ax.plot(times, poss[:, i])
+        ax.set(ylabel=nm[i])
+        if i == 0:
+            ax.set(title='Movement')
+            ax.set_xlim([min(times), max(times)])
+        if i == 2:
+            ax.set(xlabel='Time (s)')
+        _box_off(ax)
+    fig.tight_layout()
+
+    #  plot rotations
+    nm = [r"$\alpha$ \ rad", r"$\beta$ \ rad", r"$\gamma$ \ rad"]
+    fig, axes = plt.subplots(3, 1, sharex='all')
+    for i, ax in enumerate(axes):
+        ax.plot(times, angles[:, i])
+        ax.set(ylabel=nm[i])
+        if i == 0:
+            ax.set(title='Rotation')
+            ax.set_xlim([min(times), max(times)])
+        if i == 2:
+            ax.set(xlabel='Time (s)')
+        _box_off(ax)
+    fig.tight_layout()
+
+
+def _box_off(ax):
+    """Helper for formatting pyplot axis"""
+    ax.get_xaxis().tick_bottom()
+    ax.get_yaxis().tick_left()
+    ax.spines['right'].set_color('none')
+    ax.spines['top'].set_color('none')
+    for axis in (ax.get_xaxis(), ax.get_yaxis()):
+        for line in [ax.spines['left'], ax.spines['bottom']]:
+            line.set_zorder(3)
+        for line in axis.get_gridlines():
+            line.set_zorder(1)
+    ax.grid(True)
