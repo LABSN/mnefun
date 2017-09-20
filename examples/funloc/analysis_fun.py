@@ -76,6 +76,7 @@ params.runs_empty = ['%s_erm']  # Define empty room runs
 params.proj_nums = [[1, 1, 0],  # ECG
                     [1, 1, 2],  # EOG
                     [0, 0, 0]]  # Continuous (from ERM)
+params.autoreject_thresholds = True  # Use autoreject module to compute trial rejection thresholds  # noqa
 params.cov_method = 'shrunk'  # Cleaner noise covariance regularization
 params.plot_head_position = True  # Plot cHPI data for single raw file
 # python | maxfilter for choosing SSS applied using either Maxfilter or MNE
