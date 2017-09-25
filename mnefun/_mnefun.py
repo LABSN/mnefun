@@ -71,7 +71,7 @@ from mne.io.pick import pick_types_forward, pick_types
 from mne.io.meas_info import _empty_info
 from mne.cov import regularize
 from mne.minimum_norm import write_inverse_operator
-from mne.viz import plot_drop_log, tight_layout
+from mne.viz import plot_drop_log, tight_layout, plot_projs_topomap
 from mne.viz._3d import plot_head_positions
 from mne.utils import run_subprocess
 from mne.report import Report
@@ -243,6 +243,9 @@ class Params(Frozen):
         Default is center of sphere fit to digitized head points.
     fir_design : str
         Can be "firwin2" or "firwin".
+    plot_pca : bool
+        If set to True generate selected PCA component topographies and save
+        figures to disk in pca_fif folder.
 
     Returns
     -------
@@ -401,6 +404,7 @@ class Params(Frozen):
         self.must_match = []
         self.on_missing = 'error'  # for epochs
         self.subject_run_indices = None
+        self.plot_pca = False
         self.freeze()
 
     @property
@@ -1984,6 +1988,9 @@ def do_preprocessing_combined(p, subjects, run_indices):
             else:
                 warnings.warn('Only %d ECG events!' % ecg_events.shape[0])
             del raw
+            if p.plot_pca:
+                h = plot_projs_topomap(pr, show=True)
+                h.savefig(ecg_proj[:-4] + '.png', format='png', dpi=120)
 
         # Next calculate and apply the EOG projectors
         if any(proj_nums[1]):
@@ -2012,6 +2019,10 @@ def do_preprocessing_combined(p, subjects, run_indices):
             else:
                 warnings.warn('Only %d EOG events!' % eog_events.shape[0])
             del raw
+            #TODO just plotting MEG topographies. EEG topographies need layout
+            if p.plot_pca:
+                h = plot_projs_topomap(pr[:2], show=True)
+                h.savefig(eog_proj[:-4] + '.png', format='png', dpi=120)
 
         # save the projectors
         write_proj(all_proj, projs)
