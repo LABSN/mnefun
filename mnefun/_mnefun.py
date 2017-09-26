@@ -1267,6 +1267,31 @@ def get_fsaverage_medial_vertices(concatenate=True):
         return [lh.vertices, rh.vertices]
 
 
+def get_fsaverage_label_operator(parc='aparc.a2009s'):
+    """Get a label operator matrix for fsaverage."""
+    subjects_dir = mne.get_config('SUBJECTS_DIR')
+    src = mne.read_source_spaces(op.join(
+        subjects_dir, 'fsaverage', 'bem', 'fsaverage-5-src.fif'))
+    fs_vertices = [np.arange(10242), np.arange(10242)]
+    assert all(np.array_equal(a['vertno'], b)
+               for a, b in zip(src, fs_vertices))
+    labels = mne.read_labels_from_annot('fsaverage', parc)
+    offsets = dict(lh=0, rh=10242)
+    rev_op = np.zeros((20484, len(labels)))
+    bads = get_fsaverage_medial_vertices(False)
+    bads = dict(lh=bads[0], rh=bads[1])
+    assert all(b.size > 1 for b in bads.values())
+    for li, label in enumerate(labels):
+        if np.in1d(label.vertices, bads[label.hemi]).mean() > 0.8:
+            continue
+        rev_op[label.get_vertices_used() + offsets[label.hemi], li:li + 1] = 1.
+    # every src vertex is in exactly one label, except medial wall verts
+    # assert (rev_op.sum(-1) == 1).sum()
+    label_op = mne.SourceEstimate(np.eye(20484), fs_vertices, 0, 1)
+    label_op = label_op.extract_label_time_course(labels, src)
+    return label_op, rev_op
+
+
 def _restrict_reject_flat(reject, flat, raw):
     """Restrict a reject and flat dict based on channel presence"""
     use_reject, use_flat = dict(), dict()
