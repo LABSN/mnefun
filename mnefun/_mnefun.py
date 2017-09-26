@@ -78,11 +78,6 @@ from mne.utils import run_subprocess
 from mne.report import Report
 from mne.io.constants import FIFF
 
-try:
-    from autoreject import get_rejection_threshold
-except ImportError, e:
-    print(e)
-
 from ._paths import (get_raw_fnames, get_event_fnames, get_report_fnames,
                      get_epochs_evokeds_fnames, safe_inserter, _regex_convert)
 from ._status import print_proc_status
@@ -251,7 +246,8 @@ class Params(Frozen):
         Can be "firwin2" or "firwin".
     autoreject_thresholds : bool | False
         If True use autoreject module to compute global rejection thresholds
-        for epoching.
+        for epoching. Make sure autoreject module is installed. See
+        http://autoreject.github.io/ for instructions.
 
     Returns
     -------
@@ -1390,18 +1386,19 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
                 warnings.warn('resulting new sampling frequency %s not equal '
                               'to previous values %s' % (new_sfreq, sfreqs))
             sfreqs.add(new_sfreq)
-        _, use_flat = _restrict_reject_flat(p.reject, p.flat, raw)
         if p.autoreject_thresholds:
+            from autoreject import get_rejection_threshold
             print('     Using autreject to compute rejection thresholds')
             temp_epochs = Epochs(raw, events, event_id=None, tmin=p.tmin,
                                  tmax=p.tmax, baseline=_get_baseline(p),
-                                 proj=True, reject=None, flat=use_flat,
+                                 proj=False, reject=None, flat=None,
                                  preload=True)
+            new_dict = get_rejection_threshold(temp_epochs, decim=2)
+            use_reject, use_flat = _restrict_reject_flat(new_dict, p.flat, raw)
             new_dict = get_rejection_threshold(temp_epochs)
-            # only reject ecg events for MEG channels for now
-            #TODO test if ExG thresholds work during epoching
             use_reject = {k: new_dict[k]
-                          for k in ['grad', 'mag'] if k in new_dict.keys()}
+                          for k in ['grad', 'mag', 'eeg']
+                          if k in new_dict.keys()}
         else:
             use_reject, use_flat = _restrict_reject_flat(p.reject, p.flat, raw)
 
@@ -1848,7 +1845,6 @@ def do_preprocessing_combined(p, subjects, run_indices):
                   '        %s' % bad_file)
             if not op.isdir(bad_dir):
                 os.mkdir(bad_dir)
-            #TODO 86 autobad after autoreject merge
             # do autobad
             raw = _raw_LRFCP(raw_names, p.proj_sfreq, None, None, p.n_jobs_fir,
                              p.n_jobs_resample, list(), None, p.disp_files,
@@ -1913,7 +1909,7 @@ def do_preprocessing_combined(p, subjects, run_indices):
 
         proj_nums = p.proj_nums
         eog_t_lims = [-0.25, 0.25]
-        ecg_t_lims = [-0.2, 0.2]
+        ecg_t_lims = [-0.08, 0.08]
         eog_f_lims = [0, 2]
         ecg_f_lims = [5, 35]
 
