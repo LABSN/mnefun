@@ -43,6 +43,7 @@ from mne.preprocessing.maxwell import (maxwell_filter,
                                        _get_mf_picks, _prep_mf_coils,
                                        _check_regularize,
                                        _regularize)
+from mne.utils import verbose
 
 try:
     # Experimental version
@@ -2681,4 +2682,79 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics=None, show=True):
     ax.set_position([box.x0, box.y0, box.width * 0.8, box.height])
     plt.show(show)
 
+    return fig
+
+
+def compute_good_coils(raw, t_step=1., t_window=0.2, dist_limit=0.005):
+    """Comute time-varying coil distances."""
+    from scipy.spatial.distance import cdist
+    from mne.chpi import (_get_hpi_initial_fit, _setup_hpi_struct,
+                          _fit_cHPI_amplitudes, _fit_magnetic_dipole)
+    hpi_dig_head_rrs = _get_hpi_initial_fit(raw.info)
+    n_window = (int(round(t_window * raw.info['sfreq'])) // 2) * 2 + 1
+    del t_window
+    hpi = _setup_hpi_struct(raw.info, n_window)
+    hpi_coil_dists = cdist(hpi_dig_head_rrs, hpi_dig_head_rrs)
+    n_step = int(round(t_step * raw.info['sfreq']))
+    del t_step
+    starts = np.arange(0, len(raw.times) - n_window // 2, n_step)
+    counts = np.empty(len(starts), int)
+    head_dev_t = mne.transforms.invert_transform(
+        raw.info['dev_head_t'])['trans']
+    coil_dev_rrs = mne.transforms.apply_trans(head_dev_t, hpi_dig_head_rrs)
+    for ii, start in enumerate(starts):
+        time_sl = slice(max(start - n_window // 2, 0), start + n_window // 2)
+        sin_fit = _fit_cHPI_amplitudes(raw, time_sl, hpi, 0)
+        # skip this window if it bad.
+        if sin_fit is None:
+            counts[ii] = 0
+            continue
+        outs = [_fit_magnetic_dipole(f, pos, hpi['coils'], hpi['scale'],
+                                     hpi['method'])
+                for f, pos, on in zip(sin_fit, coil_dev_rrs, hpi['on'])
+                if on > 0]
+
+        coil_dev_rrs = np.array([o[0] for o in outs])
+        these_dists = cdist(coil_dev_rrs, coil_dev_rrs)
+        these_dists = np.abs(hpi_coil_dists - these_dists)
+        # there is probably a better algorithm for finding the bad ones...
+        use_mask = np.ones(hpi['n_freqs'], bool)
+        good = False
+        while not good:
+            d = these_dists[use_mask][:, use_mask]
+            d_bad = (d > dist_limit)
+            good = not d_bad.any()
+            if not good:
+                if use_mask.sum() == 2:
+                    use_mask[:] = False
+                    break  # failure
+                # exclude next worst point
+                badness = (d * d_bad).sum(axis=0)
+                exclude_coils = np.where(use_mask)[0][np.argmax(badness)]
+                use_mask[exclude_coils] = False
+        counts[ii] = use_mask.sum()
+    t = (starts + n_window / 2.) / raw.info['sfreq']
+    return t, counts, len(hpi_dig_head_rrs)
+
+
+@verbose
+def plot_good_coils(raw, t_step=1., t_window=0.2, dist_limit=0.005,
+                    verbose=None):
+    """Plot the good coil count as a function of time."""
+    t, counts, n_coils = compute_good_coils(raw, t_step, t_window, dist_limit)
+    fig, ax = plt.subplots(figsize=(8, 2))
+    ax.plot(t, counts, zorder=4, color='k', clip_on=False)
+    ax.set(xlim=t[[0, -1]], ylim=[0, n_coils], xlabel='Time (sec)',
+           ylabel='Good coils')
+    ax.set(yticks=np.arange(n_coils + 1))
+    for comp, n, color in ((np.greater_equal, 5, '#2ca02c'),
+                           (np.equal, 4, '#98df8a'),
+                           (np.equal, 3, (1, 1, 0)),
+                           (np.less_equal, 2, (1, 0, 0))):
+        mask = comp(counts, n)
+        mask[:-1] |= comp(counts[1:], n)
+        ax.fill_between(t, 0, n_coils, where=mask,
+                        color=color, edgecolor='none', linewidth=0, zorder=1)
+    ax.grid(True)
+    fig.tight_layout()
     return fig
