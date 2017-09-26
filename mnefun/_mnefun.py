@@ -43,6 +43,7 @@ from mne.preprocessing.maxwell import (maxwell_filter,
                                        _get_mf_picks, _prep_mf_coils,
                                        _check_regularize,
                                        _regularize)
+from mne.utils import verbose
 
 try:
     # Experimental version
@@ -2706,7 +2707,8 @@ def compute_good_coils(raw, t_step=1., t_window=0.2, dist_limit=0.005):
         sin_fit = _fit_cHPI_amplitudes(raw, time_sl, hpi, 0)
         # skip this window if it bad.
         if sin_fit is None:
-            return None
+            counts[ii] = 0
+            continue
         outs = [_fit_magnetic_dipole(f, pos, hpi['coils'], hpi['scale'],
                                      hpi['method'])
                 for f, pos, on in zip(sin_fit, coil_dev_rrs, hpi['on'])
@@ -2735,7 +2737,9 @@ def compute_good_coils(raw, t_step=1., t_window=0.2, dist_limit=0.005):
     return t, counts, len(hpi_dig_head_rrs)
 
 
-def plot_good_coils(raw, t_step=1., t_window=0.2, dist_limit=0.005):
+@verbose
+def plot_good_coils(raw, t_step=1., t_window=0.2, dist_limit=0.005,
+                    verbose=None):
     """Plot the good coil count as a function of time."""
     t, counts, n_coils = compute_good_coils(raw, t_step, t_window, dist_limit)
     fig, ax = plt.subplots(figsize=(8, 2))
