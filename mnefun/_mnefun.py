@@ -1415,14 +1415,13 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
                               'to previous values %s' % (new_sfreq, sfreqs))
             sfreqs.add(new_sfreq)
         if p.autoreject_thresholds:
-            if p.autoreject_thresholds:
-                from autoreject import get_rejection_threshold
+            from autoreject import get_rejection_threshold
             print('     Using autreject to compute rejection thresholds')
             temp_epochs = Epochs(raw, events, event_id=None, tmin=p.tmin,
                                  tmax=p.tmax, baseline=_get_baseline(p),
                                  proj=True, reject=None, flat=None,
-                                 preload=True)
-            new_dict = get_rejection_threshold(temp_epochs, decim=decim[si])
+                                 preload=True, decim=decim[si])
+            new_dict = get_rejection_threshold(temp_epochs)
             use_reject, use_flat = _restrict_reject_flat(new_dict, p.flat, raw)
             new_dict = get_rejection_threshold(temp_epochs)
             use_reject = {k: new_dict[k]
@@ -2027,8 +2026,7 @@ def do_preprocessing_combined(p, subjects, run_indices, decim):
                 ecg_epochs = create_ecg_epochs(raw, tmin=ecg_t_lims[0],
                                                tmax=ecg_t_lims[1],
                                                ch_name=p.ecg_channel)
-                new_dict = get_rejection_threshold(ecg_epochs,
-                                                   decim=decim[si])
+                new_dict = get_rejection_threshold(ecg_epochs)
                 # only reject ecg events for MEG channels for now
                 ecg_reject = {k: new_dict[k]
                               for k in ['grad', 'mag',
@@ -2067,8 +2065,7 @@ def do_preprocessing_combined(p, subjects, run_indices, decim):
                 eog_epochs = create_eog_epochs(raw, tmin=eog_t_lims[0],
                                                tmax=eog_t_lims[1],
                                                ch_name=p.ecg_channel)
-                new_dict = get_rejection_threshold(eog_epochs,
-                                                   decim=decim[si])
+                new_dict = get_rejection_threshold(eog_epochs)
                 # only reject ecg events for MEG channels for now
                 ecg_reject = {k: new_dict[k]
                               for k in ['grad', 'mag',
