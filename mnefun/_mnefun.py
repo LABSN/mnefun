@@ -1987,10 +1987,10 @@ def do_preprocessing_combined(p, subjects, run_indices):
                 projs.extend(pr)
             else:
                 warnings.warn('Only %d ECG events!' % ecg_events.shape[0])
-            del raw
             if p.plot_pca:
-                h = plot_projs_topomap(pr, show=True)
+                h = plot_projs_topomap(pr, info=raw.info, show=False)
                 h.savefig(ecg_proj[:-4] + '.png', format='png', dpi=120)
+            del raw
 
         # Next calculate and apply the EOG projectors
         if any(proj_nums[1]):
@@ -2018,11 +2018,10 @@ def do_preprocessing_combined(p, subjects, run_indices):
                 projs.extend(pr)
             else:
                 warnings.warn('Only %d EOG events!' % eog_events.shape[0])
-            del raw
-            #TODO just plotting MEG topographies. EEG topographies need layout
             if p.plot_pca:
-                h = plot_projs_topomap(pr[:2], show=True)
+                h = plot_projs_topomap(pr, info=raw.info, show=False)
                 h.savefig(eog_proj[:-4] + '.png', format='png', dpi=120)
+            del raw
 
         # save the projectors
         write_proj(all_proj, projs)
