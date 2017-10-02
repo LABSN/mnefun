@@ -7,6 +7,7 @@ from ._mnefun import (Params, get_fsaverage_medial_vertices,  # noqa
                       run_sss_command, run_sss_positions,  # noqa
                       info_sss_basis, plot_reconstruction,  # noqa
                       plot_chpi_snr_raw, get_fsaverage_label_operator,  # noqa
-                      compute_good_coils, plot_good_coils)  # noqa
+                      compute_good_coils, plot_good_coils,  # noqa
+                      compute_auc)  # noqa
 
 __version__ = '0.1.0.dev0'
