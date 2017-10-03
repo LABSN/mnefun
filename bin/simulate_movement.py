@@ -151,7 +151,7 @@ def run():
         pos = None
     else:
         with printer('Loading head positions'):
-            pos = mne.get_chpi_positions(pos)
+            pos = mne.chpi.read_head_pos(pos)
 
     with printer('Loading raw data file'):
         with warnings.catch_warnings(record=True):
