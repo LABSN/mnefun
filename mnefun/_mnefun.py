@@ -30,7 +30,8 @@ from mne import (compute_proj_raw, make_fixed_length_events, Epochs,
                  make_forward_solution, get_config, write_evokeds,
                  make_sphere_model, setup_volume_source_space,
                  read_bem_solution, pick_info, write_source_spaces,
-                 read_source_spaces, write_forward_solution)
+                 read_source_spaces, write_forward_solution,
+                 DipoleFixed)
 
 try:
     from mne import compute_raw_covariance  # up-to-date mne-python
@@ -73,9 +74,9 @@ from mne.io.pick import pick_types_forward, pick_types
 from mne.io.meas_info import _empty_info
 from mne.cov import regularize
 from mne.minimum_norm import write_inverse_operator
-from mne.viz import plot_drop_log, tight_layout
+from mne.viz import plot_drop_log, tight_layout, plot_projs_topomap
 from mne.viz._3d import plot_head_positions
-from mne.utils import run_subprocess
+from mne.utils import run_subprocess, _time_mask
 from mne.report import Report
 from mne.io.constants import FIFF
 
@@ -249,6 +250,9 @@ class Params(Frozen):
         If True use autoreject module to compute global rejection thresholds
         for epoching. Make sure autoreject module is installed. See
         http://autoreject.github.io/ for instructions.
+    plot_pca : bool
+        If set to True generate selected PCA component topographies and save
+        figures to disk in pca_fif folder.
 
     Returns
     -------
@@ -408,6 +412,7 @@ class Params(Frozen):
         self.on_missing = 'error'  # for epochs
         self.subject_run_indices = None
         self.autoreject_thresholds = False
+        self.plot_pca = True
         self.freeze()
 
     @property
@@ -1974,6 +1979,9 @@ def do_preprocessing_combined(p, subjects, run_indices, decim):
                 print('    Adding extra projectors from "%s".' % p.proj_extra)
             extra_proj = op.join(pca_dir, p.proj_extra)
             projs = read_proj(extra_proj)
+            if p.plot_pca:
+                h = plot_projs_topomap(projs, info=raw_orig.info, show=False)
+                h.savefig(extra_proj[:-4] + '.png', format='png', dpi=120)
 
         # Calculate and apply ERM projectors
         proj_nums = np.array(proj_nums, int)
@@ -2007,6 +2015,9 @@ def do_preprocessing_combined(p, subjects, run_indices, decim):
                                   reject=None, flat=None, n_jobs=p.n_jobs_mkl)
             write_proj(cont_proj, pr)
             projs.extend(pr)
+            if p.plot_pca:
+                h = plot_projs_topomap(pr, info=raw.info, show=False)
+                h.savefig(cont_proj[:-4] + '.png', format='png', dpi=120)
             del raw
 
         # Calculate and apply the ECG projectors
@@ -2047,6 +2058,9 @@ def do_preprocessing_combined(p, subjects, run_indices, decim):
                 projs.extend(pr)
             else:
                 warnings.warn('Only %d ECG events!' % ecg_events.shape[0])
+            if p.plot_pca:
+                h = plot_projs_topomap(pr, info=raw.info, show=False)
+                h.savefig(ecg_proj[:-4] + '.png', format='png', dpi=120)
             del raw
 
         # Next calculate and apply the EOG projectors
@@ -2086,6 +2100,9 @@ def do_preprocessing_combined(p, subjects, run_indices, decim):
                 projs.extend(pr)
             else:
                 warnings.warn('Only %d EOG events!' % eog_events.shape[0])
+            if p.plot_pca:
+                h = plot_projs_topomap(pr, info=raw.info, show=False)
+                h.savefig(eog_proj[:-4] + '.png', format='png', dpi=120)
             del raw
 
         # save the projectors
@@ -2807,3 +2824,15 @@ def plot_good_coils(raw, t_step=1., t_window=0.2, dist_limit=0.005,
     ax.grid(True)
     fig.tight_layout()
     return fig
+
+
+def compute_auc(dip, tmin=-np.inf, tmax=np.inf):
+    """Compute the AUC values for a DipoleFixed object."""
+    if not isinstance(dip, DipoleFixed):
+        raise TypeError('dip must be a DipoleFixed, got "%s"' % (type(dip),))
+    pick = pick_types(dip.info, meg=False, dipole=True)
+    if len(pick) != 1:
+        raise RuntimeError('Could not find dipole data')
+    time_mask = _time_mask(dip.times, tmin, tmax, dip.info['sfreq'])
+    data = dip.data[pick[0], time_mask]
+    return np.sum(np.abs(data)) * len(data) * (1. / dip.info['sfreq'])

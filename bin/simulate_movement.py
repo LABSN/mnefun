@@ -134,13 +134,8 @@ def run():
         amp = np.sqrt(np.sum(nn * nn, axis=1)) * 1e-9
         mne.surface._normalize_vectors(nn)
         nn[(nn == 0).all(axis=1)] = (1, 0, 0)
-        src = mne.SourceSpaces([
-            dict(rr=rr, nn=nn, inuse=np.ones(n_dipoles, int),
-                 coord_frame=FIFF.FIFFV_COORD_HEAD)])
-        for key in ['pinfo', 'nuse_tri', 'use_tris', 'patch_inds']:
-            src[0][key] = None
-        trans = {'from': FIFF.FIFFV_COORD_HEAD, 'to': FIFF.FIFFV_COORD_MRI,
-                 'trans': np.eye(4)}
+        src = mne.setup_volume_source_space(pos=dict(rr=rr, nn=nn))
+        trans = None
         if (amp > 100e-9).any():
             print('')
             warnings.warn('Largest dipole amplitude %0.1f > 100 nA'
@@ -151,7 +146,7 @@ def run():
         pos = None
     else:
         with printer('Loading head positions'):
-            pos = mne.get_chpi_positions(pos)
+            pos = mne.chpi.read_head_pos(pos)
 
     with printer('Loading raw data file'):
         with warnings.catch_warnings(record=True):
@@ -210,8 +205,7 @@ def run():
             meg_info = mne.pick_info(raw.info,
                                      mne.pick_types(raw.info,
                                                     meg=True, eeg=False))
-            helmet_rr = [ch['coil_trans'][:3, 3].copy()
-                         for ch in meg_info['chs']]
+            helmet_rr = np.array([ch['loc'][:3] for ch in meg_info['chs']])
             helmet_nn = np.zeros_like(helmet_rr)
             helmet_nn[:, 2] = 1.
             surf = dict(rr=helmet_rr, nn=helmet_nn,
