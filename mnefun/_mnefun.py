@@ -73,7 +73,7 @@ from mne.io.pick import pick_types_forward, pick_types
 from mne.io.meas_info import _empty_info
 from mne.cov import regularize
 from mne.minimum_norm import write_inverse_operator
-from mne.viz import plot_drop_log, tight_layout
+from mne.viz import plot_drop_log, tight_layout, plot_projs_topomap
 from mne.viz._3d import plot_head_positions
 from mne.utils import run_subprocess, _time_mask
 from mne.report import Report
@@ -245,6 +245,9 @@ class Params(Frozen):
         Default is center of sphere fit to digitized head points.
     fir_design : str
         Can be "firwin2" or "firwin".
+    plot_pca : bool
+        If set to True generate selected PCA component topographies and save
+        figures to disk in pca_fif folder.
 
     Returns
     -------
@@ -403,6 +406,7 @@ class Params(Frozen):
         self.must_match = []
         self.on_missing = 'error'  # for epochs
         self.subject_run_indices = None
+        self.plot_pca = True
         self.freeze()
 
     @property
@@ -1948,6 +1952,9 @@ def do_preprocessing_combined(p, subjects, run_indices):
                 print('    Adding extra projectors from "%s".' % p.proj_extra)
             extra_proj = op.join(pca_dir, p.proj_extra)
             projs = read_proj(extra_proj)
+            if p.plot_pca:
+                h = plot_projs_topomap(projs, info=raw_orig.info, show=False)
+                h.savefig(extra_proj[:-4] + '.png', format='png', dpi=120)
 
         # Calculate and apply ERM projectors
         proj_nums = np.array(proj_nums, int)
@@ -1981,6 +1988,9 @@ def do_preprocessing_combined(p, subjects, run_indices):
                                   reject=None, flat=None, n_jobs=p.n_jobs_mkl)
             write_proj(cont_proj, pr)
             projs.extend(pr)
+            if p.plot_pca:
+                h = plot_projs_topomap(pr, info=raw.info, show=False)
+                h.savefig(cont_proj[:-4] + '.png', format='png', dpi=120)
             del raw
 
         # Calculate and apply the ECG projectors
@@ -2010,6 +2020,9 @@ def do_preprocessing_combined(p, subjects, run_indices):
                 projs.extend(pr)
             else:
                 warnings.warn('Only %d ECG events!' % ecg_events.shape[0])
+            if p.plot_pca:
+                h = plot_projs_topomap(pr, info=raw.info, show=False)
+                h.savefig(ecg_proj[:-4] + '.png', format='png', dpi=120)
             del raw
 
         # Next calculate and apply the EOG projectors
@@ -2038,6 +2051,9 @@ def do_preprocessing_combined(p, subjects, run_indices):
                 projs.extend(pr)
             else:
                 warnings.warn('Only %d EOG events!' % eog_events.shape[0])
+            if p.plot_pca:
+                h = plot_projs_topomap(pr, info=raw.info, show=False)
+                h.savefig(eog_proj[:-4] + '.png', format='png', dpi=120)
             del raw
 
         # save the projectors
