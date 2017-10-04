@@ -76,7 +76,9 @@ params.runs_empty = ['%s_erm']  # Define empty room runs
 params.proj_nums = [[1, 1, 0],  # ECG
                     [1, 1, 2],  # EOG
                     [0, 0, 0]]  # Continuous (from ERM)
-params.plot_pca = True  # Write PCA projection topography figures to disk
+# By default SSP projection scalp topography maps will be saved in
+# sss_pca_folder for inspection. To avoid having images saved to disk set
+# params.plot_pca = False
 params.cov_method = 'shrunk'  # Cleaner noise covariance regularization
 params.plot_head_position = True  # Plot cHPI data for single raw file
 # python | maxfilter for choosing SSS applied using either Maxfilter or MNE

@@ -404,7 +404,7 @@ class Params(Frozen):
         self.must_match = []
         self.on_missing = 'error'  # for epochs
         self.subject_run_indices = None
-        self.plot_pca = False
+        self.plot_pca = True
         self.freeze()
 
     @property
