@@ -1925,6 +1925,9 @@ def do_preprocessing_combined(p, subjects, run_indices):
                 print('    Adding extra projectors from "%s".' % p.proj_extra)
             extra_proj = op.join(pca_dir, p.proj_extra)
             projs = read_proj(extra_proj)
+            if p.plot_pca:
+                h = plot_projs_topomap(projs, info=raw_orig.info, show=False)
+                h.savefig(extra_proj[:-4] + '.png', format='png', dpi=120)
 
         # Calculate and apply ERM projectors
         proj_nums = np.array(proj_nums, int)
@@ -1958,6 +1961,9 @@ def do_preprocessing_combined(p, subjects, run_indices):
                                   reject=None, flat=None, n_jobs=p.n_jobs_mkl)
             write_proj(cont_proj, pr)
             projs.extend(pr)
+            if p.plot_pca:
+                h = plot_projs_topomap(pr, info=raw.info, show=False)
+                h.savefig(cont_proj[:-4] + '.png', format='png', dpi=120)
             del raw
 
         # Calculate and apply the ECG projectors
