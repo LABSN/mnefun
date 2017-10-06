@@ -1310,7 +1310,6 @@ def get_fsaverage_label_operator(parc='aparc.a2009s', remove_bads=True,
 @verbose
 def combine_medial_labels(labels, subject='fsaverage', surf='white',
                           dist_limit=0.02):
-    from scipy.spatial.distance import cdist
     subjects_dir = mne.get_config('SUBJECTS_DIR')
     rrs = dict((hemi, mne.read_surface(op.join(subjects_dir, subject, 'surf',
                                        '%s.%s' % (hemi, surf)))[0] / 1000.)
