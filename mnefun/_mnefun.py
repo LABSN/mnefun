@@ -44,7 +44,6 @@ from mne.preprocessing.maxwell import (maxwell_filter,
                                        _get_mf_picks, _prep_mf_coils,
                                        _check_regularize,
                                        _regularize)
-from mne.preprocessing import create_ecg_epochs, create_eog_epochs
 from mne.utils import verbose
 
 try:
@@ -619,8 +618,6 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
                 outs[ii] = func(p, subjects, p.in_names, p.in_numbers,
                                 p.analyses, p.out_names, p.out_numbers,
                                 p.must_match, decim, run_indices)
-            elif func == do_preprocessing_combined:
-                outs[ii] = func(p, subjects, run_indices, decim)
             elif func == print_proc_status:
                 outs[ii] = func(p, subjects, structurals, p.analyses,
                                 run_indices)
@@ -1428,10 +1425,6 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
                                  preload=True, decim=decim[si])
             new_dict = get_rejection_threshold(temp_epochs)
             use_reject, use_flat = _restrict_reject_flat(new_dict, p.flat, raw)
-            new_dict = get_rejection_threshold(temp_epochs)
-            use_reject = {k: new_dict[k]
-                          for k in ['grad', 'mag', 'eeg']
-                          if k in new_dict.keys()}
         else:
             use_reject, use_flat = _restrict_reject_flat(p.reject, p.flat, raw)
 
@@ -1841,7 +1834,7 @@ def _raw_LRFCP(raw_names, sfreq, l_freq, h_freq, n_jobs, n_jobs_resample,
     return raw
 
 
-def do_preprocessing_combined(p, subjects, run_indices, decim):
+def do_preprocessing_combined(p, subjects, run_indices):
     """Do preprocessing on all raw files together
 
     Calculates projection vectors to use to clean data.
@@ -1854,11 +1847,7 @@ def do_preprocessing_combined(p, subjects, run_indices, decim):
         Subject names to analyze (e.g., ['Eric_SoP_001', ...]).
     run_indices : array-like | None
         Run indices to include.
-    decim : int | list of int
-        Amount to decimate.
     """
-    if p.autoreject_thresholds:
-        from autoreject import get_rejection_threshold
     drop_logs = list()
     for si, subj in enumerate(subjects):
         if p.disp_files:
@@ -1906,7 +1895,7 @@ def do_preprocessing_combined(p, subjects, run_indices, decim):
             epochs = Epochs(raw, events, None, p.tmin, p.tmax,
                             baseline=_get_baseline(p), picks=picks,
                             reject=p.auto_bad_reject, flat=p.auto_bad_flat,
-                            proj=True, preload=True, decim=decim[si],
+                            proj=True, preload=True, decim=1,
                             reject_tmin=p.reject_tmin,
                             reject_tmax=p.reject_tmax)
             # channel scores from drop log
@@ -2033,17 +2022,6 @@ def do_preprocessing_combined(p, subjects, run_indices, decim):
                        **old_kwargs)
             raw.add_proj(projs)
             raw.apply_proj()
-            if p.autoreject_thresholds:
-                ecg_epochs = create_ecg_epochs(raw, tmin=ecg_t_lims[0],
-                                               tmax=ecg_t_lims[1],
-                                               ch_name=p.ecg_channel)
-                new_dict = get_rejection_threshold(ecg_epochs)
-                # only reject ecg events for MEG channels for now
-                ecg_reject = {k: new_dict[k]
-                              for k in ['grad', 'mag',
-                                        'eeg'] if k in new_dict.keys()}
-            else:
-                ecg_reject = p.ssp_ecg_reject
             pr, ecg_events = \
                 compute_proj_ecg(raw, n_grad=proj_nums[0][0],
                                  n_jobs=p.n_jobs_mkl,
@@ -2051,7 +2029,7 @@ def do_preprocessing_combined(p, subjects, run_indices, decim):
                                  tmin=ecg_t_lims[0], tmax=ecg_t_lims[1],
                                  l_freq=None, h_freq=None, no_proj=True,
                                  qrs_threshold='auto', ch_name=p.ecg_channel,
-                                 reject=ecg_reject)
+                                 reject=p.ssp_ecg_reject)
             if ecg_events.shape[0] >= 20:
                 write_events(ecg_eve, ecg_events)
                 write_proj(ecg_proj, pr)
@@ -2075,17 +2053,6 @@ def do_preprocessing_combined(p, subjects, run_indices, decim):
                        **old_kwargs)
             raw.add_proj(projs)
             raw.apply_proj()
-            if p.autoreject_thresholds:
-                eog_epochs = create_eog_epochs(raw, tmin=eog_t_lims[0],
-                                               tmax=eog_t_lims[1],
-                                               ch_name=p.ecg_channel)
-                new_dict = get_rejection_threshold(eog_epochs)
-                # only reject ecg events for MEG channels for now
-                ecg_reject = {k: new_dict[k]
-                              for k in ['grad', 'mag',
-                                        'eeg'] if k in new_dict.keys()}
-            else:
-                ecg_reject = p.ssp_ecg_reject
             pr, eog_events = \
                 compute_proj_eog(raw, n_grad=proj_nums[1][0],
                                  n_jobs=p.n_jobs_mkl,
