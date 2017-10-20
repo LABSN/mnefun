@@ -245,6 +245,10 @@ class Params(Frozen):
         Default is center of sphere fit to digitized head points.
     fir_design : str
         Can be "firwin2" or "firwin".
+    autoreject_thresholds : bool | False
+        If True use autoreject module to compute global rejection thresholds
+        for epoching. Make sure autoreject module is installed. See
+        http://autoreject.github.io/ for instructions.
     plot_pca : bool
         If set to True generate selected PCA component topographies and save
         figures to disk in pca_fif folder.
@@ -406,6 +410,7 @@ class Params(Frozen):
         self.must_match = []
         self.on_missing = 'error'  # for epochs
         self.subject_run_indices = None
+        self.autoreject_thresholds = False
         self.plot_pca = True
         self.freeze()
 
@@ -1411,7 +1416,18 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
                 warnings.warn('resulting new sampling frequency %s not equal '
                               'to previous values %s' % (new_sfreq, sfreqs))
             sfreqs.add(new_sfreq)
-        use_reject, use_flat = _restrict_reject_flat(p.reject, p.flat, raw)
+        if p.autoreject_thresholds:
+            from autoreject import get_rejection_threshold
+            print('     Using autreject to compute rejection thresholds')
+            temp_epochs = Epochs(raw, events, event_id=None, tmin=p.tmin,
+                                 tmax=p.tmax, baseline=_get_baseline(p),
+                                 proj=True, reject=None, flat=None,
+                                 preload=True, decim=decim[si])
+            new_dict = get_rejection_threshold(temp_epochs)
+            use_reject, use_flat = _restrict_reject_flat(new_dict, p.flat, raw)
+        else:
+            use_reject, use_flat = _restrict_reject_flat(p.reject, p.flat, raw)
+
         epochs = Epochs(raw, events, event_id=old_dict, tmin=p.tmin,
                         tmax=p.tmax, baseline=_get_baseline(p),
                         reject=use_reject, flat=use_flat, proj='delayed',
