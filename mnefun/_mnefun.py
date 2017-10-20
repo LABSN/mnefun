@@ -1780,13 +1780,12 @@ def _get_fir_kwargs(fir_design):
     if fir_design != 'firwin2':
         # only pass if necessary (backward compat)
         fir_kwargs.update(fir_design=fir_design)
-    old_kwargs = dict()
-    if 'fir_design' in mne.fixes._get_args(mne.filter.filter_data):
-        old_kwargs.update(fir_design='firwin2')
+    elif 'fir_design' in mne.fixes._get_args(mne.filter.filter_data):
+        fir_kwargs.update(fir_design='firwin2')
     elif len(fir_kwargs):
         raise RuntimeError('cannot use fir_design=%s with old MNE'
                            % fir_design)
-    return fir_kwargs, old_kwargs
+    return fir_kwargs
 
 
 # noinspection PyPep8Naming
@@ -1812,7 +1811,7 @@ def _raw_LRFCP(raw_names, sfreq, l_freq, h_freq, n_jobs, n_jobs_resample,
             r.set_eeg_reference()
         if sfreq is not None:
             r.resample(sfreq, n_jobs=n_jobs_resample, npad='auto')
-        fir_kwargs = _get_fir_kwargs(fir_design)[0]
+        fir_kwargs = _get_fir_kwargs(fir_design)
         if l_freq is not None or h_freq is not None:
             r.filter(l_freq=l_freq, h_freq=h_freq, picks=None,
                      n_jobs=n_jobs, method=method,
@@ -1865,7 +1864,7 @@ def do_preprocessing_combined(p, subjects, run_indices):
                 raise NameError('File not found (' + r + ')')
 
         bad_file = op.join(bad_dir, 'bad_ch_' + subj + p.bad_tag)
-        fir_kwargs, old_kwargs = _get_fir_kwargs(p.fir_design)
+        fir_kwargs = _get_fir_kwargs(p.fir_design)
         if isinstance(p.auto_bad, float):
             print('    Creating bad channel file, marking bad channels:\n'
                   '        %s' % bad_file)
@@ -2019,7 +2018,7 @@ def do_preprocessing_combined(p, subjects, run_indices):
                        method='fir', filter_length=p.filter_length,
                        l_trans_bandwidth=0.5, h_trans_bandwidth=0.5,
                        phase='zero-double', fir_window='hann',
-                       **old_kwargs)
+                       **fir_kwargs)
             raw.add_proj(projs)
             raw.apply_proj()
             pr, ecg_events = \
@@ -2050,7 +2049,7 @@ def do_preprocessing_combined(p, subjects, run_indices):
                        method='fir', filter_length=p.filter_length,
                        l_trans_bandwidth=0.5, h_trans_bandwidth=0.5,
                        phase='zero-double', fir_window='hann',
-                       **old_kwargs)
+                       **fir_kwargs)
             raw.add_proj(projs)
             raw.apply_proj()
             pr, eog_events = \
@@ -2135,7 +2134,7 @@ def apply_preprocessing_combined(p, subjects, run_indices):
         bad_file = None if not op.isfile(bad_file) else bad_file
         all_proj = op.join(pca_dir, 'preproc_all-proj.fif')
         projs = read_proj(all_proj)
-        fir_kwargs = _get_fir_kwargs(p.fir_design)[0]
+        fir_kwargs = _get_fir_kwargs(p.fir_design)
         if len(erm_in) > 0:
             for ii, (r, o) in enumerate(zip(erm_in, erm_out)):
                 if p.disp_files:
@@ -2352,7 +2351,7 @@ def plot_raw_psd(p, subjects, run_indices=None, tmin=0., fmin=2, n_fft=2048):
     """
     if run_indices is None:
         run_indices = [None] * len(subjects)
-    fir_kwargs = _get_fir_kwargs(p.fir_design)[0]
+    fir_kwargs = _get_fir_kwargs(p.fir_design)
     for si, subj in enumerate(subjects):
         for file_type in ['raw', 'sss', 'pca']:
             fname = get_raw_fnames(p, subj, file_type, False, False,
