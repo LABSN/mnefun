@@ -26,7 +26,7 @@ import mne
 from mne import (compute_proj_raw, make_fixed_length_events, Epochs,
                  find_events, read_events, write_events, concatenate_events,
                  read_cov, compute_covariance, write_cov,
-                 read_forward_solution,
+                 read_forward_solution, convert_forward_solution,
                  write_proj, read_proj, setup_source_space,
                  make_forward_solution, get_config, write_evokeds,
                  make_sphere_model, setup_volume_source_space,
@@ -1621,13 +1621,14 @@ def gen_inverses(p, subjects, run_indices):
             s_name = safe_inserter(name, subj)
             temp_name = s_name + ('-%d' % p.lp_cut) + p.inv_tag
             fwd_name = op.join(fwd_dir, s_name + p.inv_tag + '-fwd.fif')
-            fwd = read_forward_solution(fwd_name, surf_ori=True)
-            looses = [None]
+            fwd = read_forward_solution(fwd_name)
+            fwd = convert_forward_solution(fwd, surf_ori=True)
+            looses = [0]
             tags = [p.inv_free_tag]
-            fixeds = [False]
+            fixeds = [True]
             depths = [0.8]
             if fwd['src'][0]['type'] == 'surf':
-                looses += [None, 0.2]
+                looses += [0, 0.2]
                 tags += [p.inv_fixed_tag, p.inv_loose_tag]
                 fixeds += [True, False]
                 depths += [0.8, 0.8]
@@ -1639,9 +1640,14 @@ def gen_inverses(p, subjects, run_indices):
             for f, m, e in zip(out_flags, meg_bools, eeg_bools):
                 fwd_restricted = pick_types_forward(fwd, meg=m, eeg=e)
                 for l, s, x, d in zip(looses, tags, fixeds, depths):
+                    if l < 1:
+                        use_cps = True
+                    else:
+                        use_cps = False
                     inv_name = op.join(inv_dir, temp_name + f + s + '-inv.fif')
                     inv = make_inverse_operator(raw.info, fwd_restricted, cov,
-                                                loose=l, depth=d, fixed=x)
+                                                loose=l, depth=d, fixed=x,
+                                                use_cps=use_cps)
                     write_inverse_operator(inv_name, inv)
                     if (not e) and make_erm_inv:
                         inv_name = op.join(inv_dir, temp_name + f +
