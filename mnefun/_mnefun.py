@@ -14,6 +14,7 @@ import subprocess
 import glob
 from collections import Counter
 import time
+import sys
 
 import numpy as np
 import scipy
@@ -317,7 +318,7 @@ class Params(Frozen):
         self.fir_window = 'hann'
         self.fir_design = 'firwin2'
         self.disp_files = True
-        self.plot_drop_logs = False  # plot drop logs after do_preprocessing_...
+        self.plot_drop_logs = False  # plot drop logs after do_preprocessing_
         self.plot_head_position = False
         self.proj_sfreq = proj_sfreq
         self.decim = decim
@@ -656,13 +657,14 @@ def fetch_raw_files(p, subjects, run_indices):
         finder = (finder_stem + ' -o '.join([' -type f -regex ' +
                                              _regex_convert(f)
                                              for f in fnames]))
-        stdout_ = run_subprocess(['ssh', '-p', str(p.acq_port),
-                                  p.acq_ssh, finder])[0]
+        stdout_ = run_subprocess(
+            ['ssh', '-p', str(p.acq_port), p.acq_ssh, finder],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE)[0]
         remote_fnames = [x.strip() for x in stdout_.splitlines()]
         if not any(fname.startswith(rd + '/') for rd in use_dir
                    for fname in remote_fnames):
-            raise Exception('Unable to find files at remote locations.'
-                            'Check filenames.')
+            raise IOError('Unable to find files at remote locations. '
+                          'Check filenames.')
         # make the name "local" to the acq dir, so that the name works
         # remotely during rsync and locally during copyfile
         remote_dir = [fn[:fn.index(op.basename(fn))]
@@ -685,7 +687,7 @@ def fetch_raw_files(p, subjects, run_indices):
             cmd += ['--include', op.basename(fname)]
         remote_loc = '%s:%s' % (p.acq_ssh, op.join(remote_dir, ''))
         cmd += ['--exclude', '*', remote_loc, op.join(raw_dir, '')]
-        run_subprocess(cmd)
+        run_subprocess(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         # move files to root raw_dir
         for fname in remote_fnames:
             from_ = fname.index(subj)
@@ -789,7 +791,8 @@ def push_raw_files(p, subjects, run_indices):
     cmd = (['rsync', '-aLve', 'ssh -p %s' % p.sws_port, '--partial'] +
            includes + ['--exclude', '*'])
     cmd += ['.', '%s:%s' % (p.sws_ssh, op.join(p.sws_dir, ''))]
-    run_subprocess(cmd, cwd=p.work_dir)
+    run_subprocess(cmd, cwd=p.work_dir,
+                   stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
 
 def _check_trans_file(p):
@@ -835,7 +838,7 @@ def run_sss(p, subjects, run_indices):
             print('-' * len(s))
             print(s)
             print('-' * len(s))
-            run_subprocess(cmd, stdout=None, stderr=None)
+            run_subprocess(cmd, stdout=sys.stdout, stderr=sys.stderr)
             print('-' * 70, end='\n\n')
 
 
@@ -855,7 +858,8 @@ def fetch_sss_files(p, subjects, run_indices):
     cmd = (['rsync', '-ave', 'ssh -p %s' % p.sws_port, '--partial', '-K'] +
            includes + ['--exclude', '*'])
     cmd += ['%s:%s' % (p.sws_ssh, op.join(p.sws_dir, '*')), '.']
-    run_subprocess(cmd, cwd=p.work_dir)
+    run_subprocess(cmd, cwd=p.work_dir, stdout=subprocess.PIPE,
+                   stderr=subprocess.PIPE)
 
 
 def run_sss_command(fname_in, options, fname_out, host='kasga', port=22,
@@ -976,7 +980,7 @@ def run_sss_positions(fname_in, fname_out, host='kasga', opts='', port=22,
         cmd += ['--include', op.basename(fname)]
     cmd += ['--exclude', '*', op.dirname(fnames_in[0]) + '/',
             '%s:%s' % (host, work_dir)]
-    run_subprocess(cmd)
+    run_subprocess(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
     remote_ins = [op.join(work_dir, op.basename(f)) for f in fnames_in]
     fnames_out = [op.basename(r)[:-4] + '.pos' for r in remote_ins]
@@ -989,15 +993,15 @@ def run_sss_positions(fname_in, fname_out, host='kasga', opts='', port=22,
                '/neuro/bin/util/maxfilter -f ' + remote_ins[fi] + ' -o ' +
                remote_out +
                ' -headpos -format short -hp ' + remote_hp + ' ' + opts]
-        run_subprocess(cmd)
+        run_subprocess(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
         print(', copying', end='')
         cmd = ['scp', '-P' + str(port), host + ':' + remote_hp,
                op.join(pout, file_out)]
-        run_subprocess(cmd)
+        run_subprocess(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         cmd = ['ssh', '-p', str(port), host, 'rm -f %s %s %s'
                % (remote_ins[fi], remote_hp, remote_out)]
-        run_subprocess(cmd)
+        run_subprocess(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
     # concatenate hp pos file for split raw files if any
     data = []
@@ -2067,20 +2071,24 @@ def do_preprocessing_combined(p, subjects, run_indices):
                        **old_kwargs)
             raw.add_proj(projs)
             raw.apply_proj()
-            pr, ecg_events = \
+            pr, ecg_events, drop_log = \
                 compute_proj_ecg(raw, n_grad=proj_nums[0][0],
                                  n_jobs=p.n_jobs_mkl,
                                  n_mag=proj_nums[0][1], n_eeg=proj_nums[0][2],
                                  tmin=ecg_t_lims[0], tmax=ecg_t_lims[1],
                                  l_freq=None, h_freq=None, no_proj=True,
                                  qrs_threshold='auto', ch_name=p.ecg_channel,
-                                 reject=p.ssp_ecg_reject)
-            if ecg_events.shape[0] >= 20:
+                                 reject=p.ssp_ecg_reject, return_drop_log=True)
+            n_good = sum(len(d) == 0 for d in drop_log)
+            if n_good >= 20:
                 write_events(ecg_eve, ecg_events)
                 write_proj(ecg_proj, pr)
                 projs.extend(pr)
             else:
-                warnings.warn('Only %d ECG events!' % ecg_events.shape[0])
+                plot_drop_log(drop_log)
+                raw.plot(events=ecg_events)
+                raise RuntimeError('Only %d/%d good ECG epochs found'
+                                   % (n_good, len(ecg_events)))
             if p.plot_pca:
                 h = plot_projs_topomap(pr, info=raw.info, show=False)
                 h.savefig(ecg_proj[:-4] + '.png', format='png', dpi=120)
@@ -2241,7 +2249,7 @@ def timestring(t):
 
 
 # noinspection PyPep8Naming,PyPep8Naming,PyPep8Naming
-def anova_time(X):
+def anova_time(X, transform=True, signed_p=True):
     """A mass-univariate two-way ANOVA (with time as a co-variate)
 
     Parameters
@@ -2251,6 +2259,10 @@ def anova_time(X):
             subjects x (2 conditions x N time points) x spatial locations
         This then calculates the paired t-values at each spatial location
         using time as a co-variate.
+    transform : bool
+        If True, transform using the square root.
+    signed_p : bool
+        If True, change the p-value sign to match that of the t-statistic.
 
     Returns
     -------
@@ -2269,7 +2281,8 @@ def anova_time(X):
     n_time = n_nested // 2
     # Turn Y into (2 x n_time x n_subjects) x n_sources
     X = np.reshape(X, (2 * n_time * n_subjects, n_sources), order='F')
-    np.sqrt(X, out=X)
+    if transform:
+        np.sqrt(X, out=X)
     cv, tv, sv = np.meshgrid(np.arange(2.0), np.arange(n_time),
                              np.arange(n_subjects), indexing='ij')
     dmat = patsy.dmatrix('C(cv) + C(tv) + C(sv)',
@@ -2278,7 +2291,11 @@ def anova_time(X):
     c = np.zeros((1, dmat.shape[1]))
     c[0, 1] = 1  # Contrast for just picking up condition difference
     # Equivalent, but slower here:
-    b = np.dot(linalg.pinv(dmat), X)
+    assert np.isfinite(dmat).all()
+    b = linalg.pinv(dmat)
+    assert np.isfinite(b).all()
+    b = np.dot(b, X)
+    assert np.isfinite(b).all()
     X -= np.dot(dmat, b)
     X *= X
     R = np.sum(X, axis=0)[:, np.newaxis]
@@ -2286,7 +2303,9 @@ def anova_time(X):
     e = np.sqrt(R * np.dot(c, linalg.lstsq(np.dot(dmat.T, dmat), c.T)[0]))
     t = (np.dot(c, b) / e.T).T
     dof = dof / float(n_time - 1)  # Greenhouse-Geisser correction to the DOF
-    p = np.sign(t) * 2 * stats.t.cdf(-abs(t), dof)
+    p = 2 * stats.t.cdf(-abs(t), dof)
+    if signed_p:
+        p *= np.sign(t)
     return t, p, dof
 
 
