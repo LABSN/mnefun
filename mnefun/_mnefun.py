@@ -44,7 +44,7 @@ from mne.preprocessing.maxwell import (maxwell_filter,
                                        _get_mf_picks, _prep_mf_coils,
                                        _check_regularize,
                                        _regularize)
-from mne.utils import verbose
+from mne.utils import verbose, logger
 
 try:
     # Experimental version
@@ -1278,29 +1278,76 @@ def get_fsaverage_medial_vertices(concatenate=True):
         return [lh.vertices, rh.vertices]
 
 
-def get_fsaverage_label_operator(parc='aparc.a2009s'):
+@verbose
+def get_fsaverage_label_operator(parc='aparc.a2009s', remove_bads=True,
+                                 combine_medial=False, verbose=None):
     """Get a label operator matrix for fsaverage."""
     subjects_dir = mne.get_config('SUBJECTS_DIR')
     src = mne.read_source_spaces(op.join(
-        subjects_dir, 'fsaverage', 'bem', 'fsaverage-5-src.fif'))
+        subjects_dir, 'fsaverage', 'bem', 'fsaverage-5-src.fif'),
+        verbose=False)
     fs_vertices = [np.arange(10242), np.arange(10242)]
     assert all(np.array_equal(a['vertno'], b)
                for a, b in zip(src, fs_vertices))
     labels = mne.read_labels_from_annot('fsaverage', parc)
+    # Remove bad labels
+    if remove_bads:
+        bads = get_fsaverage_medial_vertices(False)
+        bads = dict(lh=bads[0], rh=bads[1])
+        assert all(b.size > 1 for b in bads.values())
+        labels = [label for label in labels
+                  if np.in1d(label.vertices, bads[label.hemi]).mean() < 0.8]
+        del bads
+    if combine_medial:
+        labels = combine_medial_labels(labels)
     offsets = dict(lh=0, rh=10242)
     rev_op = np.zeros((20484, len(labels)))
-    bads = get_fsaverage_medial_vertices(False)
-    bads = dict(lh=bads[0], rh=bads[1])
-    assert all(b.size > 1 for b in bads.values())
     for li, label in enumerate(labels):
-        if np.in1d(label.vertices, bads[label.hemi]).mean() > 0.8:
-            continue
-        rev_op[label.get_vertices_used() + offsets[label.hemi], li:li + 1] = 1.
+        if isinstance(label, mne.BiHemiLabel):
+            use_labels = [label.lh, label.rh]
+        else:
+            use_labels = [label]
+        for ll in use_labels:
+            rev_op[ll.get_vertices_used() + offsets[ll.hemi], li:li + 1] = 1.
     # every src vertex is in exactly one label, except medial wall verts
     # assert (rev_op.sum(-1) == 1).sum()
     label_op = mne.SourceEstimate(np.eye(20484), fs_vertices, 0, 1)
     label_op = label_op.extract_label_time_course(labels, src)
     return label_op, rev_op
+
+
+@verbose
+def combine_medial_labels(labels, subject='fsaverage', surf='white',
+                          dist_limit=0.02):
+    subjects_dir = mne.get_config('SUBJECTS_DIR')
+    rrs = dict((hemi, mne.read_surface(op.join(subjects_dir, subject, 'surf',
+                                       '%s.%s' % (hemi, surf)))[0] / 1000.)
+               for hemi in ('lh', 'rh'))
+    use_labels = list()
+    used = np.zeros(len(labels), bool)
+    logger.info('Matching medial regions for %s labels on %s %s, d=%0.1f mm'
+                % (len(labels), subject, surf, 1000 * dist_limit))
+    for li1, l1 in enumerate(labels):
+        if used[li1]:
+            continue
+        used[li1] = True
+        use_label = l1.copy()
+        rr1 = rrs[l1.hemi][l1.vertices]
+        for li2 in np.where(~used)[0]:
+            l2 = labels[li2]
+            same_name = (l2.name.replace(l2.hemi, '') ==
+                         l1.name.replace(l1.hemi, ''))
+            if l2.hemi != l1.hemi and same_name:
+                rr2 = rrs[l2.hemi][l2.vertices]
+                mean_min = np.mean(mne.surface._compute_nearest(
+                    rr1, rr2, return_dists=True)[1])
+                if mean_min <= dist_limit:
+                    use_label += l2
+                    used[li2] = True
+                    logger.info('  Matched: ' + l1.name)
+        use_labels.append(use_label)
+    logger.info('Total %d labels' % (len(use_labels),))
+    return use_labels
 
 
 def _restrict_reject_flat(reject, flat, raw):
@@ -1777,13 +1824,11 @@ def _cals(raw):
 def _get_fir_kwargs(fir_design):
     """Get FIR kwargs in backward-compatible way."""
     fir_kwargs = dict()
-    if fir_design != 'firwin2':
-        # only pass if necessary (backward compat)
-        fir_kwargs.update(fir_design=fir_design)
     old_kwargs = dict()
     if 'fir_design' in mne.fixes._get_args(mne.filter.filter_data):
+        fir_kwargs.update(fir_design=fir_design)
         old_kwargs.update(fir_design='firwin2')
-    elif len(fir_kwargs):
+    elif fir_design != 'firwin2':
         raise RuntimeError('cannot use fir_design=%s with old MNE'
                            % fir_design)
     return fir_kwargs, old_kwargs
