@@ -1623,9 +1623,9 @@ def gen_inverses(p, subjects, run_indices):
             fwd_name = op.join(fwd_dir, s_name + p.inv_tag + '-fwd.fif')
             fwd = read_forward_solution(fwd_name)
             fwd = convert_forward_solution(fwd, surf_ori=True)
-            looses = [0]
+            looses = [1]
             tags = [p.inv_free_tag]
-            fixeds = [True]
+            fixeds = [False]
             depths = [0.8]
             if fwd['src'][0]['type'] == 'surf':
                 looses += [0, 0.2]
@@ -1643,7 +1643,7 @@ def gen_inverses(p, subjects, run_indices):
                     if l < 1:
                         use_cps = True
                     else:
-                        use_cps = False
+                        use_cps = None
                     inv_name = op.join(inv_dir, temp_name + f + s + '-inv.fif')
                     inv = make_inverse_operator(raw.info, fwd_restricted, cov,
                                                 loose=l, depth=d, fixed=x,
