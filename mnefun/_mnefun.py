@@ -904,7 +904,7 @@ def run_sss_command(fname_in, options, fname_out, host='kasga', port=22,
     remote_pos = op.join(work_dir, 'temp_%s_raw_sss.pos' % t0)
     print('%sOn %s: copying' % (prefix, host), end='')
     cmd = ['scp', '-P' + port, fname_in, host + ':' + remote_in]
-    run_subprocess(cmd, stdout=stdout, stderr=stderr)
+    run_subprocess(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
     if fname_pos is not None:
         options += ' -hp ' + remote_pos
@@ -913,24 +913,24 @@ def run_sss_command(fname_in, options, fname_out, host='kasga', port=22,
     cmd = ['ssh', '-p', port, host,
            'maxfilter -f ' + remote_in + ' -o ' + remote_out + ' ' + options]
     try:
-        run_subprocess(cmd, stdout=stdout, stderr=stderr)
+        run_subprocess(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
         print(', copying to %s' % (op.basename(fname_out),), end='')
         if fname_pos is not None:
             try:
                 cmd = ['scp', '-P' + port, host + ':' + remote_pos, fname_pos]
-                run_subprocess(cmd, stdout=stdout, stderr=stderr)
+                run_subprocess(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             except Exception:
                 pass
         cmd = ['scp', '-P' + port, host + ':' + remote_out, fname_out]
-        run_subprocess(cmd, stdout=stdout, stderr=stderr)
+        run_subprocess(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     finally:
         print(', cleaning', end='')
         files = [remote_in, remote_out]
         files += [remote_pos] if fname_pos is not None else []
         cmd = ['ssh', '-p', port, host, 'rm -f ' + ' '.join(files)]
         try:
-            run_subprocess(cmd, stdout=stdout, stderr=stderr)
+            run_subprocess(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         except Exception:
             pass
         print(' (%i sec)' % (time.time() - t0,))
