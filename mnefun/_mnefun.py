@@ -1640,14 +1640,10 @@ def gen_inverses(p, subjects, run_indices):
             for f, m, e in zip(out_flags, meg_bools, eeg_bools):
                 fwd_restricted = pick_types_forward(fwd, meg=m, eeg=e)
                 for l, s, x, d in zip(looses, tags, fixeds, depths):
-                    if l < 1:
-                        use_cps = True
-                    else:
-                        use_cps = None
                     inv_name = op.join(inv_dir, temp_name + f + s + '-inv.fif')
                     inv = make_inverse_operator(raw.info, fwd_restricted, cov,
                                                 loose=l, depth=d, fixed=x,
-                                                use_cps=use_cps)
+                                                use_cps=True)
                     write_inverse_operator(inv_name, inv)
                     if (not e) and make_erm_inv:
                         inv_name = op.join(inv_dir, temp_name + f +
