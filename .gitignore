@@ -40,8 +40,8 @@ nosetests.xml
 .idea/
 
 # subject files
-examples/funloc/subj*/**/
-examples/funloc/subj_*/**/*.html
+/examples/funloc/subj01/
+/examples/funloc/subj02/
 examples/funloc/run_sss.sh
 examples/funloc/.ipynb_checkpoints/
 
@@ -52,3 +52,5 @@ examples/funloc/.ipynb_checkpoints/
 env/
 *.whl
 .cache/
+cachedir/
+/examples/funloc/cachedir/
