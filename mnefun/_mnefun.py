@@ -1689,12 +1689,7 @@ def gen_forwards(p, subjects, structurals, run_indices):
             sphere *= 1000.  # to mm
             src = setup_volume_source_space(subject=subj, pos=7.0, sphere=sphere,
                                             mindist=1.)
-            trans = {'from': FIFF.FIFFV_COORD_HEAD,
-                     'to': FIFF.FIFFV_COORD_MRI,
-                     'trans': np.eye(4)}
-            trans_file = op.join(p.work_dir, subj, p.trans_dir, subj + '-trans.fif')
-            mne.write_trans(trans_file, trans)
-            trans = mne.read_trans(trans_file)
+            trans = None
             bem_type = 'spherical model'
         else:
             trans = op.join(p.work_dir, subj, p.trans_dir, subj + '-trans.fif')
