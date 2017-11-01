@@ -1687,11 +1687,9 @@ def gen_forwards(p, subjects, structurals, run_indices):
             # create source space
             sphere = np.concatenate((bem['r0'], [bem['layers'][0]['rad']]))
             sphere *= 1000.  # to mm
-            src = setup_volume_source_space(subj, None, pos=7., sphere=sphere,
+            src = setup_volume_source_space(subject=subj, pos=7.0, sphere=sphere,
                                             mindist=1.)
-            trans = {'from': FIFF.FIFFV_COORD_HEAD,
-                     'to': FIFF.FIFFV_COORD_MRI,
-                     'trans': np.eye(4)}
+            trans = None
             bem_type = 'spherical model'
         else:
             trans = op.join(p.work_dir, subj, p.trans_dir, subj + '-trans.fif')
