@@ -1284,7 +1284,8 @@ def get_fsaverage_medial_vertices(concatenate=True):
 
 @verbose
 def get_fsaverage_label_operator(parc='aparc.a2009s', remove_bads=True,
-                                 combine_medial=False, verbose=None):
+                                 combine_medial=False, return_labels=False,
+                                 verbose=None):
     """Get a label operator matrix for fsaverage."""
     subjects_dir = mne.get_config('SUBJECTS_DIR')
     src = mne.read_source_spaces(op.join(
@@ -1317,7 +1318,10 @@ def get_fsaverage_label_operator(parc='aparc.a2009s', remove_bads=True,
     # assert (rev_op.sum(-1) == 1).sum()
     label_op = mne.SourceEstimate(np.eye(20484), fs_vertices, 0, 1)
     label_op = label_op.extract_label_time_course(labels, src)
-    return label_op, rev_op
+    out = (label_op, rev_op)
+    if return_labels:
+        out += (labels,)
+    return out
 
 
 @verbose
