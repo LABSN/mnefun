@@ -46,6 +46,7 @@ params = mnefun.Params(tmin=-0.2, tmax=0.5, t_adjust=-4e-3,
 params.subjects = ['subj_01', 'subj_02']
 params.structurals = [None, 'AKCLEE_110_slim']  # None means use sphere
 params.dates = [(2014, 2, 14), None]  # Use "None" to more fully anonymize
+params.plot_sphere_bem = False  # Set True to plot spherical src space alignment
 params.score = score  # Scoring function used to slice data into trials
 params.subject_indices = np.arange(2)  # Define which subjects to run
 params.plot_drop_logs = False  # Turn off so plots do not halt processing
