@@ -21,6 +21,7 @@ import scipy
 from scipy import io as spio
 import matplotlib.pyplot as plt
 from numpy.testing import assert_allclose
+from mayavi import mlab
 
 import mne
 from mne import (compute_proj_raw, make_fixed_length_events, Epochs,
@@ -253,9 +254,6 @@ class Params(Frozen):
     plot_pca : bool
         If set to True generate selected PCA component topographies and save
         figures to disk in pca_fif folder.
-    plot_sphere_bem: bool
-        If using spherical BEM conductor model and set to True then plot
-        data-source space alignment and save figure to disk in inverse folder.
 
     Returns
     -------
@@ -416,7 +414,6 @@ class Params(Frozen):
         self.subject_run_indices = None
         self.autoreject_thresholds = False
         self.plot_pca = True
-        self.plot_sphere_bem = False
         self.freeze()
 
     @property
@@ -1693,23 +1690,7 @@ def gen_forwards(p, subjects, structurals, run_indices):
             src = setup_volume_source_space(subject=subj, sphere=bem,
                                             pos=10.)
             trans = None
-            bem_type = 'spherical model'
-            if p.plot_sphere_bem:
-                fg = mne.viz.plot_alignment(info, meg=['helmet', 'sensors'], bem=bem,
-                                            src=src, dig=True,
-                                            surfaces=['brain', 'inner_skull',
-                                                      'outer_skull',
-                                                      'outer_skin'])
-                fg.scene._toggle_axes()
-                for nm, ix in zip(['lt', 'rt', 'nz'], [90, 180, 90]):
-                    fg.scene.camera.pitch(0)
-                    fg.scene.camera.azimuth(ix)
-                    fg.scene.reset_zoom()
-                    fname = op.join(p.work_dir, subj, p.inverse_dir,
-                                op.basename(raw_fname)[:-4] +
-                                '_%s_spherical-bem.png' % nm)
-                    fg.scene.save_png(fname)
-                fg.scene.close()
+            bem_type = 'spherical-BEM'
         else:
             trans = op.join(p.work_dir, subj, p.trans_dir, subj + '-trans.fif')
             if not op.isfile(trans):
@@ -1725,10 +1706,10 @@ def gen_forwards(p, subjects, structurals, run_indices):
                                          n_jobs=p.n_jobs)
                 write_source_spaces(src_space_file, src)
             src = read_source_spaces(src_space_file)
-            bem = op.join(subjects_dir, structurals[si], 'bem',
-                          structurals[si] + '-' + p.bem_type + '-bem-sol.fif')
-            bem_type = ('%s-layer BEM' %
-                        len(read_bem_solution(bem, verbose=False)['surfs']))
+            bem = read_bem_solution(op.join(subjects_dir, structurals[si],
+                                            'bem', structurals[si] + '-' +
+                                            p.bem_type + '-bem-sol.fif'))
+            bem_type = ('%s-layer-BEM' % len(bem['surfs']))
         if not getattr(p, 'translate_positions', True):
             raise RuntimeError('Not translating positions is no longer '
                                'supported')
@@ -1744,6 +1725,36 @@ def gen_forwards(p, subjects, structurals, run_indices):
             fwd = make_forward_solution(
                 info, trans, src, bem, n_jobs=p.n_jobs, mindist=p.fwd_mindist)
             write_forward_solution(fwd_name, fwd, overwrite=True)
+        # plot BEM & source space alignment
+        plt.rcParams['axes.titlesize'] = 'medium'
+        plt.rcParams['axes.titleweight'] = 'normal'
+        fontdict = dict(color='white',
+                        verticalalignment='top', horizontalalignment='center')
+        aln = mne.viz.plot_alignment(info, subjects_dir=subjects_dir,
+                                     bem=bem, src=src,
+                                     surfaces=['outer_skin', 'inner_skull'],
+                                     dig=True, coord_frame='meg',
+                                     show_axes=True)
+        aln.scene.parallel_projection = True
+        fig, axes = plt.subplots(1, 3, figsize=(6.5, 2.5), facecolor='k')
+        for ai, (angle, tv) in enumerate(zip([180, 90, 0], ['Left', 'Center',
+                                                            'right'])):
+            mlab.view(angle, 90, focalpoint=(0., 0., 0.), distance=0.6)
+            view = mlab.screenshot()
+            mask_w = (view == 0).all(axis=-1).all(axis=1)
+            mask_h = (view == 0).all(axis=-1).all(axis=0)
+            view = view[~mask_w][:, ~mask_h]
+            axes[ai].set_axis_off()
+            axes[ai].imshow(view, interpolation='bicubic')
+            axes[ai].set_title(tv, fontdict=fontdict)
+        mlab.close(aln)
+        fig.subplots_adjust(left=0, right=1, top=1, bottom=0, wspace=0.05,
+                            hspace=0)
+        fname = op.join(p.work_dir, subj, p.inverse_dir,
+                        op.basename(raw_fname)[:-4] +
+                        '_%s.png' % bem_type)
+        fig.savefig(fname, dpi=150, facecolor=fig.get_facecolor(),
+                    edgecolor='none')
 
 
 def gen_covariances(p, subjects, run_indices):
