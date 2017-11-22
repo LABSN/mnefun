@@ -413,6 +413,7 @@ class Params(Frozen):
         self.subject_run_indices = None
         self.autoreject_thresholds = False
         self.plot_pca = True
+        self.subjects_dir = None
         self.freeze()
 
     @property
@@ -540,7 +541,7 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
              'Status',
              ]
     score_fun = p.score if p.score is not None else default_score
-    if len(inspect.getargspec(score_fun).args) == 2:
+    if len(mne.utils._get_args(score_fun)) == 2:
         score_fun_two = score_fun
 
         def score_fun(p, subjects, run_indices):
@@ -1061,13 +1062,25 @@ def run_sss_locally(p, subjects, run_indices):
             _load_meg_bads(raw, prebad_file, disp=ii == 0, prefix=' ' * 6)
             print('      Processing %s ...' % op.basename(r))
             assert isinstance(p.trans_to, (string_types, tuple, type(None)))
-            if p.trans_to is 'median':
+            if p.trans_to == 'median':
                 trans_to = op.join(p.work_dir, subj, p.raw_dir,
                                    subj + '_median_pos.fif')
                 if not op.isfile(trans_to):
                     calc_median_hp(p, subj, trans_to, run_indices[si])
+            elif p.trans_to is None:
+                trans_to = None
             else:
-                trans_to = p.trans_to
+                trans_to = np.array(p.trans_to, float)
+                if trans_to.shape == (4,):
+                    t = np.eye(4)
+                    t[:3, 3] = trans_to[:3]
+                    theta = np.deg2rad(trans_to[3])
+                    t[1:3, 1:3] = [[np.cos(theta), -np.sin(theta)],
+                                   [np.sin(theta), np.cos(theta)]]
+                    trans_to = mne.Transform('meg', 'head', t)
+                elif trans_to.shape != (3,):
+                    raise ValueError('trans_to must have 3 or 4 elements, '
+                                     'got shape %s' % (trans_to.shape,))
 
             # estimate head position for movement compensation
             # pos = _calculate_chpi_positions(raw)
@@ -1181,7 +1194,15 @@ def extract_expyfun_events(fname, return_offsets=False):
     orig_events = find_events(raw, stim_channel='STI101', shortest_event=0)
     events = list()
     for ch in range(1, 9):
-        ev = find_events(raw, stim_channel='STI00%d' % ch)
+        stim_channel = 'STI%03d' % ch
+        ev_101 = find_events(raw, stim_channel='STI101', mask=2 ** (ch - 1),
+                             mask_type='and')
+        if stim_channel in raw.ch_names:
+            ev = find_events(raw, stim_channel=stim_channel)
+            if not np.array_equal(ev_101[:, 0], ev[:, 0]):
+                warnings.warn('Event coding mismatch between STIM channels')
+        else:
+            ev = ev_101
         ev[:, 2] = 2 ** (ch - 1)
         events.append(ev)
     events = np.concatenate(events)
@@ -1254,7 +1275,7 @@ def fix_eeg_files(p, subjects, structurals=None, dates=None, run_indices=None):
         fix_eeg_channels(names, anon)
 
 
-def get_fsaverage_medial_vertices(concatenate=True):
+def get_fsaverage_medial_vertices(concatenate=True, subjects_dir=None):
     """Returns fsaverage medial wall vertex numbers
 
     These refer to the standard fsaverage source space
@@ -1266,13 +1287,17 @@ def get_fsaverage_medial_vertices(concatenate=True):
         If True, the medial wall vertices from the right hemisphere
         will be shifted by 10242 and concatenated to those of the left.
         Useful when treating the source space as a single entity.
+    subjects_dir : str
+        Directory containing subjects data. If None use
+        the Freesurfer SUBJECTS_DIR environment variable.
 
     Returns
     -------
     vertices : list of array, or array
         The medial wall vertices.
     """
-    label_dir = op.join(get_config('SUBJECTS_DIR'), 'fsaverage', 'label')
+    subjects_dir = mne.utils.get_subjects_dir(subjects_dir, raise_error=True)
+    label_dir = op.join(subjects_dir, 'fsaverage', 'label')
     lh = read_label(op.join(label_dir, 'lh.Medial_wall.label'))
     rh = read_label(op.join(label_dir, 'rh.Medial_wall.label'))
     if concatenate is True:
@@ -1285,9 +1310,9 @@ def get_fsaverage_medial_vertices(concatenate=True):
 @verbose
 def get_fsaverage_label_operator(parc='aparc.a2009s', remove_bads=True,
                                  combine_medial=False, return_labels=False,
-                                 verbose=None):
+                                 subjects_dir=None, verbose=None):
     """Get a label operator matrix for fsaverage."""
-    subjects_dir = mne.get_config('SUBJECTS_DIR')
+    subjects_dir = mne.utils.get_subjects_dir(subjects_dir, raise_error=True)
     src = mne.read_source_spaces(op.join(
         subjects_dir, 'fsaverage', 'bem', 'fsaverage-5-src.fif'),
         verbose=False)
@@ -1326,8 +1351,8 @@ def get_fsaverage_label_operator(parc='aparc.a2009s', remove_bads=True,
 
 @verbose
 def combine_medial_labels(labels, subject='fsaverage', surf='white',
-                          dist_limit=0.02):
-    subjects_dir = mne.get_config('SUBJECTS_DIR')
+                          dist_limit=0.02, subjects_dir=None):
+    subjects_dir = mne.utils.get_subjects_dir(subjects_dir, raise_error=True)
     rrs = dict((hemi, mne.read_surface(op.join(subjects_dir, subject, 'surf',
                                        '%s.%s' % (hemi, surf)))[0] / 1000.)
                for hemi in ('lh', 'rh'))
@@ -1676,6 +1701,7 @@ def gen_forwards(p, subjects, structurals, run_indices):
     run_indices : array-like | None
         Run indices to include.
     """
+    subjects_dir = mne.utils.get_subjects_dir(p.subjects_dir, raise_error=True)
     for si, subj in enumerate(subjects):
         fwd_dir = op.join(p.work_dir, subj, p.forward_dir)
         if not op.isdir(fwd_dir):
@@ -1684,7 +1710,6 @@ def gen_forwards(p, subjects, structurals, run_indices):
                                    run_indices[si])[0]
         info = read_info(raw_fname)
 
-        subjects_dir = get_config('SUBJECTS_DIR')
         if structurals[si] is None:  # spherical case
             # create spherical BEM
             bem = make_sphere_model('auto', 'auto', info, verbose=False)
@@ -1703,7 +1728,7 @@ def gen_forwards(p, subjects, structurals, run_indices):
                 if not op.isfile(trans):
                     raise IOError('Unable to find head<->MRI trans file')
             src_space_file = op.join(subjects_dir, structurals[si], 'bem',
-                                     structurals[si] + '-oct-6-src.fif')
+                                     structurals[si] + '-oct6-src.fif')
             if not op.isfile(src_space_file):
                 print('  Creating source space for %s...' % subj)
                 src = setup_source_space(structurals[si], spacing='oct6',
