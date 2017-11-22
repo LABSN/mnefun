@@ -1683,6 +1683,7 @@ def gen_forwards(p, subjects, structurals, run_indices):
 
         subjects_dir = get_config('SUBJECTS_DIR')
         if structurals[si] is None:  # spherical case
+<<<<<<< Updated upstream
             # create spherical BEM
             bem = make_sphere_model(info=info, r0='auto',
                                     head_radius='auto')
@@ -1690,7 +1691,12 @@ def gen_forwards(p, subjects, structurals, run_indices):
             src = setup_volume_source_space(subject=subj, sphere=bem,
                                             pos=10.)
             trans = None
-            bem_type = 'spherical-BEM'
+            bem_type = 'spherical model'
+=======
+            bem, src = _spherical_conductor(info, subj, p.src_pos)
+            trans = None
+            bem_type = 'spherical-model'
+>>>>>>> Stashed changes
         else:
             trans = op.join(p.work_dir, subj, p.trans_dir, subj + '-trans.fif')
             if not op.isfile(trans):
@@ -2388,13 +2394,15 @@ def _viz_raw_ssp_events(p, subj, ridx):
 def gen_html_report(p, subjects, structurals, run_indices=None,
                     raw=True, evoked=True, cov=True, trans=True, epochs=True):
     """Generates HTML reports"""
-    types = ['filtered raw', 'evoked', 'covariance', 'trans', 'epochs']
+    types = ['filtered raw', 'evoked', 'covariance', 'trans', 'epochs',
+             'fwd']
     texts = ['*fil%d*sss.fif' % p.lp_cut, '*ave.fif',
-             '*cov.fif', '*trans.fif', '*epo.fif']
+             '*cov.fif', '*trans.fif', '*epo.fif',
+             '*fwd.fif']
     if run_indices is None:
         run_indices = [None] * len(subjects)
     for si, subj in enumerate(subjects):
-        bools = [raw, evoked, cov, trans, epochs]
+        bools = [raw, evoked, cov, trans, epochs, fwd]
         path = op.join(p.work_dir, subj)
         files = []
         for ii, (b, text) in enumerate(zip(bools, texts)):
@@ -2897,3 +2905,12 @@ def compute_auc(dip, tmin=-np.inf, tmax=np.inf):
     time_mask = _time_mask(dip.times, tmin, tmax, dip.info['sfreq'])
     data = dip.data[pick[0], time_mask]
     return np.sum(np.abs(data)) * len(data) * (1. / dip.info['sfreq'])
+
+
+def _spherical_conductor(info, subject, pos):
+    """Helper to make spherical conductor model."""
+    bem = make_sphere_model(info=info, r0='auto',
+                            head_radius='auto', verbose=False)
+    src = setup_volume_source_space(subject=subj, sphere=bem,
+                                    pos=pos, mindist=1.)
+    return(bem, src)
