@@ -21,7 +21,6 @@ import scipy
 from scipy import io as spio
 import matplotlib.pyplot as plt
 from numpy.testing import assert_allclose
-from mayavi import mlab
 
 import mne
 from mne import (compute_proj_raw, make_fixed_length_events, Epochs,
@@ -251,9 +250,9 @@ class Params(Frozen):
         If True use autoreject module to compute global rejection thresholds
         for epoching. Make sure autoreject module is installed. See
         http://autoreject.github.io/ for instructions.
-    plot_pca : bool
-        If set to True generate selected PCA component topographies and save
-        figures to disk in pca_fif folder.
+    src_pos : float
+        Default is 7 mm. Defines source grid spacing for volumetric source
+        space.
 
     Returns
     -------
@@ -413,7 +412,7 @@ class Params(Frozen):
         self.on_missing = 'error'  # for epochs
         self.subject_run_indices = None
         self.autoreject_thresholds = False
-        self.plot_pca = True
+        self.src_pos = 7.
         self.freeze()
 
     @property
@@ -1683,20 +1682,9 @@ def gen_forwards(p, subjects, structurals, run_indices):
 
         subjects_dir = get_config('SUBJECTS_DIR')
         if structurals[si] is None:  # spherical case
-<<<<<<< Updated upstream
-            # create spherical BEM
-            bem = make_sphere_model(info=info, r0='auto',
-                                    head_radius='auto')
-            # create source space
-            src = setup_volume_source_space(subject=subj, sphere=bem,
-                                            pos=10.)
-            trans = None
-            bem_type = 'spherical model'
-=======
             bem, src = _spherical_conductor(info, subj, p.src_pos)
             trans = None
             bem_type = 'spherical-model'
->>>>>>> Stashed changes
         else:
             trans = op.join(p.work_dir, subj, p.trans_dir, subj + '-trans.fif')
             if not op.isfile(trans):
@@ -1731,36 +1719,6 @@ def gen_forwards(p, subjects, structurals, run_indices):
             fwd = make_forward_solution(
                 info, trans, src, bem, n_jobs=p.n_jobs, mindist=p.fwd_mindist)
             write_forward_solution(fwd_name, fwd, overwrite=True)
-        # plot BEM & source space alignment
-        plt.rcParams['axes.titlesize'] = 'medium'
-        plt.rcParams['axes.titleweight'] = 'normal'
-        fontdict = dict(color='white',
-                        verticalalignment='top', horizontalalignment='center')
-        aln = mne.viz.plot_alignment(info, subjects_dir=subjects_dir,
-                                     bem=bem, src=src,
-                                     surfaces=['outer_skin', 'inner_skull'],
-                                     dig=True, coord_frame='meg',
-                                     show_axes=True)
-        aln.scene.parallel_projection = True
-        fig, axes = plt.subplots(1, 3, figsize=(6.5, 2.5), facecolor='k')
-        for ai, (angle, tv) in enumerate(zip([180, 90, 0], ['Left', 'Center',
-                                                            'right'])):
-            mlab.view(angle, 90, focalpoint=(0., 0., 0.), distance=0.6)
-            view = mlab.screenshot()
-            mask_w = (view == 0).all(axis=-1).all(axis=1)
-            mask_h = (view == 0).all(axis=-1).all(axis=0)
-            view = view[~mask_w][:, ~mask_h]
-            axes[ai].set_axis_off()
-            axes[ai].imshow(view, interpolation='bicubic')
-            axes[ai].set_title(tv, fontdict=fontdict)
-        mlab.close(aln)
-        fig.subplots_adjust(left=0, right=1, top=1, bottom=0, wspace=0.05,
-                            hspace=0)
-        fname = op.join(p.work_dir, subj, p.inverse_dir,
-                        op.basename(raw_fname)[:-4] +
-                        '_%s.png' % bem_type)
-        fig.savefig(fname, dpi=150, facecolor=fig.get_facecolor(),
-                    edgecolor='none')
 
 
 def gen_covariances(p, subjects, run_indices):
@@ -2053,9 +2011,6 @@ def do_preprocessing_combined(p, subjects, run_indices):
                 print('    Adding extra projectors from "%s".' % p.proj_extra)
             extra_proj = op.join(pca_dir, p.proj_extra)
             projs = read_proj(extra_proj)
-            if p.plot_pca:
-                h = plot_projs_topomap(projs, info=raw_orig.info, show=False)
-                h.savefig(extra_proj[:-4] + '.png', format='png', dpi=120)
 
         # Calculate and apply ERM projectors
         proj_nums = np.array(proj_nums, int)
@@ -2089,9 +2044,6 @@ def do_preprocessing_combined(p, subjects, run_indices):
                                   reject=None, flat=None, n_jobs=p.n_jobs_mkl)
             write_proj(cont_proj, pr)
             projs.extend(pr)
-            if p.plot_pca:
-                h = plot_projs_topomap(pr, info=raw.info, show=False)
-                h.savefig(cont_proj[:-4] + '.png', format='png', dpi=120)
             del raw
 
         # Calculate and apply the ECG projectors
@@ -2125,9 +2077,6 @@ def do_preprocessing_combined(p, subjects, run_indices):
                 raw.plot(events=ecg_events)
                 raise RuntimeError('Only %d/%d good ECG epochs found'
                                    % (n_good, len(ecg_events)))
-            if p.plot_pca:
-                h = plot_projs_topomap(pr, info=raw.info, show=False)
-                h.savefig(ecg_proj[:-4] + '.png', format='png', dpi=120)
             del raw
 
         # Next calculate and apply the EOG projectors
@@ -2156,9 +2105,6 @@ def do_preprocessing_combined(p, subjects, run_indices):
                 projs.extend(pr)
             else:
                 warnings.warn('Only %d EOG events!' % eog_events.shape[0])
-            if p.plot_pca:
-                h = plot_projs_topomap(pr, info=raw.info, show=False)
-                h.savefig(eog_proj[:-4] + '.png', format='png', dpi=120)
             del raw
 
         # save the projectors
@@ -2392,7 +2338,8 @@ def _viz_raw_ssp_events(p, subj, ridx):
 
 
 def gen_html_report(p, subjects, structurals, run_indices=None,
-                    raw=True, evoked=True, cov=True, trans=True, epochs=True):
+                    raw=True, evoked=True, cov=True, trans=True, epochs=True,
+                    fwd=True):
     """Generates HTML reports"""
     types = ['filtered raw', 'evoked', 'covariance', 'trans', 'epochs',
              'fwd']
@@ -2421,8 +2368,56 @@ def gen_html_report(p, subjects, structurals, run_indices=None,
         struc = structurals[si]
         report = Report(info_fname=info_fname, subject=struc,
                         baseline=_get_baseline(p))
-        report.parse_folder(data_path=path, mri_decim=10, n_jobs=p.n_jobs,
+        report.parse_folder(data_path=path, mri_decim=10,
                             pattern=patterns)
+        if 'forward' in report.sections:
+            try:
+                from mayavi import mlab
+                subjects_dir = get_config('SUBJECTS_DIR')
+                info = read_info(info_fname)
+                if struc is None:  # spherical case
+                    bem, src = _spherical_conductor(info, subj, p.src_pos)
+                else:
+                    bem = read_bem_solution(op.join(subjects_dir, struc,
+                                                    'bem', struc + '-' +
+                                                    p.bem_type +
+                                                    '-bem-sol.fif'))
+                    src = read_source_spaces(op.join(subjects_dir, struc,
+                                                     'bem', struc +
+                                                     '-oct-6-src.fif'))
+                fontdict = dict(color='black', verticalalignment='baseline',
+                                horizontalalignment='center',
+                                fontweight='light',
+                                fontsize='small')
+                aln = mne.viz.plot_alignment(info=info,
+                                             subjects_dir=subjects_dir,
+                                             bem=bem, src=src,
+                                             surfaces=['outer_skin',
+                                                       'inner_skull'],
+                                             dig=True, coord_frame='meg',
+                                             show_axes=True)
+                aln.scene.parallel_projection = True
+                fig, axes = plt.subplots(1, 3, figsize=(6.5, 3),
+                                         facecolor='white')
+
+                for ai, (angle, tv) in enumerate(zip([180, 90, 0], ['Left',
+                                                                    'Center',
+                                                                    'right'])):
+                    mlab.view(angle, 90, focalpoint=(0., 0., 0.),
+                              distance=0.6)
+                    view = mlab.screenshot()
+                    axes[ai].set_axis_off()
+                    axes[ai].set_axis_bgcolor('white')
+                    axes[ai].imshow(view, interpolation='bicubic',)
+                    axes[ai].set_title(tv, fontdict=fontdict)
+                mlab.close(aln)
+                fig.subplots_adjust(left=0, right=1, top=1, bottom=0, wspace=0,
+                                    hspace=0)
+                report.add_figs_to_section(fig,
+                                           captions='Source Space Alignment',
+                                           section='forward')
+            except ImportError:
+                continue
         report_fname = get_report_fnames(p, subj)[0]
         report.save(report_fname, open_browser=False, overwrite=True)
 
@@ -2911,6 +2906,6 @@ def _spherical_conductor(info, subject, pos):
     """Helper to make spherical conductor model."""
     bem = make_sphere_model(info=info, r0='auto',
                             head_radius='auto', verbose=False)
-    src = setup_volume_source_space(subject=subj, sphere=bem,
+    src = setup_volume_source_space(subject=subject, sphere=bem,
                                     pos=pos, mindist=1.)
-    return(bem, src)
+    return bem, src
