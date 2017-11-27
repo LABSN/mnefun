@@ -1709,8 +1709,9 @@ def gen_forwards(p, subjects, structurals, run_indices):
         raw_fname = get_raw_fnames(p, subj, 'sss', False, False,
                                    run_indices[si])[0]
         info = read_info(raw_fname)
+        struc = structurals[si]
 
-        if structurals[si] is None:  # spherical case
+        if struc is None:  # spherical case
             # create spherical BEM
             bem = make_sphere_model('auto', 'auto', info, verbose=False)
             # create source space
@@ -1727,16 +1728,19 @@ def gen_forwards(p, subjects, structurals, run_indices):
                                 subj + '-trans_head2mri.txt')
                 if not op.isfile(trans):
                     raise IOError('Unable to find head<->MRI trans file')
-            src_space_file = op.join(subjects_dir, structurals[si], 'bem',
-                                     structurals[si] + '-oct6-src.fif')
-            if not op.isfile(src_space_file):
+            for mid in ('oct6', 'oct-6'):
+                src_space_file = op.join(subjects_dir, struc, 'bem',
+                                         '%s-%s-src.fif' % (struc, mid))
+                if op.isfile(src_space_file):
+                    break
+            else:  # if neither exists, use last filename
                 print('  Creating source space for %s...' % subj)
-                src = setup_source_space(structurals[si], spacing='oct6',
+                src = setup_source_space(struc, spacing='oct6',
                                          n_jobs=p.n_jobs)
                 write_source_spaces(src_space_file, src)
             src = read_source_spaces(src_space_file)
-            bem = op.join(subjects_dir, structurals[si], 'bem',
-                          structurals[si] + '-' + p.bem_type + '-bem-sol.fif')
+            bem = op.join(subjects_dir, struc, 'bem', '%s-%s-bem-sol.fif'
+                          % (struc, p.bem_type))
             bem_type = ('%s-layer BEM' %
                         len(read_bem_solution(bem, verbose=False)['surfs']))
         if not getattr(p, 'translate_positions', True):
