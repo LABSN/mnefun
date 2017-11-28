@@ -319,7 +319,6 @@ class Params(Frozen):
         self.fir_design = 'firwin2'
         self.disp_files = True
         self.plot_drop_logs = False  # plot drop logs after do_preprocessing_
-        self.plot_head_position = False
         self.proj_sfreq = proj_sfreq
         self.decim = decim
         self.drop_thresh = drop_thresh
@@ -488,8 +487,6 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
         Generate SSP vectors.
     apply_ssp : bool
         Apply SSP vectors and filtering.
-    plot_psd : bool
-        Plot continuous raw data power spectra
     write_epochs : bool
         Write epochs to disk.
     gen_covs : bool
@@ -515,7 +512,6 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
              do_ch_fix,
              gen_ssp,
              apply_ssp,
-             plot_psd,
              write_epochs,
              gen_covs,
              gen_fwd,
@@ -531,7 +527,6 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
              'Fixing EEG order',
              'Preprocessing files',
              'Applying preprocessing',
-             'Plotting raw data power',
              'Doing epoch EQ/DQ',
              'Generating covariances',
              'Generating forward models',
@@ -553,7 +548,6 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
              fix_eeg_files,
              do_preprocessing_combined,
              apply_preprocessing_combined,
-             plot_raw_psd,
              save_epochs,
              gen_covariances,
              gen_forwards,
@@ -1072,11 +1066,6 @@ def run_sss_locally(p, subjects, run_indices):
             # estimate head position for movement compensation
             # pos = _calculate_chpi_positions(raw)
             pos = _headpos(p, r)
-
-            # plot head movement traces if requested
-            if p.plot_head_position:
-                fig = plot_head_positions(pos=pos)
-                fig.savefig(r[:-4] + '_hp.png', format='png', dpi=100)
 
             # filter cHPI signals
             if p.filter_chpi:
@@ -2338,19 +2327,21 @@ def _viz_raw_ssp_events(p, subj, ridx):
 
 
 def gen_html_report(p, subjects, structurals, run_indices=None,
-                    raw=True, evoked=True, cov=True, trans=True, epochs=True,
-                    fwd=True):
+                    raw=True, raw_sss=True, evoked=True, cov=True,
+                    trans=True, epochs=True,
+                    fwd=True, inv=True):
     """Generates HTML reports"""
-    types = ['filtered raw', 'evoked', 'covariance', 'trans', 'epochs',
-             'fwd']
-    texts = ['*fil%d*sss.fif' % p.lp_cut, '*ave.fif',
+    types = ['raw', 'filtered raw', 'evoked', 'covariance', 'trans', 'epochs',
+             'fwd', 'inv']
+    texts = ['*raw.fif', '*fil%d*sss.fif' % p.lp_cut, '*ave.fif',
              '*cov.fif', '*trans.fif', '*epo.fif',
-             '*fwd.fif']
+             '*fwd.fif', '*inv.fif']
     if run_indices is None:
         run_indices = [None] * len(subjects)
     for si, subj in enumerate(subjects):
-        bools = [raw, evoked, cov, trans, epochs, fwd]
+        bools = [raw, raw_sss, evoked, cov, trans, epochs, fwd, inv]
         path = op.join(p.work_dir, subj)
+        struc = structurals[si]
         files = []
         for ii, (b, text) in enumerate(zip(bools, texts)):
             files.append(glob.glob(path + '/*/' + text))
@@ -2360,21 +2351,56 @@ def gen_html_report(p, subjects, structurals, run_indices=None,
             print('    For %s no reports generated for:\n        %s'
                   % (subj, missing))
         patterns = [t for t, b in zip(texts, bools) if b]
-        fnames = get_raw_fnames(p, subj, 'pca', False, False, run_indices[si])
-        if not fnames:
+        raw_fif_fn = get_raw_fnames(p, subj, 'raw', False, True,
+                                    run_indices[si])[0]
+        if not raw_fif_fn:
+            raise RuntimeError('Could not find raw files for '
+                               'reporting.')
+        pca_fif_fn = get_raw_fnames(p, subj, 'pca', False, False,
+                                    run_indices[si])[0]
+        if not pca_fif_fn:
             raise RuntimeError('Could not find any processed files for '
                                'reporting.')
-        info_fname = op.join(path, fnames[0])
-        struc = structurals[si]
-        report = Report(info_fname=info_fname, subject=struc,
+        report = Report(info_fname=raw_fif_fn, subject=struc,
                         baseline=_get_baseline(p))
-        report.parse_folder(data_path=path, mri_decim=10,
-                            pattern=patterns)
+        if p.n_jobs != 'cuda':
+            n_jobs = p.n_jobs
+        else:
+            n_jobs = 1
+        report.parse_folder(data_path=path, mri_decim=10, n_jobs=n_jobs,
+                            pattern=patterns, sort_sections=True)
+        # Add HP coils SNR
+        fig = plot_good_coils(read_raw_fif(raw_fif_fn, allow_maxshield='yes'))
+        report.add_figs_to_section(fig, captions='cHPI coils',
+                                   section='cHPI')
+        # Add head movement traces
+        pos = _headpos(p, raw_fif_fn)
+        fig = plot_head_positions(pos=pos, show=False)
+        report.add_figs_to_section(fig, captions='Head Movement',
+                                   section='cHPI')
+        # Add raw psd
+        fig = read_raw_fif(raw_fif_fn,
+                           allow_maxshield='yes').plot_psd(show=False)
+        report.add_figs_to_section(fig, captions='Raw PSD',
+                                   section='raw')
+        # Add raw_pca psd
+        fig = read_raw_fif(pca_fif_fn).plot_psd(show=False)
+        report.add_figs_to_section(fig, captions='Clean raw PSD',
+                                   section='filtered')
+        # Add PCA topomaps
+        projs = op.join(p.work_dir, subj, p.pca_dir, 'preproc_all-proj.fif')
+        if op.isfile(projs):
+            projs = read_proj(projs)
+        fig = plot_projs_topomap(projs, info=read_info(pca_fif_fn),
+                                 show=False)
+        report.add_figs_to_section(fig, captions='PCA Topomaps',
+                                   section='filtered')
+        # Add src space alignment image
         if 'forward' in report.sections:
             try:
                 from mayavi import mlab
                 subjects_dir = get_config('SUBJECTS_DIR')
-                info = read_info(info_fname)
+                info = read_info(pca_fif_fn)
                 if struc is None:  # spherical case
                     bem, src = _spherical_conductor(info, subj, p.src_pos)
                 else:
@@ -2422,7 +2448,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None,
         report.save(report_fname, open_browser=False, overwrite=True)
 
 
-def plot_raw_psd(p, subjects, run_indices=None, tmin=0., fmin=2, n_fft=2048):
+def _plot_raw_psd(p, subjects, run_indices=None, tmin=0., fmin=2, n_fft=2048):
     """Plot data power for all available raw data files for a subject
 
     Parameters
