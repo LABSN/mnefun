@@ -1062,11 +1062,14 @@ def run_sss_locally(p, subjects, run_indices):
             _load_meg_bads(raw, prebad_file, disp=ii == 0, prefix=' ' * 6)
             print('      Processing %s ...' % op.basename(r))
             assert isinstance(p.trans_to, (string_types, tuple, type(None)))
-            if p.trans_to == 'median':
-                trans_to = op.join(p.work_dir, subj, p.raw_dir,
-                                   subj + '_median_pos.fif')
-                if not op.isfile(trans_to):
-                    calc_median_hp(p, subj, trans_to, run_indices[si])
+            if isinstance(p.trans_to, string_types):
+                if p.trans_to == 'median':
+                    trans_to = op.join(p.work_dir, subj, p.raw_dir,
+                                       subj + '_median_pos.fif')
+                    if not op.isfile(trans_to):
+                        calc_median_hp(p, subj, trans_to, run_indices[si])
+                else:
+                    trans_to = mne.read_trans(p.trans_to)
             elif p.trans_to is None:
                 trans_to = None
             else:
