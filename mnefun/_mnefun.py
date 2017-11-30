@@ -7,7 +7,6 @@ from __future__ import print_function
 import os
 import os.path as op
 from copy import deepcopy
-import inspect
 import warnings
 from shutil import move, copy2
 import subprocess
@@ -17,8 +16,7 @@ import time
 import sys
 
 import numpy as np
-import scipy
-from scipy import io as spio
+from scipy import linalg, io as spio
 import matplotlib.pyplot as plt
 from numpy.testing import assert_allclose
 
@@ -708,7 +706,7 @@ def fetch_raw_files(p, subjects, run_indices):
 
 def calc_median_hp(p, subj, out_file, ridx):
     """Calculate median head position"""
-    print('        Estimating median head position for %s... ' % subj)
+    print('        Estimating median head position ...')
     raw_files = get_raw_fnames(p, subj, 'raw', False, False, ridx)
     ts = []
     qs = []
@@ -732,6 +730,49 @@ def calc_median_hp(p, subj, out_file, ridx):
                       np.array([0, 0, 0, 1], t.dtype)[np.newaxis, :]]
         dev_head_t = {'to': 4, 'from': 1, 'trans': trans}
     info = _empty_info(info['sfreq'])
+    info['dev_head_t'] = dev_head_t
+    write_info(out_file, info)
+
+
+def calc_twa_hp(p, subj, out_file, ridx):
+    """Calculate time-weighted average head position."""
+    print('        Estimating time-weighted average head position ...')
+    raw_fnames = get_raw_fnames(p, subj, 'raw', False, False, ridx)
+    assert len(raw_fnames) >= 1
+    norm = 0
+    A = np.zeros((4, 4))
+    pos = np.zeros(3)
+    for raw_fname in raw_fnames:
+        raw = mne.io.read_raw_fif(raw_fname, allow_maxshield='yes',
+                                  verbose='error')
+        hp = _headpos(p, raw_fname)
+        dt = np.diff(np.concatenate((hp[:, 0],
+                                     [raw.last_samp / raw.info['sfreq']])))
+        assert (dt > 0).all()
+        pos += np.dot(dt, hp[:, 4:7])
+        these_qs = hp[:, 1:4]
+        res = 1 - np.sum(these_qs * these_qs, axis=-1, keepdims=True)
+        assert (res >= 0).all()
+        these_qs = np.concatenate((these_qs, np.sqrt(res)), axis=-1)
+        assert np.allclose(np.linalg.norm(these_qs, axis=1), 1)
+        these_qs *= dt[:, np.newaxis]
+        # rank 1 update method
+        # https://arc.aiaa.org/doi/abs/10.2514/1.28949?journalCode=jgcd
+        # https://github.com/tolgabirdal/averaging_quaternions/blob/master/wavg_quaternion_markley.m  # noqa: E501
+        # qs.append(these_qs)
+        outers = np.einsum('ij,ik->ijk', these_qs, these_qs)
+        A += outers.sum(axis=0)
+        norm += dt.sum()
+    A /= norm
+    best_q = linalg.eigh(A)[1][:, -1]  # largest eigenvector is the wavg
+    # Same as the largest eigenvector from the concatenation of all
+    # best_q = linalg.svd(np.concatenate(qs).T)[0][:, 0]
+    best_q = best_q[:3] * np.sign(best_q[-1])
+    trans = np.eye(4)
+    trans[:3, :3] = quat_to_rot(best_q)
+    trans[:3, 3] = pos / norm
+    dev_head_t = mne.Transform('meg', 'head', trans)
+    info = _empty_info(raw.info['sfreq'])
     info['dev_head_t'] = dev_head_t
     write_info(out_file, info)
 
@@ -1117,6 +1158,11 @@ def _load_trans_to(p, subj, run_indices, raw=None):
                                subj + '_median_pos.fif')
             if not op.isfile(trans_to):
                 calc_median_hp(p, subj, trans_to, run_indices)
+        elif p.trans_to == 'twa':
+            trans_to = op.join(p.work_dir, subj, p.raw_dir,
+                               subj + '_twa_pos.fif')
+            if not op.isfile(trans_to):
+                calc_twa_hp(p, subj, trans_to, run_indices[si])
         trans_to = mne.read_trans(trans_to)
     elif p.trans_to is None:
         trans_to = None if raw is None else raw.info['dev_head_t']
@@ -1522,6 +1568,7 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
                         reject_tmin=p.reject_tmin, reject_tmax=p.reject_tmax)
         del raw
         if epochs.events.shape[0] < 1:
+            epochs.plot_drop_log()
             raise ValueError('No valid epochs')
         drop_logs.append(epochs.drop_log)
         ch_namess.append(epochs.ch_names)
@@ -2846,7 +2893,7 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics=None, show=True):
     allfreqs = np.concatenate([linefreqs, cfreqs])
     model[:, 2::2] = np.cos(2 * np.pi * t[:, np.newaxis] * allfreqs)
     model[:, 3::2] = np.sin(2 * np.pi * t[:, np.newaxis] * allfreqs)
-    inv_model = scipy.linalg.pinv(model)
+    inv_model = linalg.pinv(model)
 
     # drop last buffer to avoid overrun
     bufs = np.arange(0, raw.n_times, buflen)[:-1]
