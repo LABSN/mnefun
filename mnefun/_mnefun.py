@@ -2369,19 +2369,10 @@ def gen_html_report(p, subjects, structurals, run_indices=None,
     """Generates HTML reports"""
     types = ['raw', 'filtered raw', 'evoked', 'covariance', 'trans', 'epochs',
              'fwd', 'inv']
-    texts = ['*raw.fif', '*fil%d*sss.fif' % p.lp_cut, '*ave.fif',
-             '*cov.fif', '*trans.fif', '*epo.fif',
-             '*fwd.fif', '*inv.fif']
     if run_indices is None:
         run_indices = [None] * len(subjects)
     for si, subj in enumerate(subjects):
         texts = list()
-        texts.append(['%s_%s_' % (subj, p.raw_fif_tag).join(re.compile(.+))])
-        texts.append([ii + safe_inserter('_%s' + p.inv_tag, p.lp_cut) +
-                      '_%s_%s-ave.fif' % (p.eq_tag, subjects[0])
-                      for ii in p.analyses])
-
-
         bools = [raw, raw_sss, evoked, cov, trans, epochs, fwd, inv]
         path = op.join(p.work_dir, subj)
         struc = structurals[si]
@@ -2393,19 +2384,13 @@ def gen_html_report(p, subjects, structurals, run_indices=None,
         if len(missing) > 0:
             print('    For %s no reports generated for:\n        %s'
                   % (subj, missing))
-        patterns = [t for t, b in zip(texts, bools) if b]
         raw_fif_fn = get_raw_fnames(p, subj, 'raw', False, True,
                                     run_indices[si])[0]
         if not op.isfile(raw_fif_fn):
             raise RuntimeError('Could not find raw files for '
                                'reporting.')
-        pca_fif_fn = get_raw_fnames(p, subj, 'pca', False, False,
-                                    run_indices[si])[0]
-        if not op.isfile(pca_fif_fn):
-            raise RuntimeError('Could not find any processed files for '
-                               'reporting.')
         report = Report(info_fname=raw_fif_fn, subject=struc,
-                        baseline=_get_baseline(p))
+                        baseline=_get_baseline(p), verbose='DEBUG')
         # Add HP coils SNR
         fig = plot_good_coils(read_raw_fif(raw_fif_fn, allow_maxshield='yes'))
         report.add_figs_to_section(fig, captions='cHPI coils',
@@ -2417,25 +2402,35 @@ def gen_html_report(p, subjects, structurals, run_indices=None,
                                    section='cHPI')
         # Add raw psd
         fig = read_raw_fif(raw_fif_fn,
-                           allow_maxshield='yes').plot_psd(show=False)
+                           allow_maxshield='yes').plot_psd(n_fft=1024,
+                                                           show=False)
         report.add_figs_to_section(fig, captions='Raw PSD',
                                    section='raw')
-        report.parse_folder(data_path=path, mri_decim=10, n_jobs=1,
-                            pattern=patterns, sort_sections=True,
-                            render_bem=False)
-
         # Add raw_pca psd
-        fig = read_raw_fif(pca_fif_fn).plot_psd(show=False)
-        report.add_figs_to_section(fig, captions='Clean raw PSD',
-                                   section='filtered')
+        pca_fif_fn = get_raw_fnames(p, subj, 'pca', False, False,
+                                    run_indices[si])[0]
+        if op.isfile(pca_fif_fn):
+            fig = read_raw_fif(pca_fif_fn).plot_psd(n_fft=1024,
+                                                    show=False)
+            report.add_figs_to_section(fig, captions='Clean raw PSD',
+                                       section='filtered')
+        else:
+            warnings.warn('Could not find filtered file for reporting.')
+
+        texts.append([ii + safe_inserter('_%s' + p.inv_tag, p.lp_cut) +
+                      '_%s_%s-ave.fif' % (p.eq_tag, subjects[0])
+                      for ii in p.analyses])
+        patterns = [t for t, b in zip(texts, bools) if b]
+        #report.parse_folder(data_path=path, n_jobs=1,
+        #                    pattern=patterns, verbose='DEBUG')
         # Add PCA topomaps
         projs = op.join(p.work_dir, subj, p.pca_dir, 'preproc_all-proj.fif')
         if op.isfile(projs):
             projs = read_proj(projs)
-        fig = plot_projs_topomap(projs, info=read_info(pca_fif_fn),
-                                 show=False)
-        report.add_figs_to_section(fig, captions='PCA Topomaps',
-                                   section='filtered')
+            fig = plot_projs_topomap(projs, info=read_info(pca_fif_fn),
+                                     show=False)
+            report.add_figs_to_section(fig, captions='PCA Topomaps',
+                                       section='filtered')
         # Add src space alignment image
         if 'forward' in report.sections:
             try:
