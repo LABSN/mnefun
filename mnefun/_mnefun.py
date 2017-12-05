@@ -1122,16 +1122,16 @@ def _load_trans_to(p, subj, run_indices, raw=None):
         trans_to = None if raw is None else raw.info['dev_head_t']
     else:
         trans_to = np.array(p.trans_to, float)
+        t = np.eye(4)
         if trans_to.shape == (4,):
-            t = np.eye(4)
-            t[:3, 3] = trans_to[:3]
             theta = np.deg2rad(trans_to[3])
             t[1:3, 1:3] = [[np.cos(theta), -np.sin(theta)],
                            [np.sin(theta), np.cos(theta)]]
-            trans_to = mne.Transform('meg', 'head', t)
         elif trans_to.shape != (3,):
             raise ValueError('trans_to must have 3 or 4 elements, '
                              'got shape %s' % (trans_to.shape,))
+        t[:3, 3] = trans_to[:3]
+        trans_to = mne.Transform('meg', 'head', t)
     if trans_to is not None:
         trans_to = mne.transforms._ensure_trans(trans_to, 'meg', 'head')
     return trans_to

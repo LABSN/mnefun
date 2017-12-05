@@ -50,6 +50,12 @@ params.score = score  # Scoring function used to slice data into trials
 params.subject_indices = np.arange(2)  # Define which subjects to run
 params.plot_drop_logs = False  # Turn off so plots do not halt processing
 
+# The default is to use the median (across runs) of the starting head positions
+# params.trans_to = 'median'
+
+# You can also use a ranslation, plus x-axis rotation  (-30 means backward 30°)
+params.trans_to = (0., 0., 0.05, -30)
+
 # Set parameters for remotely connecting to acquisition computer
 params.acq_ssh = 'minea'  # Could also be e.g., "eric@minea.ilabs.uw.edu"
 # Pass list of paths to search and fetch raw data
@@ -110,28 +116,28 @@ params.must_match = [
 # Set what processing steps will execute
 mnefun.do_processing(
     params,
-    fetch_raw=False,     # Fetch raw recording files from acquisition machine
-    do_score=False,      # Do scoring to slice data into trials
+    fetch_raw=True,     # Fetch raw recording files from acquisition machine
+    do_score=True,      # Do scoring to slice data into trials
 
     # Before running SSS, make SUBJ/raw_fif/SUBJ_prebad.txt file with
     # space-separated list of bad MEG channel numbers
-    push_raw=False,      # Push raw files and SSS script to SSS workstation
-    do_sss=False,        # Run SSS remotely (on sws) or locally with mne-python
-    fetch_sss=False,     # Fetch SSSed files from SSS workstation
-    do_ch_fix=False,     # Fix channel ordering
+    push_raw=True,      # Push raw files and SSS script to SSS workstation
+    do_sss=True,        # Run SSS remotely (on sws) or locally with mne-python
+    fetch_sss=True,     # Fetch SSSed files from SSS workstation
+    do_ch_fix=True,     # Fix channel ordering
 
     # Before running SSP, examine SSS'ed files and make
     # SUBJ/bads/bad_ch_SUBJ_post-sss.txt; usually, this should only contain EEG
     # channels.
-    gen_ssp=False,       # Generate SSP vectors
-    apply_ssp=False,     # Apply SSP vectors and filtering
-    plot_psd=False,      # Plot raw data power spectra
-    write_epochs=False,  # Write epochs to disk
-    gen_covs=False,      # Generate covariances
+    gen_ssp=True,       # Generate SSP vectors
+    apply_ssp=True,     # Apply SSP vectors and filtering
+    plot_psd=True,      # Plot raw data power spectra
+    write_epochs=True,  # Write epochs to disk
+    gen_covs=True,      # Generate covariances
 
     # Make SUBJ/trans/SUBJ-trans.fif using mne_analyze; needed for fwd calc.
-    gen_fwd=False,       # Generate forward solutions (and src space if needed)
-    gen_inv=False,       # Generate inverses
+    gen_fwd=True,       # Generate forward solutions (and src space if needed)
+    gen_inv=True,       # Generate inverses
     gen_report=True,    # Write mne report html of results to disk
-    print_status=False,  # Print completeness status update
+    print_status=True,  # Print completeness status update
 )
