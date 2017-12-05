@@ -2398,17 +2398,25 @@ def gen_html_report(p, subjects, structurals, run_indices=None,
         print('  Processing subject %s/%s (%s)'
               % (si + 1, len(subjects), subj))
 
+        # raw
         fnames = get_raw_fnames(p, subj, 'raw', erm=False, add_splits=True,
                                 run_indices=run_indices[si])
-        pca_fnames = get_raw_fnames(p, subj, 'pca', False, False,
-                                    run_indices[si])
         if not all(op.isfile(fname) for fname in fnames):
             raise RuntimeError('Cannot create reports until raw data exist')
         raw = mne.concatenate_raws(
             [read_raw_fif(fname, allow_maxshield='yes')
              for fname in fnames])
+
+        # sss
+        sss_fnames = get_raw_fnames(p, subj, 'sss', False, False,
+                                    run_indices[si])
+        has_sss = all(op.isfile(fname) for fname in sss_fnames)
+        sss_info = mne.io.read_info(sss_fnames[0]) if has_sss else None
+
+        # pca
+        pca_fnames = get_raw_fnames(p, subj, 'pca', False, False,
+                                    run_indices[si])
         has_pca = all(op.isfile(fname) for fname in pca_fnames)
-        info = raw.info
 
         with plt.style.context(style):
             ljust = 25
@@ -2416,7 +2424,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None,
             # Head coils
             #
             section = 'HPI coil SNR'
-            if p.report_params['coil_snr']:
+            if p.report_params.get('coil_snr', True):
                 t0 = time.time()
                 print(('    %s ... ' % section).ljust(ljust), end='')
                 if p.report_params['coil_t_step'] == 'auto':
@@ -2436,7 +2444,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None,
             # Head movement
             #
             section = 'Head movement'
-            if p.report_params['head_movement']:
+            if p.report_params.get('head_movement', True):
                 print(('    %s ... ' % section).ljust(ljust), end='')
                 t0 = time.time()
                 trans_to = _load_trans_to(p, subj, run_indices[si], raw)
@@ -2456,7 +2464,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None,
             # PSD
             #
             section = 'PSD'
-            if p.report_params['psd'] and has_pca:
+            if p.report_params.get('psd', True) and has_pca:
                 t0 = time.time()
                 print(('    %s ... ' % section).ljust(ljust), end='')
                 if p.lp_trans == 'auto':
@@ -2485,8 +2493,6 @@ def gen_html_report(p, subjects, structurals, run_indices=None,
                     for ax in axes:
                         ax.set_ylim(ylims)
                         ax.set(title='')
-                        if ai != n - 1:
-                            ax.set(xticklabels=[])
                 for fig in figs:
                     fig.set_size_inches(8, 8)
                     fig.tight_layout()
@@ -2500,7 +2506,8 @@ def gen_html_report(p, subjects, structurals, run_indices=None,
             # SSP
             #
             section = 'SSP topomaps'
-            if p.report_params['ssp_topomaps'] and has_pca:
+            if p.report_params.get('ssp_topomaps', True) and has_pca:
+                assert sss_info is not None
                 t0 = time.time()
                 print(('    %s ... ' % section).ljust(ljust), end='')
                 captions = []
@@ -2509,25 +2516,25 @@ def gen_html_report(p, subjects, structurals, run_indices=None,
                     captions.append('%s: Custom' % section)
                     projs = read_proj(op.join(p.work_dir, subj, p.pca_dir,
                                               p.proj_extra))
-                    figs.append(plot_projs_topomap(projs, info=info,
+                    figs.append(plot_projs_topomap(projs, info=sss_info,
                                                    show=False))
                 if any(p.proj_nums[0]):  # ECG
                     captions.append('%s: ECG' % section)
                     projs = read_proj(op.join(p.work_dir, subj, p.pca_dir,
                                               'preproc_ecg-proj.fif'))
-                    figs.append(plot_projs_topomap(projs, info=info,
+                    figs.append(plot_projs_topomap(projs, info=sss_info,
                                                    show=False))
                 if any(p.proj_nums[1]):  # EOG
                     captions.append('%s: Blink' % section)
                     projs = read_proj(op.join(p.work_dir, subj, p.pca_dir,
                                               'preproc_blink-proj.fif'))
-                    figs.append(plot_projs_topomap(projs, info=info,
+                    figs.append(plot_projs_topomap(projs, info=sss_info,
                                                    show=False))
                 if any(p.proj_nums[2]):  # ERM
                     captions.append('%s: Continuous' % section)
                     projs = read_proj(op.join(p.work_dir, subj, p.pca_dir,
                                               'preproc_cont-proj.fif'))
-                    figs.append(plot_projs_topomap(projs, info=info,
+                    figs.append(plot_projs_topomap(projs, info=sss_info,
                                                    show=False))
                 report.add_figs_to_section(figs, captions, section,
                                            image_format='svg')
@@ -2539,7 +2546,8 @@ def gen_html_report(p, subjects, structurals, run_indices=None,
             # Source alignment
             #
             section = 'Source alignment'
-            if p.report_params['source_alignment']:
+            if p.report_params.get('source_alignment', True) and has_sss:
+                assert sss_info is not None
                 t0 = time.time()
                 print(('    %s ... ' % section).ljust(ljust), end='')
                 captions = ['Left', 'Front', 'Right']
@@ -2553,16 +2561,19 @@ def gen_html_report(p, subjects, structurals, run_indices=None,
                     subjects_dir = mne.utils.get_subjects_dir(
                         p.subjects_dir, raise_error=True)
                     bem, src, trans, _ = _get_bem_src_trans(
-                        p, info, subj, struc)
+                        p, sss_info, subj, struc)
                     offscreen = mlab.options.offscreen
                     mlab.options.offscreen = True
                     tempdir = mne.utils._TempDir()
-                    coord_frame = 'meg' if len(pick_types(info)) else 'head'
+                    if len(pick_types(sss_info)):
+                        coord_frame = 'meg'
+                    else:
+                        coord_frame = 'head'
                     try:
                         fig = mlab.figure(bgcolor=(0., 0., 0.),
                                           size=(1000, 1000))
                         kwargs = dict(
-                            info=info, subjects_dir=subjects_dir, bem=bem,
+                            info=sss_info, subjects_dir=subjects_dir, bem=bem,
                             dig=True, coord_frame=coord_frame, show_axes=True,
                             fig=fig, trans=trans, src=src)
                         try:
@@ -2593,10 +2604,10 @@ def gen_html_report(p, subjects, structurals, run_indices=None,
             # BEM
             #
             section = 'BEM'
-            if p.report_params['bem']:
+            if p.report_params.get('bem', True):
                 caption = '%s: %s' % (section, struc)
                 bem, src, trans, _ = _get_bem_src_trans(
-                    p, info, subj, struc)
+                    p, raw.info, subj, struc)
                 if not bem['is_sphere']:
                     t0 = time.time()
                     print(('    %s ... ' % section).ljust(ljust), end='')
