@@ -53,3 +53,4 @@ env/
 .cache/
 cachedir/
 examples/funloc/cachedir/
+.ropeproject/

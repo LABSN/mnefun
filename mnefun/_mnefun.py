@@ -250,9 +250,9 @@ class Params(Frozen):
         If True use autoreject module to compute global rejection thresholds
         for epoching. Make sure autoreject module is installed. See
         http://autoreject.github.io/ for instructions.
-    plot_pca : bool
-        If set to True generate selected PCA component topographies and save
-        figures to disk in pca_fif folder.
+    src_pos : float
+        Default is 7 mm. Defines source grid spacing for volumetric source
+        space.
 
     Returns
     -------
@@ -319,7 +319,6 @@ class Params(Frozen):
         self.fir_design = 'firwin2'
         self.disp_files = True
         self.plot_drop_logs = False  # plot drop logs after do_preprocessing_
-        self.plot_head_position = False
         self.proj_sfreq = proj_sfreq
         self.decim = decim
         self.drop_thresh = drop_thresh
@@ -412,8 +411,16 @@ class Params(Frozen):
         self.on_missing = 'error'  # for epochs
         self.subject_run_indices = None
         self.autoreject_thresholds = False
-        self.plot_pca = True
         self.subjects_dir = None
+        self.src_pos = 7.
+        self.report_params = dict(
+            coil_snr=True,
+            head_movement=True,
+            psd=True,
+            ssp_topomaps=True,
+            source_alignment=True,
+            bem=True,
+            coil_t_step='auto')
         self.freeze()
 
     @property
@@ -489,8 +496,6 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
         Generate SSP vectors.
     apply_ssp : bool
         Apply SSP vectors and filtering.
-    plot_psd : bool
-        Plot continuous raw data power spectra
     write_epochs : bool
         Write epochs to disk.
     gen_covs : bool
@@ -516,7 +521,6 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
              do_ch_fix,
              gen_ssp,
              apply_ssp,
-             plot_psd,
              write_epochs,
              gen_covs,
              gen_fwd,
@@ -532,7 +536,6 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
              'Fixing EEG order',
              'Preprocessing files',
              'Applying preprocessing',
-             'Plotting raw data power',
              'Doing epoch EQ/DQ',
              'Generating covariances',
              'Generating forward models',
@@ -554,7 +557,6 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
              fix_eeg_files,
              do_preprocessing_combined,
              apply_preprocessing_combined,
-             plot_raw_psd,
              save_epochs,
              gen_covariances,
              gen_forwards,
@@ -920,7 +922,8 @@ def run_sss_command(fname_in, options, fname_out, host='kasga', port=22,
         if fname_pos is not None:
             try:
                 cmd = ['scp', '-P' + port, host + ':' + remote_pos, fname_pos]
-                run_subprocess(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                run_subprocess(cmd, stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE)
             except Exception:
                 pass
         cmd = ['scp', '-P' + port, host + ':' + remote_out, fname_out]
@@ -1062,37 +1065,11 @@ def run_sss_locally(p, subjects, run_indices):
             _load_meg_bads(raw, prebad_file, disp=ii == 0, prefix=' ' * 6)
             print('      Processing %s ...' % op.basename(r))
             assert isinstance(p.trans_to, (string_types, tuple, type(None)))
-            if isinstance(p.trans_to, string_types):
-                if p.trans_to == 'median':
-                    trans_to = op.join(p.work_dir, subj, p.raw_dir,
-                                       subj + '_median_pos.fif')
-                    if not op.isfile(trans_to):
-                        calc_median_hp(p, subj, trans_to, run_indices[si])
-                else:
-                    trans_to = mne.read_trans(p.trans_to)
-            elif p.trans_to is None:
-                trans_to = None
-            else:
-                trans_to = np.array(p.trans_to, float)
-                if trans_to.shape == (4,):
-                    t = np.eye(4)
-                    t[:3, 3] = trans_to[:3]
-                    theta = np.deg2rad(trans_to[3])
-                    t[1:3, 1:3] = [[np.cos(theta), -np.sin(theta)],
-                                   [np.sin(theta), np.cos(theta)]]
-                    trans_to = mne.Transform('meg', 'head', t)
-                elif trans_to.shape != (3,):
-                    raise ValueError('trans_to must have 3 or 4 elements, '
-                                     'got shape %s' % (trans_to.shape,))
+            trans_to = _load_trans_to(p, subj, run_indices[si])
 
             # estimate head position for movement compensation
             # pos = _calculate_chpi_positions(raw)
             pos = _headpos(p, r)
-
-            # plot head movement traces if requested
-            if p.plot_head_position:
-                fig = plot_head_positions(pos=pos)
-                fig.savefig(r[:-4] + '_hp.png', format='png', dpi=100)
 
             # filter cHPI signals
             if p.filter_chpi:
@@ -1131,6 +1108,33 @@ def run_sss_locally(p, subjects, run_indices):
                 destination=None, coord_frame='meg')
             print('%i sec' % (time.time() - t0,))
             raw_sss.save(o, overwrite=True, buffer_size_sec=None)
+
+
+def _load_trans_to(p, subj, run_indices, raw=None):
+    if isinstance(p.trans_to, string_types):
+        if p.trans_to == 'median':
+            trans_to = op.join(p.work_dir, subj, p.raw_dir,
+                               subj + '_median_pos.fif')
+            if not op.isfile(trans_to):
+                calc_median_hp(p, subj, trans_to, run_indices)
+        trans_to = mne.read_trans(trans_to)
+    elif p.trans_to is None:
+        trans_to = None if raw is None else raw.info['dev_head_t']
+    else:
+        trans_to = np.array(p.trans_to, float)
+        t = np.eye(4)
+        if trans_to.shape == (4,):
+            theta = np.deg2rad(trans_to[3])
+            t[1:3, 1:3] = [[np.cos(theta), -np.sin(theta)],
+                           [np.sin(theta), np.cos(theta)]]
+        elif trans_to.shape != (3,):
+            raise ValueError('trans_to must have 3 or 4 elements, '
+                             'got shape %s' % (trans_to.shape,))
+        t[:3, 3] = trans_to[:3]
+        trans_to = mne.Transform('meg', 'head', t)
+    if trans_to is not None:
+        trans_to = mne.transforms._ensure_trans(trans_to, 'meg', 'head')
+    return trans_to
 
 
 def _load_meg_bads(raw, prebad_file, disp=True, prefix='     '):
@@ -1704,48 +1708,15 @@ def gen_forwards(p, subjects, structurals, run_indices):
     run_indices : array-like | None
         Run indices to include.
     """
-    subjects_dir = mne.utils.get_subjects_dir(p.subjects_dir, raise_error=True)
     for si, subj in enumerate(subjects):
+        struc = structurals[si]
         fwd_dir = op.join(p.work_dir, subj, p.forward_dir)
         if not op.isdir(fwd_dir):
             os.mkdir(fwd_dir)
         raw_fname = get_raw_fnames(p, subj, 'sss', False, False,
                                    run_indices[si])[0]
         info = read_info(raw_fname)
-        struc = structurals[si]
-
-        if struc is None:  # spherical case
-            # create spherical BEM
-            bem = make_sphere_model('auto', 'auto', info, verbose=False)
-            # create source space
-            sphere = np.concatenate((bem['r0'], [bem['layers'][0]['rad']]))
-            sphere *= 1000.  # to mm
-            src = setup_volume_source_space(subject=subj, pos=7.0, sphere=sphere,
-                                            mindist=1.)
-            trans = None
-            bem_type = 'spherical model'
-        else:
-            trans = op.join(p.work_dir, subj, p.trans_dir, subj + '-trans.fif')
-            if not op.isfile(trans):
-                trans = op.join(p.work_dir, subj, p.trans_dir,
-                                subj + '-trans_head2mri.txt')
-                if not op.isfile(trans):
-                    raise IOError('Unable to find head<->MRI trans file')
-            for mid in ('oct6', 'oct-6'):
-                src_space_file = op.join(subjects_dir, struc, 'bem',
-                                         '%s-%s-src.fif' % (struc, mid))
-                if op.isfile(src_space_file):
-                    break
-            else:  # if neither exists, use last filename
-                print('  Creating source space for %s...' % subj)
-                src = setup_source_space(struc, spacing='oct6',
-                                         n_jobs=p.n_jobs)
-                write_source_spaces(src_space_file, src)
-            src = read_source_spaces(src_space_file)
-            bem = op.join(subjects_dir, struc, 'bem', '%s-%s-bem-sol.fif'
-                          % (struc, p.bem_type))
-            bem_type = ('%s-layer BEM' %
-                        len(read_bem_solution(bem, verbose=False)['surfs']))
+        bem, src, trans, bem_type = _get_bem_src_trans(p, info, subj, struc)
         if not getattr(p, 'translate_positions', True):
             raise RuntimeError('Not translating positions is no longer '
                                'supported')
@@ -1761,6 +1732,38 @@ def gen_forwards(p, subjects, structurals, run_indices):
             fwd = make_forward_solution(
                 info, trans, src, bem, n_jobs=p.n_jobs, mindist=p.fwd_mindist)
             write_forward_solution(fwd_name, fwd, overwrite=True)
+
+
+def _get_bem_src_trans(p, info, subj, struc):
+    subjects_dir = mne.utils.get_subjects_dir(p.subjects_dir, raise_error=True)
+    if struc is None:  # spherical case
+        bem, src, trans = _spherical_conductor(info, subj, p.src_pos)
+        bem_type = 'spherical-model'
+    else:
+        trans = op.join(p.work_dir, subj, p.trans_dir, subj + '-trans.fif')
+        if not op.isfile(trans):
+            trans = op.join(p.work_dir, subj, p.trans_dir,
+                            subj + '-trans_head2mri.txt')
+            if not op.isfile(trans):
+                raise IOError('Unable to find head<->MRI trans file')
+        trans = mne.read_trans(trans)
+        trans = mne.transforms._ensure_trans(trans, 'mri', 'head')
+        for mid in ('oct6', 'oct-6'):
+            src_space_file = op.join(subjects_dir, struc, 'bem',
+                                     '%s-%s-src.fif' % (struc, mid))
+            if op.isfile(src_space_file):
+                break
+        else:  # if neither exists, use last filename
+            print('  Creating source space for %s...' % subj)
+            src = setup_source_space(struc, spacing='oct6',
+                                     n_jobs=p.n_jobs)
+            write_source_spaces(src_space_file, src)
+        src = read_source_spaces(src_space_file)
+        bem = op.join(subjects_dir, struc, 'bem', '%s-%s-bem-sol.fif'
+                      % (struc, p.bem_type))
+        bem = mne.read_bem_solution(bem, verbose=False)
+        bem_type = ('%s-layer BEM' % len(bem['surfs']))
+    return bem, src, trans, bem_type
 
 
 def gen_covariances(p, subjects, run_indices):
@@ -2053,9 +2056,6 @@ def do_preprocessing_combined(p, subjects, run_indices):
                 print('    Adding extra projectors from "%s".' % p.proj_extra)
             extra_proj = op.join(pca_dir, p.proj_extra)
             projs = read_proj(extra_proj)
-            if p.plot_pca:
-                h = plot_projs_topomap(projs, info=raw_orig.info, show=False)
-                h.savefig(extra_proj[:-4] + '.png', format='png', dpi=120)
 
         # Calculate and apply ERM projectors
         proj_nums = np.array(proj_nums, int)
@@ -2089,9 +2089,6 @@ def do_preprocessing_combined(p, subjects, run_indices):
                                   reject=None, flat=None, n_jobs=p.n_jobs_mkl)
             write_proj(cont_proj, pr)
             projs.extend(pr)
-            if p.plot_pca:
-                h = plot_projs_topomap(pr, info=raw.info, show=False)
-                h.savefig(cont_proj[:-4] + '.png', format='png', dpi=120)
             del raw
 
         # Calculate and apply the ECG projectors
@@ -2125,9 +2122,6 @@ def do_preprocessing_combined(p, subjects, run_indices):
                 raw.plot(events=ecg_events)
                 raise RuntimeError('Only %d/%d good ECG epochs found'
                                    % (n_good, len(ecg_events)))
-            if p.plot_pca:
-                h = plot_projs_topomap(pr, info=raw.info, show=False)
-                h.savefig(ecg_proj[:-4] + '.png', format='png', dpi=120)
             del raw
 
         # Next calculate and apply the EOG projectors
@@ -2156,9 +2150,6 @@ def do_preprocessing_combined(p, subjects, run_indices):
                 projs.extend(pr)
             else:
                 warnings.warn('Only %d EOG events!' % eog_events.shape[0])
-            if p.plot_pca:
-                h = plot_projs_topomap(pr, info=raw.info, show=False)
-                h.savefig(eog_proj[:-4] + '.png', format='png', dpi=120)
             del raw
 
         # save the projectors
@@ -2392,91 +2383,243 @@ def _viz_raw_ssp_events(p, subj, ridx):
 
 
 def gen_html_report(p, subjects, structurals, run_indices=None,
-                    raw=True, evoked=True, cov=True, trans=True, epochs=True):
+                    raw=True, raw_sss=True, evoked=True, cov=True,
+                    trans=True, epochs=True,
+                    fwd=True, inv=True):
     """Generates HTML reports"""
-    types = ['filtered raw', 'evoked', 'covariance', 'trans', 'epochs']
-    texts = ['*fil%d*sss.fif' % p.lp_cut, '*ave.fif',
-             '*cov.fif', '*trans.fif', '*epo.fif']
+    from matplotlib.image import imsave
     if run_indices is None:
         run_indices = [None] * len(subjects)
+    style = {'axes.spines.right': 'off', 'axes.spines.top': 'off',
+             'axes.grid': True}
     for si, subj in enumerate(subjects):
-        bools = [raw, evoked, cov, trans, epochs]
-        path = op.join(p.work_dir, subj)
-        files = []
-        for ii, (b, text) in enumerate(zip(bools, texts)):
-            files.append(glob.glob(path + '/*/' + text))
-        bools = [False if not f else b for f, b in zip(files, bools)]
-        missing = ', '.join([t for t, b in zip(types, bools) if not b])
-        if len(missing) > 0:
-            print('    For %s no reports generated for:\n        %s'
-                  % (subj, missing))
-        patterns = [t for t, b in zip(texts, bools) if b]
-        fnames = get_raw_fnames(p, subj, 'pca', False, False, run_indices[si])
-        if not fnames:
-            raise RuntimeError('Could not find any processed files for '
-                               'reporting.')
-        info_fname = op.join(path, fnames[0])
         struc = structurals[si]
-        report = Report(info_fname=info_fname, subject=struc,
-                        baseline=_get_baseline(p))
-        report.parse_folder(data_path=path, mri_decim=10, n_jobs=p.n_jobs,
-                            pattern=patterns)
+        report = Report(verbose=False)
+        print('  Processing subject %s/%s (%s)'
+              % (si + 1, len(subjects), subj))
+
+        # raw
+        fnames = get_raw_fnames(p, subj, 'raw', erm=False, add_splits=True,
+                                run_indices=run_indices[si])
+        if not all(op.isfile(fname) for fname in fnames):
+            raise RuntimeError('Cannot create reports until raw data exist')
+        raw = mne.concatenate_raws(
+            [read_raw_fif(fname, allow_maxshield='yes')
+             for fname in fnames])
+
+        # sss
+        sss_fnames = get_raw_fnames(p, subj, 'sss', False, False,
+                                    run_indices[si])
+        has_sss = all(op.isfile(fname) for fname in sss_fnames)
+        sss_info = mne.io.read_info(sss_fnames[0]) if has_sss else None
+
+        # pca
+        pca_fnames = get_raw_fnames(p, subj, 'pca', False, False,
+                                    run_indices[si])
+        has_pca = all(op.isfile(fname) for fname in pca_fnames)
+
+        with plt.style.context(style):
+            ljust = 25
+            #
+            # Head coils
+            #
+            section = 'HPI coil SNR'
+            if p.report_params.get('coil_snr', True):
+                t0 = time.time()
+                print(('    %s ... ' % section).ljust(ljust), end='')
+                if p.report_params['coil_t_step'] == 'auto':
+                    t_step = raw.times[-1] / 100.  # 100 points
+                else:
+                    t_step = float(p.report_params['coil_t_step'])
+                fig = plot_good_coils(raw, t_step, show=False)
+                fig.set_size_inches(10, 2)
+                fig.tight_layout()
+                report.add_figs_to_section(fig, section, section,
+                                           image_format='svg')
+                print('%5.1f sec' % ((time.time() - t0),))
+            else:
+                print('    %s skipped' % section)
+
+            #
+            # Head movement
+            #
+            section = 'Head movement'
+            if p.report_params.get('head_movement', True):
+                print(('    %s ... ' % section).ljust(ljust), end='')
+                t0 = time.time()
+                trans_to = _load_trans_to(p, subj, run_indices[si], raw)
+                pos = [_headpos(p, fname) for ri, fname in enumerate(fnames)]
+                fig = plot_head_positions(pos=pos, destination=trans_to,
+                                          info=raw.info, show=False)
+                del trans_to
+                fig.set_size_inches(10, 6)
+                fig.tight_layout()
+                report.add_figs_to_section(fig, section, section,
+                                           image_format='svg')
+                print('%5.1f sec' % ((time.time() - t0),))
+            else:
+                print('    %s skipped' % section)
+
+            #
+            # PSD
+            #
+            section = 'PSD'
+            if p.report_params.get('psd', True) and has_pca:
+                t0 = time.time()
+                print(('    %s ... ' % section).ljust(ljust), end='')
+                if p.lp_trans == 'auto':
+                    lp_trans = 0.25 * p.lp_cut
+                else:
+                    lp_trans = p.lp_trans
+                n_fft = 8192
+                fmax = raw.info['lowpass']
+                figs = [raw.plot_psd(fmax=fmax, n_fft=n_fft, show=False)]
+                captions = ['%s: Raw' % section]
+                fmax = p.lp_cut + 2 * lp_trans
+                figs.append(raw.plot_psd(fmax=fmax, n_fft=n_fft, show=False))
+                captions.append('%s: Raw (zoomed)' % section)
+                if op.isfile(pca_fnames[0]):
+                    raw_pca = mne.concatenate_raws(
+                        [mne.io.read_raw_fif(fname) for fname in pca_fnames])
+                    figs.append(raw_pca.plot_psd(fmax=fmax, n_fft=n_fft,
+                                                 show=False))
+                    captions.append('%s: Processed' % section)
+                # shared y limits
+                n = len(figs[0].axes) // 2
+                for ai, axes in enumerate(list(zip(
+                        *[f.axes for f in figs]))[:n]):
+                    ylims = np.array([ax.get_ylim() for ax in axes])
+                    ylims = [np.min(ylims[:, 0]), np.max(ylims[:, 1])]
+                    for ax in axes:
+                        ax.set_ylim(ylims)
+                        ax.set(title='')
+                for fig in figs:
+                    fig.set_size_inches(8, 8)
+                    fig.tight_layout()
+                report.add_figs_to_section(figs, captions, section,
+                                           image_format='svg')
+                print('%5.1f sec' % ((time.time() - t0),))
+            else:
+                print('    %s skipped' % section)
+
+            #
+            # SSP
+            #
+            section = 'SSP topomaps'
+            if p.report_params.get('ssp_topomaps', True) and has_pca:
+                assert sss_info is not None
+                t0 = time.time()
+                print(('    %s ... ' % section).ljust(ljust), end='')
+                captions = []
+                figs = []
+                if p.proj_extra is not None:
+                    captions.append('%s: Custom' % section)
+                    projs = read_proj(op.join(p.work_dir, subj, p.pca_dir,
+                                              p.proj_extra))
+                    figs.append(plot_projs_topomap(projs, info=sss_info,
+                                                   show=False))
+                if any(p.proj_nums[0]):  # ECG
+                    captions.append('%s: ECG' % section)
+                    projs = read_proj(op.join(p.work_dir, subj, p.pca_dir,
+                                              'preproc_ecg-proj.fif'))
+                    figs.append(plot_projs_topomap(projs, info=sss_info,
+                                                   show=False))
+                if any(p.proj_nums[1]):  # EOG
+                    captions.append('%s: Blink' % section)
+                    projs = read_proj(op.join(p.work_dir, subj, p.pca_dir,
+                                              'preproc_blink-proj.fif'))
+                    figs.append(plot_projs_topomap(projs, info=sss_info,
+                                                   show=False))
+                if any(p.proj_nums[2]):  # ERM
+                    captions.append('%s: Continuous' % section)
+                    projs = read_proj(op.join(p.work_dir, subj, p.pca_dir,
+                                              'preproc_cont-proj.fif'))
+                    figs.append(plot_projs_topomap(projs, info=sss_info,
+                                                   show=False))
+                report.add_figs_to_section(figs, captions, section,
+                                           image_format='svg')
+                print('%5.1f sec' % ((time.time() - t0),))
+            else:
+                print('    %s skipped' % section)
+
+            #
+            # Source alignment
+            #
+            section = 'Source alignment'
+            if p.report_params.get('source_alignment', True) and has_sss:
+                assert sss_info is not None
+                t0 = time.time()
+                print(('    %s ... ' % section).ljust(ljust), end='')
+                captions = ['Left', 'Front', 'Right']
+                captions = ['%s: %s' % (section, c) for c in captions]
+                try:
+                    from mayavi import mlab
+                except ImportError:
+                    warnings.warn('Cannot plot alignment in Report, mayavi '
+                                  'could not be imported')
+                else:
+                    subjects_dir = mne.utils.get_subjects_dir(
+                        p.subjects_dir, raise_error=True)
+                    bem, src, trans, _ = _get_bem_src_trans(
+                        p, sss_info, subj, struc)
+                    offscreen = mlab.options.offscreen
+                    mlab.options.offscreen = True
+                    tempdir = mne.utils._TempDir()
+                    if len(pick_types(sss_info)):
+                        coord_frame = 'meg'
+                    else:
+                        coord_frame = 'head'
+                    try:
+                        fig = mlab.figure(bgcolor=(0., 0., 0.),
+                                          size=(1000, 1000))
+                        kwargs = dict(
+                            info=sss_info, subjects_dir=subjects_dir, bem=bem,
+                            dig=True, coord_frame=coord_frame, show_axes=True,
+                            fig=fig, trans=trans, src=src)
+                        try:
+                            mne.viz.plot_alignment(surfaces='head-dense',
+                                                   **kwargs)
+                        except Exception:
+                            mne.viz.plot_alignment(surfaces='head', **kwargs)
+                        fig.scene.parallel_projection = True
+                        images = list()
+                        for ai, angle in enumerate([180, 90, 0]):
+                            mlab.view(angle, 90, focalpoint=(0., 0., 0.),
+                                      distance=0.6, figure=fig)
+                            view = mlab.screenshot(figure=fig)
+                            view = view[:, (view != 0).any(0).any(-1)]
+                            view = view[(view != 0).any(1).any(-1)]
+                            images.append(op.join(tempdir, '%s.png' % ai))
+                            imsave(images[-1], view)
+                        mlab.close(fig)
+                        report.add_images_to_section(
+                            images, captions=captions, section=section)
+                    finally:
+                        del tempdir
+                        mlab.options.offscreen = offscreen
+                print('%5.1f sec' % ((time.time() - t0),))
+            else:
+                print('    %s skipped' % section)
+            #
+            # BEM
+            #
+            section = 'BEM'
+            if p.report_params.get('bem', True):
+                caption = '%s: %s' % (section, struc)
+                bem, src, trans, _ = _get_bem_src_trans(
+                    p, raw.info, subj, struc)
+                if not bem['is_sphere']:
+                    t0 = time.time()
+                    print(('    %s ... ' % section).ljust(ljust), end='')
+                    report.add_bem_to_section(struc, caption, section,
+                                              decim=10, n_jobs=1)
+                    print('%5.1f sec' % ((time.time() - t0),))
+                else:
+                    print('    %s skipped (sphere)' % section)
+            else:
+                print('    %s skipped' % section)
         report_fname = get_report_fnames(p, subj)[0]
         report.save(report_fname, open_browser=False, overwrite=True)
-
-
-def plot_raw_psd(p, subjects, run_indices=None, tmin=0., fmin=2, n_fft=2048):
-    """Plot data power for all available raw data files for a subject
-
-    Parameters
-    ----------
-    p : instance of Parameters
-        Analysis parameters.
-    subjects : list of str
-        Subject names to analyze (e.g., ['Eric_SoP_001', ...]).
-    run_indices : array-like | None
-        Run indices to include.
-    tmin : float
-        Time in sec for beginning fft (defaults to 0)
-    fmin : float
-        Lower frequency edge for PSD (defaults to 2Hz)
-    n_fft : int
-        Number of points in the FFT.
-
-    Notes
-    -----
-    tmax for psd set to last time point in raw data. fmax set
-    to acquisition low pass cut off for raw and sss files, and
-    low pass cut off in analysis parameters for pca file. n_fft
-    set to default value from mne-python.
-    """
-    if run_indices is None:
-        run_indices = [None] * len(subjects)
-    fir_kwargs = _get_fir_kwargs(p.fir_design)[0]
-    for si, subj in enumerate(subjects):
-        for file_type in ['raw', 'sss', 'pca']:
-            fname = get_raw_fnames(p, subj, file_type, False, False,
-                                   run_indices[si])
-            if len(fname) < 1:
-                warnings.warn('Unable to find %s data file.' % file_type)
-            with warnings.catch_warnings(record=True):
-                raw = _raw_LRFCP(
-                    fname, p.proj_sfreq, None, None, p.n_jobs_fir,
-                    p.n_jobs_resample, list(), None, p.disp_files,
-                    method='fir', filter_length=p.filter_length,
-                    apply_proj=False, force_bads=False, l_trans=p.hp_trans,
-                    h_trans=p.lp_trans, phase=p.phase, fir_window=p.fir_window,
-                    pick=True, **fir_kwargs)
-            if file_type == 'pca':
-                fmax = p.lp_cut
-            else:
-                fmax = raw.info['lowpass'] + 50
-            raw.plot_psd(tmin=tmin, tmax=raw.times[-1], fmin=fmin,
-                         fmax=fmax, n_fft=n_fft,
-                         n_jobs=p.n_jobs, proj=False, ax=None, color=(0, 0, 1),
-                         picks=None, show=False)
-            plt.savefig(fname[0][:-4] + '_psd.png')
-            plt.close()
 
 
 def _prebad(p, subj):
@@ -2872,7 +3015,7 @@ def compute_good_coils(raw, t_step=1., t_window=0.2, dist_limit=0.005):
 
 @verbose
 def plot_good_coils(raw, t_step=1., t_window=0.2, dist_limit=0.005,
-                    verbose=None):
+                    show=True, verbose=None):
     """Plot the good coil count as a function of time."""
     t, counts, n_coils = compute_good_coils(raw, t_step, t_window, dist_limit)
     fig, ax = plt.subplots(figsize=(8, 2))
@@ -2890,6 +3033,7 @@ def plot_good_coils(raw, t_step=1., t_window=0.2, dist_limit=0.005,
                         color=color, edgecolor='none', linewidth=0, zorder=1)
     ax.grid(True)
     fig.tight_layout()
+    mne.viz.utils.plt_show(show)
     return fig
 
 
@@ -2903,3 +3047,12 @@ def compute_auc(dip, tmin=-np.inf, tmax=np.inf):
     time_mask = _time_mask(dip.times, tmin, tmax, dip.info['sfreq'])
     data = dip.data[pick[0], time_mask]
     return np.sum(np.abs(data)) * len(data) * (1. / dip.info['sfreq'])
+
+
+def _spherical_conductor(info, subject, pos):
+    """Helper to make spherical conductor model."""
+    bem = make_sphere_model(info=info, r0='auto',
+                            head_radius='auto', verbose=False)
+    src = setup_volume_source_space(subject=subject, sphere=bem,
+                                    pos=pos, mindist=1.)
+    return bem, src, None

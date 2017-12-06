@@ -41,7 +41,7 @@ except ImportError:
 params = mnefun.Params(tmin=-0.2, tmax=0.5, t_adjust=-4e-3,
                        n_jobs=6, n_jobs_mkl=1,
                        n_jobs_fir='cuda', n_jobs_resample='cuda',
-                       decim=5, proj_sfreq=200, filter_length='5s')
+                       decim=5, proj_sfreq=200, filter_length='auto')
 
 params.subjects = ['subj_01', 'subj_02']
 params.structurals = [None, 'AKCLEE_110_slim']  # None means use sphere
@@ -49,6 +49,12 @@ params.dates = [(2014, 2, 14), None]  # Use "None" to more fully anonymize
 params.score = score  # Scoring function used to slice data into trials
 params.subject_indices = np.arange(2)  # Define which subjects to run
 params.plot_drop_logs = False  # Turn off so plots do not halt processing
+
+# The default is to use the median (across runs) of the starting head positions
+params.trans_to = 'median'
+
+# You can also use a ranslation, plus x-axis rotation  (-30 means backward 30°)
+# params.trans_to = (0., 0., 0.05, -30)
 
 # Set parameters for remotely connecting to acquisition computer
 params.acq_ssh = 'minea'  # Could also be e.g., "eric@minea.ilabs.uw.edu"
@@ -81,7 +87,6 @@ params.proj_nums = [[1, 1, 0],  # ECG
 # params.plot_pca = False
 params.autoreject_thresholds = True  # Set to True to use Autoreject module to set global epoch rejection thresholds  # noqa
 params.cov_method = 'shrunk'  # Cleaner noise covariance regularization
-params.plot_head_position = True  # Plot cHPI data for single raw file
 # python | maxfilter for choosing SSS applied using either Maxfilter or MNE
 params.sss_type = 'python'
 # The scoring function needs to produce an event file with these values
@@ -107,6 +112,8 @@ params.must_match = [
     [],
     [0, 1],  # Only ensure the standard event counts match
 ]
+
+params.report_params['coil_snr'] = False
 
 # Set what processing steps will execute
 mnefun.do_processing(
