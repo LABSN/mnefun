@@ -51,10 +51,15 @@ params.subject_indices = np.arange(2)  # Define which subjects to run
 params.plot_drop_logs = False  # Turn off so plots do not halt processing
 
 # The default is to use the median (across runs) of the starting head positions
+# individually for each subject.
 params.trans_to = 'median'
 
-# You can also use a ranslation, plus x-axis rotation  (-30 means backward 30°)
+# You can also use a translation, plus x-axis rotation (-30 means backward 30°)
 # params.trans_to = (0., 0., 0.05, -30)
+
+# Or you can transform to the time-weighted average head pos
+# for each subject individually.
+# params.trans_to = 'twa'
 
 # Set parameters for remotely connecting to acquisition computer
 params.acq_ssh = 'minea'  # Could also be e.g., "eric@minea.ilabs.uw.edu"
@@ -89,7 +94,6 @@ params.autoreject_thresholds = True  # Set to True to use Autoreject module to s
 params.cov_method = 'shrunk'  # Cleaner noise covariance regularization
 # python | maxfilter for choosing SSS applied using either Maxfilter or MNE
 params.sss_type = 'python'
-params.trans_to = 'twa'  # transform to the time-weighted average head pos
 # The scoring function needs to produce an event file with these values
 params.in_numbers = [10, 11, 20, 21]
 # Those values correspond to real categories as:
