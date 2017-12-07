@@ -3066,7 +3066,7 @@ def plot_good_coils(raw, t_step=1., t_window=0.2, dist_limit=0.005,
     """Plot the good coil count as a function of time."""
     t, counts, n_coils = compute_good_coils(raw, t_step, t_window, dist_limit)
     fig, ax = plt.subplots(figsize=(8, 2))
-    ax.plot(t, counts, zorder=4, color='k', clip_on=False)
+    ax.step(t, counts, zorder=4, color='k', clip_on=False)
     ax.set(xlim=t[[0, -1]], ylim=[0, n_coils], xlabel='Time (sec)',
            ylabel='Good coils')
     ax.set(yticks=np.arange(n_coils + 1))
