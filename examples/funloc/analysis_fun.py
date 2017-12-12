@@ -87,9 +87,6 @@ params.runs_empty = ['%s_erm']  # Define empty room runs
 params.proj_nums = [[1, 1, 0],  # ECG
                     [1, 1, 2],  # EOG
                     [0, 0, 0]]  # Continuous (from ERM)
-# By default SSP projection scalp topography maps will be saved in
-# sss_pca_folder for inspection. To avoid having images saved to disk set
-# params.plot_pca = False
 params.autoreject_thresholds = True  # Set to True to use Autoreject module to set global epoch rejection thresholds  # noqa
 params.cov_method = 'shrunk'  # Cleaner noise covariance regularization
 # python | maxfilter for choosing SSS applied using either Maxfilter or MNE
@@ -118,7 +115,12 @@ params.must_match = [
     [0, 1],  # Only ensure the standard event counts match
 ]
 
-params.report_params['coil_snr'] = False
+params.report_params.update(  # add a couple of nice diagnostic plots
+    whitening=dict(analysis='All', name='All',
+                   cov='%s-55-sss-cov.fif'),
+    source=dict(analysis='All', name='All',
+                inv='%s-55-sss-meg-eeg-free-inv.fif', times=[0.1, 0.2]),
+)
 
 # Set what processing steps will execute
 default = True
@@ -139,7 +141,6 @@ mnefun.do_processing(
     # channels.
     gen_ssp=default,       # Generate SSP vectors
     apply_ssp=default,     # Apply SSP vectors and filtering
-    plot_psd=default,      # Plot raw data power spectra
     write_epochs=default,  # Write epochs to disk
     gen_covs=default,      # Generate covariances
 
