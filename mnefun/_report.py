@@ -224,6 +224,8 @@ def gen_html_report(p, subjects, structurals, run_indices=None,
                                 mne.viz.plot_alignment(surfaces=surf, **kwargs)
                             except Exception:
                                 pass
+                            else:
+                                break
                         else:
                             raise RuntimeError('Could not plot any surface '
                                                'for alignment:\n%s'
@@ -335,22 +337,24 @@ def gen_html_report(p, subjects, structurals, run_indices=None,
                     stc = abs(stc)
                     # get clim using the reject_tmin <->reject_tmax
                     stc_crop = stc.copy().crop(p.reject_tmin, p.reject_tmax)
-                    colormap = source.get('colormap', 'viridis')
-                    transparent = source.get('transparent', True)
                     clim = source.get('clim', dict(kind='percent',
                                                    lims=[82, 90, 98]))
                     clim = mne.viz._3d._limits_to_control_points(
-                         clim, stc_crop.data, colormap)[0]
+                         clim, stc_crop.data, 'viridis')[0]  # cmap is dummy
                     clim = dict(kind='value', lims=clim)
                     if not isinstance(stc, mne.SourceEstimate):
                         print('Only surface source estimates currently '
                               'supported')
                     else:
                         brain = stc.plot(
-                            hemi='split', views=['lat', 'med'],
-                            size=(800, 600), foreground='k', background='w',
-                            colormap=colormap, clim=clim,
-                            transparent=transparent)
+                            hemi=source.get('hemi', 'split'),
+                            views=source.get('views', ['lat', 'med']),
+                            size=source.get('size', (800, 600)),
+                            colormap=source.get('colormap', 'viridis'),
+                            transparent=source.get('transparent', True),
+                            foreground='k', background='w',
+                            clim=clim,
+                            )
                         imgs = list()
                         times = source.get('times', [0.1])
                         for t in times:

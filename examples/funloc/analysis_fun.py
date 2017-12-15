@@ -119,11 +119,13 @@ params.report_params.update(  # add a couple of nice diagnostic plots
     whitening=dict(analysis='All', name='All',
                    cov='%s-55-sss-cov.fif'),
     source=dict(analysis='All', name='All',
-                inv='%s-55-sss-meg-eeg-free-inv.fif', times=[0.1, 0.2]),
+                inv='%s-55-sss-meg-eeg-free-inv.fif', times=[0.1, 0.2],
+                views='lat', size=(800, 400)),
+    psd=False,  # often slow
 )
 
 # Set what processing steps will execute
-default = True
+default = False
 mnefun.do_processing(
     params,
     fetch_raw=default,     # Fetch raw recording files from acquisition machine
@@ -147,6 +149,6 @@ mnefun.do_processing(
     # Make SUBJ/trans/SUBJ-trans.fif using mne_analyze; needed for fwd calc.
     gen_fwd=default,       # Generate forward solutions (and source space)
     gen_inv=default,       # Generate inverses
-    gen_report=default,    # Write mne report html of results to disk
+    gen_report=True,    # Write mne report html of results to disk
     print_status=default,  # Print completeness status update
 )
