@@ -218,11 +218,16 @@ def gen_html_report(p, subjects, structurals, run_indices=None,
                             info=sss_info, subjects_dir=subjects_dir, bem=bem,
                             dig=True, coord_frame=coord_frame, show_axes=True,
                             fig=fig, trans=trans, src=src)
-                        try:
-                            mne.viz.plot_alignment(surfaces='head-dense',
-                                                   **kwargs)
-                        except Exception:
-                            mne.viz.plot_alignment(surfaces='head', **kwargs)
+                        try_surfs = ['head-dense', 'head', 'inner_skull']
+                        for surf in try_surfs:
+                            try:
+                                mne.viz.plot_alignment(surfaces=surf, **kwargs)
+                            except Exception:
+                                pass
+                        else:
+                            raise RuntimeError('Could not plot any surface '
+                                               'for alignment:\n%s'
+                                               % (try_surfs,))
                         fig.scene.parallel_projection = True
                         images = list()
                         for ai, angle in enumerate([180, 90, 0]):
