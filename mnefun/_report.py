@@ -258,11 +258,21 @@ def gen_html_report(p, subjects, structurals, run_indices=None,
                 bem, src, trans, _ = _get_bem_src_trans(
                     p, raw.info, subj, struc)
                 if not bem['is_sphere']:
-                    t0 = time.time()
-                    print(('    %s ... ' % section).ljust(ljust), end='')
-                    report.add_bem_to_section(struc, caption, section,
-                                              decim=10, n_jobs=1)
-                    print('%5.1f sec' % ((time.time() - t0),))
+                    subjects_dir = mne.utils.get_subjects_dir(
+                        p.subjects_dir, raise_error=True)
+                    mri_fname = op.join(subjects_dir, struc, 'mri', 'T1.mgz')
+                    if not op.isfile(mri_fname):
+                        warnings.warn(
+                            'Could not find MRI:\n%s\nIf using surrogate '
+                            'subjects, use '
+                            'params.report_params["bem"] = False to avoid '
+                            'this warning', stacklevel=2)
+                    else:
+                        t0 = time.time()
+                        print(('    %s ... ' % section).ljust(ljust), end='')
+                        report.add_bem_to_section(struc, caption, section,
+                                                  decim=10, n_jobs=1)
+                        print('%5.1f sec' % ((time.time() - t0),))
                 else:
                     print('    %s skipped (sphere)' % section)
             else:
