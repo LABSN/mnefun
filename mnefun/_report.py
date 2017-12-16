@@ -29,7 +29,8 @@ def gen_html_report(p, subjects, structurals, run_indices=None,
     import matplotlib.pyplot as plt
     from matplotlib.image import imsave
     from ._mnefun import (_load_trans_to, plot_good_coils, _headpos,
-                          _get_bem_src_trans, safe_inserter)
+                          _get_bem_src_trans, safe_inserter, _prebad,
+                          _load_meg_bads)
     if run_indices is None:
         run_indices = [None] * len(subjects)
     style = {'axes.spines.right': 'off', 'axes.spines.top': 'off',
@@ -48,6 +49,8 @@ def gen_html_report(p, subjects, structurals, run_indices=None,
         raw = mne.concatenate_raws(
             [read_raw_fif(fname, allow_maxshield='yes')
              for fname in fnames])
+        prebad_file = _prebad(p, subj)
+        _load_meg_bads(raw, prebad_file, disp=False)
 
         # sss
         sss_fnames = get_raw_fnames(p, subj, 'sss', False, False,

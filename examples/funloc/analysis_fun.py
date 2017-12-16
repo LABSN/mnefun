@@ -125,7 +125,7 @@ params.report_params.update(  # add a couple of nice diagnostic plots
 )
 
 # Set what processing steps will execute
-default = False
+default = True
 mnefun.do_processing(
     params,
     fetch_raw=default,     # Fetch raw recording files from acquisition machine
@@ -149,6 +149,6 @@ mnefun.do_processing(
     # Make SUBJ/trans/SUBJ-trans.fif using mne_analyze; needed for fwd calc.
     gen_fwd=default,       # Generate forward solutions (and source space)
     gen_inv=default,       # Generate inverses
-    gen_report=True,    # Write mne report html of results to disk
+    gen_report=default,    # Write mne report html of results to disk
     print_status=default,  # Print completeness status update
 )
