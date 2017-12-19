@@ -10,27 +10,23 @@ from copy import deepcopy
 import warnings
 from shutil import move, copy2
 import subprocess
-import glob
 from collections import Counter
 import time
 import sys
 
 import numpy as np
 from scipy import linalg, io as spio
-import matplotlib.pyplot as plt
 from numpy.testing import assert_allclose
 
 import mne
-from mne import (compute_proj_raw, make_fixed_length_events, Epochs,
-                 find_events, read_events, write_events, concatenate_events,
-                 read_cov, compute_covariance, write_cov,
-                 read_forward_solution, convert_forward_solution,
-                 write_proj, read_proj, setup_source_space,
-                 make_forward_solution, get_config, write_evokeds,
-                 make_sphere_model, setup_volume_source_space,
-                 read_bem_solution, pick_info, write_source_spaces,
-                 read_source_spaces, write_forward_solution,
-                 DipoleFixed)
+from mne import (
+    compute_proj_raw, make_fixed_length_events, Epochs, find_events,
+    read_events, write_events, concatenate_events, read_cov,
+    compute_covariance, write_cov, read_forward_solution,
+    convert_forward_solution, write_proj, read_proj, setup_source_space,
+    make_forward_solution, write_evokeds, make_sphere_model,
+    setup_volume_source_space, pick_info, write_source_spaces,
+    read_source_spaces, write_forward_solution, DipoleFixed)
 
 try:
     from mne import compute_raw_covariance  # up-to-date mne-python
@@ -58,6 +54,7 @@ from mne.chpi import (filter_chpi, read_head_pos, write_head_pos,
                       _get_hpi_info)
 from mne.io.proj import _needs_eeg_average_ref_proj
 
+from mne.cov import regularize
 try:
     from mne.chpi import quat_to_rot, rot_to_quat
 except ImportError:
@@ -68,20 +65,18 @@ except ImportError:
         from mne.io.chpi import (_quat_to_rot as quat_to_rot,
                                  _rot_to_quat as rot_to_quat)
 from mne.io import read_raw_fif, concatenate_raws, read_info, write_info
+from mne.io.constants import FIFF
 from mne.io.pick import pick_types_forward, pick_types
 from mne.io.meas_info import _empty_info
-from mne.cov import regularize
 from mne.minimum_norm import write_inverse_operator
-from mne.viz import plot_drop_log, tight_layout, plot_projs_topomap
-from mne.viz._3d import plot_head_positions
 from mne.utils import run_subprocess, _time_mask
-from mne.report import Report
-from mne.io.constants import FIFF
+from mne.viz import plot_drop_log, tight_layout
 
-from ._paths import (get_raw_fnames, get_event_fnames, get_report_fnames,
+from ._paths import (get_raw_fnames, get_event_fnames,
                      get_epochs_evokeds_fnames, safe_inserter, _regex_convert)
 from ._status import print_proc_status
 from ._reorder import fix_eeg_channels
+from ._report import gen_html_report
 from ._scoring import default_score
 
 # python2/3 conversions
@@ -418,7 +413,9 @@ class Params(Frozen):
             ssp_topomaps=True,
             source_alignment=True,
             bem=True,
-            coil_t_step='auto')
+            coil_t_step='auto',
+            source=None,
+            )
         self.freeze()
 
     @property
@@ -469,7 +466,7 @@ def _get_baseline(p):
 
 def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
                   do_sss=False, fetch_sss=False, do_ch_fix=False,
-                  gen_ssp=False, apply_ssp=False, plot_psd=False,
+                  gen_ssp=False, apply_ssp=False,
                   write_epochs=False, gen_covs=False, gen_fwd=False,
                   gen_inv=False, gen_report=False, print_status=True):
     """Do M/EEG data processing
@@ -1162,7 +1159,7 @@ def _load_trans_to(p, subj, run_indices, raw=None):
             trans_to = op.join(p.work_dir, subj, p.raw_dir,
                                subj + '_twa_pos.fif')
             if not op.isfile(trans_to):
-                calc_twa_hp(p, subj, trans_to, run_indices[si])
+                calc_twa_hp(p, subj, trans_to, run_indices)
         trans_to = mne.read_trans(trans_to)
     elif p.trans_to is None:
         trans_to = None if raw is None else raw.info['dev_head_t']
@@ -1328,7 +1325,8 @@ def fix_eeg_files(p, subjects, structurals=None, dates=None, run_indices=None):
         fix_eeg_channels(names, anon)
 
 
-def get_fsaverage_medial_vertices(concatenate=True, subjects_dir=None):
+def get_fsaverage_medial_vertices(concatenate=True, subjects_dir=None,
+                                  vertices=None):
     """Returns fsaverage medial wall vertex numbers
 
     These refer to the standard fsaverage source space
@@ -1337,25 +1335,31 @@ def get_fsaverage_medial_vertices(concatenate=True, subjects_dir=None):
     Parameters
     ----------
     concatenate : bool
-        If True, the medial wall vertices from the right hemisphere
-        will be shifted by 10242 and concatenated to those of the left.
-        Useful when treating the source space as a single entity.
+        If True, the returned vertices will be indices into the left and right
+        hemisphere that are part of the medial wall. This is
+        Useful when treating the source space as a single entity (e.g.,
+        during clustering).
     subjects_dir : str
         Directory containing subjects data. If None use
         the Freesurfer SUBJECTS_DIR environment variable.
+    vertices : None | list
+        Can be None to use ``[np.arange(10242)] * 2``.
 
     Returns
     -------
     vertices : list of array, or array
         The medial wall vertices.
     """
+    if vertices is None:
+        vertices = [np.arange(10242), np.arange(10242)]
     subjects_dir = mne.utils.get_subjects_dir(subjects_dir, raise_error=True)
     label_dir = op.join(subjects_dir, 'fsaverage', 'label')
     lh = read_label(op.join(label_dir, 'lh.Medial_wall.label'))
     rh = read_label(op.join(label_dir, 'rh.Medial_wall.label'))
-    if concatenate is True:
-        return np.concatenate((lh.vertices[lh.vertices < 10242],
-                               rh.vertices[rh.vertices < 10242] + 10242))
+    if concatenate:
+        bad_left = np.where(np.in1d(vertices[0], lh.vertices))[0]
+        bad_right = np.where(np.in1d(vertices[1], rh.vertices))[0]
+        return np.concatenate((bad_left, bad_right + len(vertices[0])))
     else:
         return [lh.vertices, rh.vertices]
 
@@ -1944,7 +1948,7 @@ def _raw_LRFCP(raw_names, sfreq, l_freq, h_freq, n_jobs, n_jobs_resample,
         r.load_bad_channels(bad_file, force=force_bads)
         r.pick_types(meg=True, eeg=True, eog=True, ecg=True, exclude=[])
         if _needs_eeg_average_ref_proj(r.info):
-            r.set_eeg_reference()
+            r.set_eeg_reference(projection=True)
         if sfreq is not None:
             r.resample(sfreq, n_jobs=n_jobs_resample, npad='auto')
         fir_kwargs = _get_fir_kwargs(fir_design)[0]
@@ -2323,20 +2327,28 @@ def timestring(t):
 
 
 # noinspection PyPep8Naming,PyPep8Naming,PyPep8Naming
-def anova_time(X, transform=True, signed_p=True):
+def anova_time(X, transform=True, signed_p=True, gg=True):
     """A mass-univariate two-way ANOVA (with time as a co-variate)
 
     Parameters
     ----------
     X : array
-        X should have the following dimensions:
-            subjects x (2 conditions x N time points) x spatial locations
+        X should have the following dimensions::
+
+            (n_subjects, 2 * n_time, n_src)
+
+        or::
+
+            (n_subjects, 2, n_time, n_src)
+
         This then calculates the paired t-values at each spatial location
         using time as a co-variate.
     transform : bool
         If True, transform using the square root.
     signed_p : bool
         If True, change the p-value sign to match that of the t-statistic.
+    gg : bool
+        If True, correct DOF.
 
     Returns
     -------
@@ -2351,24 +2363,30 @@ def anova_time(X, transform=True, signed_p=True):
     """
     import patsy
     from scipy import linalg, stats
-    n_subjects, n_nested, n_sources = X.shape
-    n_time = n_nested // 2
+    if X.ndim == 3:
+        n_subjects, n_nested, n_src = X.shape
+        n_time = n_nested // 2
+        assert n_nested % 2 == 0
+    else:
+        assert X.ndim == 4
+        n_subjects, n_cond, n_time, n_src = X.shape
+        assert n_cond == 2
+    X = np.reshape(X, (n_subjects, 2 * n_time, n_src))
     # Turn Y into (2 x n_time x n_subjects) x n_sources
-    X = np.reshape(X, (2 * n_time * n_subjects, n_sources), order='F')
+    X = np.reshape(X, (2 * n_time * n_subjects, n_src), order='F')
     if transform:
         np.sqrt(X, out=X)
-    cv, tv, sv = np.meshgrid(np.arange(2.0), np.arange(n_time),
+    cv, tv, sv = np.meshgrid(np.arange(2), np.arange(n_time),
                              np.arange(n_subjects), indexing='ij')
     dmat = patsy.dmatrix('C(cv) + C(tv) + C(sv)',
-                         dict(sv=sv.ravel(), tv=tv.ravel(), cv=cv.ravel()))
+                         dict(cv=cv.ravel(), tv=tv.ravel(), sv=sv.ravel()))
     dof = dmat.shape[0] - np.linalg.matrix_rank(dmat)
     c = np.zeros((1, dmat.shape[1]))
     c[0, 1] = 1  # Contrast for just picking up condition difference
     # Equivalent, but slower here:
     assert np.isfinite(dmat).all()
-    b = linalg.pinv(dmat)
-    assert np.isfinite(b).all()
-    b = np.dot(b, X)
+    # b = np.dot(linalg.pinv(dmat), X)
+    b = linalg.lstsq(dmat, X)[0]
     assert np.isfinite(b).all()
     X -= np.dot(dmat, b)
     X *= X
@@ -2376,7 +2394,8 @@ def anova_time(X, transform=True, signed_p=True):
     R /= dof
     e = np.sqrt(R * np.dot(c, linalg.lstsq(np.dot(dmat.T, dmat), c.T)[0]))
     t = (np.dot(c, b) / e.T).T
-    dof = dof / float(n_time - 1)  # Greenhouse-Geisser correction to the DOF
+    if n_time > 1 and gg:
+        dof = dof / float(n_time - 1)  # Greenhouse-Geisser correction
     p = 2 * stats.t.cdf(-abs(t), dof)
     if signed_p:
         p *= np.sign(t)
@@ -2427,246 +2446,6 @@ def _viz_raw_ssp_events(p, subj, ridx):
                      method='fir', filter_length=p.filter_length,
                      force_bads=False, l_trans=p.hp_trans, h_trans=p.lp_trans)
     raw.plot(events=ev, event_color=colors)
-
-
-def gen_html_report(p, subjects, structurals, run_indices=None,
-                    raw=True, raw_sss=True, evoked=True, cov=True,
-                    trans=True, epochs=True,
-                    fwd=True, inv=True):
-    """Generates HTML reports"""
-    from matplotlib.image import imsave
-    if run_indices is None:
-        run_indices = [None] * len(subjects)
-    style = {'axes.spines.right': 'off', 'axes.spines.top': 'off',
-             'axes.grid': True}
-    for si, subj in enumerate(subjects):
-        struc = structurals[si]
-        report = Report(verbose=False)
-        print('  Processing subject %s/%s (%s)'
-              % (si + 1, len(subjects), subj))
-
-        # raw
-        fnames = get_raw_fnames(p, subj, 'raw', erm=False, add_splits=True,
-                                run_indices=run_indices[si])
-        if not all(op.isfile(fname) for fname in fnames):
-            raise RuntimeError('Cannot create reports until raw data exist')
-        raw = mne.concatenate_raws(
-            [read_raw_fif(fname, allow_maxshield='yes')
-             for fname in fnames])
-
-        # sss
-        sss_fnames = get_raw_fnames(p, subj, 'sss', False, False,
-                                    run_indices[si])
-        has_sss = all(op.isfile(fname) for fname in sss_fnames)
-        sss_info = mne.io.read_info(sss_fnames[0]) if has_sss else None
-
-        # pca
-        pca_fnames = get_raw_fnames(p, subj, 'pca', False, False,
-                                    run_indices[si])
-        has_pca = all(op.isfile(fname) for fname in pca_fnames)
-
-        with plt.style.context(style):
-            ljust = 25
-            #
-            # Head coils
-            #
-            section = 'HPI coil SNR'
-            if p.report_params.get('coil_snr', True):
-                t0 = time.time()
-                print(('    %s ... ' % section).ljust(ljust), end='')
-                if p.report_params['coil_t_step'] == 'auto':
-                    t_step = raw.times[-1] / 100.  # 100 points
-                else:
-                    t_step = float(p.report_params['coil_t_step'])
-                fig = plot_good_coils(raw, t_step, show=False)
-                fig.set_size_inches(10, 2)
-                fig.tight_layout()
-                report.add_figs_to_section(fig, section, section,
-                                           image_format='svg')
-                print('%5.1f sec' % ((time.time() - t0),))
-            else:
-                print('    %s skipped' % section)
-
-            #
-            # Head movement
-            #
-            section = 'Head movement'
-            if p.report_params.get('head_movement', True):
-                print(('    %s ... ' % section).ljust(ljust), end='')
-                t0 = time.time()
-                trans_to = _load_trans_to(p, subj, run_indices[si], raw)
-                pos = [_headpos(p, fname) for ri, fname in enumerate(fnames)]
-                fig = plot_head_positions(pos=pos, destination=trans_to,
-                                          info=raw.info, show=False)
-                del trans_to
-                fig.set_size_inches(10, 6)
-                fig.tight_layout()
-                report.add_figs_to_section(fig, section, section,
-                                           image_format='svg')
-                print('%5.1f sec' % ((time.time() - t0),))
-            else:
-                print('    %s skipped' % section)
-
-            #
-            # PSD
-            #
-            section = 'PSD'
-            if p.report_params.get('psd', True) and has_pca:
-                t0 = time.time()
-                print(('    %s ... ' % section).ljust(ljust), end='')
-                if p.lp_trans == 'auto':
-                    lp_trans = 0.25 * p.lp_cut
-                else:
-                    lp_trans = p.lp_trans
-                n_fft = 8192
-                fmax = raw.info['lowpass']
-                figs = [raw.plot_psd(fmax=fmax, n_fft=n_fft, show=False)]
-                captions = ['%s: Raw' % section]
-                fmax = p.lp_cut + 2 * lp_trans
-                figs.append(raw.plot_psd(fmax=fmax, n_fft=n_fft, show=False))
-                captions.append('%s: Raw (zoomed)' % section)
-                if op.isfile(pca_fnames[0]):
-                    raw_pca = mne.concatenate_raws(
-                        [mne.io.read_raw_fif(fname) for fname in pca_fnames])
-                    figs.append(raw_pca.plot_psd(fmax=fmax, n_fft=n_fft,
-                                                 show=False))
-                    captions.append('%s: Processed' % section)
-                # shared y limits
-                n = len(figs[0].axes) // 2
-                for ai, axes in enumerate(list(zip(
-                        *[f.axes for f in figs]))[:n]):
-                    ylims = np.array([ax.get_ylim() for ax in axes])
-                    ylims = [np.min(ylims[:, 0]), np.max(ylims[:, 1])]
-                    for ax in axes:
-                        ax.set_ylim(ylims)
-                        ax.set(title='')
-                for fig in figs:
-                    fig.set_size_inches(8, 8)
-                    fig.tight_layout()
-                report.add_figs_to_section(figs, captions, section,
-                                           image_format='svg')
-                print('%5.1f sec' % ((time.time() - t0),))
-            else:
-                print('    %s skipped' % section)
-
-            #
-            # SSP
-            #
-            section = 'SSP topomaps'
-            if p.report_params.get('ssp_topomaps', True) and has_pca:
-                assert sss_info is not None
-                t0 = time.time()
-                print(('    %s ... ' % section).ljust(ljust), end='')
-                captions = []
-                figs = []
-                if p.proj_extra is not None:
-                    captions.append('%s: Custom' % section)
-                    projs = read_proj(op.join(p.work_dir, subj, p.pca_dir,
-                                              p.proj_extra))
-                    figs.append(plot_projs_topomap(projs, info=sss_info,
-                                                   show=False))
-                if any(p.proj_nums[0]):  # ECG
-                    captions.append('%s: ECG' % section)
-                    projs = read_proj(op.join(p.work_dir, subj, p.pca_dir,
-                                              'preproc_ecg-proj.fif'))
-                    figs.append(plot_projs_topomap(projs, info=sss_info,
-                                                   show=False))
-                if any(p.proj_nums[1]):  # EOG
-                    captions.append('%s: Blink' % section)
-                    projs = read_proj(op.join(p.work_dir, subj, p.pca_dir,
-                                              'preproc_blink-proj.fif'))
-                    figs.append(plot_projs_topomap(projs, info=sss_info,
-                                                   show=False))
-                if any(p.proj_nums[2]):  # ERM
-                    captions.append('%s: Continuous' % section)
-                    projs = read_proj(op.join(p.work_dir, subj, p.pca_dir,
-                                              'preproc_cont-proj.fif'))
-                    figs.append(plot_projs_topomap(projs, info=sss_info,
-                                                   show=False))
-                report.add_figs_to_section(figs, captions, section,
-                                           image_format='svg')
-                print('%5.1f sec' % ((time.time() - t0),))
-            else:
-                print('    %s skipped' % section)
-
-            #
-            # Source alignment
-            #
-            section = 'Source alignment'
-            if p.report_params.get('source_alignment', True) and has_sss:
-                assert sss_info is not None
-                t0 = time.time()
-                print(('    %s ... ' % section).ljust(ljust), end='')
-                captions = ['Left', 'Front', 'Right']
-                captions = ['%s: %s' % (section, c) for c in captions]
-                try:
-                    from mayavi import mlab
-                except ImportError:
-                    warnings.warn('Cannot plot alignment in Report, mayavi '
-                                  'could not be imported')
-                else:
-                    subjects_dir = mne.utils.get_subjects_dir(
-                        p.subjects_dir, raise_error=True)
-                    bem, src, trans, _ = _get_bem_src_trans(
-                        p, sss_info, subj, struc)
-                    offscreen = mlab.options.offscreen
-                    mlab.options.offscreen = True
-                    tempdir = mne.utils._TempDir()
-                    if len(pick_types(sss_info)):
-                        coord_frame = 'meg'
-                    else:
-                        coord_frame = 'head'
-                    try:
-                        fig = mlab.figure(bgcolor=(0., 0., 0.),
-                                          size=(1000, 1000))
-                        kwargs = dict(
-                            info=sss_info, subjects_dir=subjects_dir, bem=bem,
-                            dig=True, coord_frame=coord_frame, show_axes=True,
-                            fig=fig, trans=trans, src=src)
-                        try:
-                            mne.viz.plot_alignment(surfaces='head-dense',
-                                                   **kwargs)
-                        except Exception:
-                            mne.viz.plot_alignment(surfaces='head', **kwargs)
-                        fig.scene.parallel_projection = True
-                        images = list()
-                        for ai, angle in enumerate([180, 90, 0]):
-                            mlab.view(angle, 90, focalpoint=(0., 0., 0.),
-                                      distance=0.6, figure=fig)
-                            view = mlab.screenshot(figure=fig)
-                            view = view[:, (view != 0).any(0).any(-1)]
-                            view = view[(view != 0).any(1).any(-1)]
-                            images.append(op.join(tempdir, '%s.png' % ai))
-                            imsave(images[-1], view)
-                        mlab.close(fig)
-                        report.add_images_to_section(
-                            images, captions=captions, section=section)
-                    finally:
-                        del tempdir
-                        mlab.options.offscreen = offscreen
-                print('%5.1f sec' % ((time.time() - t0),))
-            else:
-                print('    %s skipped' % section)
-            #
-            # BEM
-            #
-            section = 'BEM'
-            if p.report_params.get('bem', True):
-                caption = '%s: %s' % (section, struc)
-                bem, src, trans, _ = _get_bem_src_trans(
-                    p, raw.info, subj, struc)
-                if not bem['is_sphere']:
-                    t0 = time.time()
-                    print(('    %s ... ' % section).ljust(ljust), end='')
-                    report.add_bem_to_section(struc, caption, section,
-                                              decim=10, n_jobs=1)
-                    print('%5.1f sec' % ((time.time() - t0),))
-                else:
-                    print('    %s skipped (sphere)' % section)
-            else:
-                print('    %s skipped' % section)
-        report_fname = get_report_fnames(p, subj)[0]
-        report.save(report_fname, open_browser=False, overwrite=True)
 
 
 def _prebad(p, subj):
@@ -2778,6 +2557,7 @@ def plot_reconstruction(evoked, origin=(0., 0., 0.04)):
         The figure.
     """
     from mne.forward._field_interpolation import _map_meg_channels
+    import matplotlib.pyplot as plt
     evoked = evoked.copy().pick_types(meg=True, exclude='bads')
     info_to = deepcopy(evoked.info)
     info_to['projs'] = []
@@ -2852,6 +2632,7 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics=None, show=True):
     computational cost) can be obtained by examining the goodness-of-fit of
     the cHPI coil fits.
     """
+    import matplotlib.pyplot as plt
 
     # plotting parameters
     legend_fontsize = 10
@@ -3008,7 +2789,9 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics=None, show=True):
     return fig
 
 
-def compute_good_coils(raw, t_step=1., t_window=0.2, dist_limit=0.005):
+@verbose
+def compute_good_coils(raw, t_step=1., t_window=0.2, dist_limit=0.005,
+                       verbose=None):
     """Comute time-varying coil distances."""
     from scipy.spatial.distance import cdist
     from mne.chpi import (_get_hpi_initial_fit, _setup_hpi_struct,
@@ -3064,6 +2847,7 @@ def compute_good_coils(raw, t_step=1., t_window=0.2, dist_limit=0.005):
 def plot_good_coils(raw, t_step=1., t_window=0.2, dist_limit=0.005,
                     show=True, verbose=None):
     """Plot the good coil count as a function of time."""
+    import matplotlib.pyplot as plt
     t, counts, n_coils = compute_good_coils(raw, t_step, t_window, dist_limit)
     fig, ax = plt.subplots(figsize=(8, 2))
     ax.step(t, counts, zorder=4, color='k', clip_on=False)
