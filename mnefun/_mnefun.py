@@ -1325,7 +1325,8 @@ def fix_eeg_files(p, subjects, structurals=None, dates=None, run_indices=None):
         fix_eeg_channels(names, anon)
 
 
-def get_fsaverage_medial_vertices(concatenate=True, subjects_dir=None):
+def get_fsaverage_medial_vertices(concatenate=True, subjects_dir=None,
+                                  vertices=None):
     """Returns fsaverage medial wall vertex numbers
 
     These refer to the standard fsaverage source space
@@ -1334,25 +1335,31 @@ def get_fsaverage_medial_vertices(concatenate=True, subjects_dir=None):
     Parameters
     ----------
     concatenate : bool
-        If True, the medial wall vertices from the right hemisphere
-        will be shifted by 10242 and concatenated to those of the left.
-        Useful when treating the source space as a single entity.
+        If True, the returned vertices will be indices into the left and right
+        hemisphere that are part of the medial wall. This is
+        Useful when treating the source space as a single entity (e.g.,
+        during clustering).
     subjects_dir : str
         Directory containing subjects data. If None use
         the Freesurfer SUBJECTS_DIR environment variable.
+    vertices : None | list
+        Can be None to use ``[np.arange(10242)] * 2``.
 
     Returns
     -------
     vertices : list of array, or array
         The medial wall vertices.
     """
+    if vertices is None:
+        vertices = [np.arange(10242), np.arange(10242)]
     subjects_dir = mne.utils.get_subjects_dir(subjects_dir, raise_error=True)
     label_dir = op.join(subjects_dir, 'fsaverage', 'label')
     lh = read_label(op.join(label_dir, 'lh.Medial_wall.label'))
     rh = read_label(op.join(label_dir, 'rh.Medial_wall.label'))
-    if concatenate is True:
-        return np.concatenate((lh.vertices[lh.vertices < 10242],
-                               rh.vertices[rh.vertices < 10242] + 10242))
+    if concatenate:
+        bad_left = np.where(np.in1d(vertices[0], lh.vertices))[0]
+        bad_right = np.where(np.in1d(vertices[1], rh.vertices))[0]
+        return np.concatenate((bad_left, bad_right + len(vertices[0])))
     else:
         return [lh.vertices, rh.vertices]
 
@@ -2320,20 +2327,28 @@ def timestring(t):
 
 
 # noinspection PyPep8Naming,PyPep8Naming,PyPep8Naming
-def anova_time(X, transform=True, signed_p=True):
+def anova_time(X, transform=True, signed_p=True, gg=True):
     """A mass-univariate two-way ANOVA (with time as a co-variate)
 
     Parameters
     ----------
     X : array
-        X should have the following dimensions:
-            subjects x (2 conditions x N time points) x spatial locations
+        X should have the following dimensions::
+
+            (n_subjects, 2 * n_time, n_src)
+
+        or::
+
+            (n_subjects, 2, n_time, n_src)
+
         This then calculates the paired t-values at each spatial location
         using time as a co-variate.
     transform : bool
         If True, transform using the square root.
     signed_p : bool
         If True, change the p-value sign to match that of the t-statistic.
+    gg : bool
+        If True, correct DOF.
 
     Returns
     -------
@@ -2348,24 +2363,30 @@ def anova_time(X, transform=True, signed_p=True):
     """
     import patsy
     from scipy import linalg, stats
-    n_subjects, n_nested, n_sources = X.shape
-    n_time = n_nested // 2
+    if X.ndim == 3:
+        n_subjects, n_nested, n_src = X.shape
+        n_time = n_nested // 2
+        assert n_nested % 2 == 0
+    else:
+        assert X.ndim == 4
+        n_subjects, n_cond, n_time, n_src = X.shape
+        assert n_cond == 2
+    X = np.reshape(X, (n_subjects, 2 * n_time, n_src))
     # Turn Y into (2 x n_time x n_subjects) x n_sources
-    X = np.reshape(X, (2 * n_time * n_subjects, n_sources), order='F')
+    X = np.reshape(X, (2 * n_time * n_subjects, n_src), order='F')
     if transform:
         np.sqrt(X, out=X)
-    cv, tv, sv = np.meshgrid(np.arange(2.0), np.arange(n_time),
+    cv, tv, sv = np.meshgrid(np.arange(2), np.arange(n_time),
                              np.arange(n_subjects), indexing='ij')
     dmat = patsy.dmatrix('C(cv) + C(tv) + C(sv)',
-                         dict(sv=sv.ravel(), tv=tv.ravel(), cv=cv.ravel()))
+                         dict(cv=cv.ravel(), tv=tv.ravel(), sv=sv.ravel()))
     dof = dmat.shape[0] - np.linalg.matrix_rank(dmat)
     c = np.zeros((1, dmat.shape[1]))
     c[0, 1] = 1  # Contrast for just picking up condition difference
     # Equivalent, but slower here:
     assert np.isfinite(dmat).all()
-    b = linalg.pinv(dmat)
-    assert np.isfinite(b).all()
-    b = np.dot(b, X)
+    # b = np.dot(linalg.pinv(dmat), X)
+    b = linalg.lstsq(dmat, X)[0]
     assert np.isfinite(b).all()
     X -= np.dot(dmat, b)
     X *= X
@@ -2373,7 +2394,8 @@ def anova_time(X, transform=True, signed_p=True):
     R /= dof
     e = np.sqrt(R * np.dot(c, linalg.lstsq(np.dot(dmat.T, dmat), c.T)[0]))
     t = (np.dot(c, b) / e.T).T
-    dof = dof / float(n_time - 1)  # Greenhouse-Geisser correction to the DOF
+    if n_time > 1 and gg:
+        dof = dof / float(n_time - 1)  # Greenhouse-Geisser correction
     p = 2 * stats.t.cdf(-abs(t), dof)
     if signed_p:
         p *= np.sign(t)
@@ -2767,7 +2789,9 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics=None, show=True):
     return fig
 
 
-def compute_good_coils(raw, t_step=1., t_window=0.2, dist_limit=0.005):
+@verbose
+def compute_good_coils(raw, t_step=1., t_window=0.2, dist_limit=0.005,
+                       verbose=None):
     """Comute time-varying coil distances."""
     from scipy.spatial.distance import cdist
     from mne.chpi import (_get_hpi_initial_fit, _setup_hpi_struct,
