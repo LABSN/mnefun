@@ -2887,3 +2887,90 @@ def _spherical_conductor(info, subject, pos):
     src = setup_volume_source_space(subject=subject, sphere=bem,
                                     pos=pos, mindist=1.)
     return bem, src, None
+
+
+def annotate_head_pos(raw, head_pos, rotation_limit=45, translation_limit=0.1,
+                      coil_dists=True, t_step=0.1, t_window=0.1,
+                      dist_limit=0.005):
+    u"""Annotate a raw instance based on bad head positions.
+
+    Parameters
+    ----------
+    raw : instance of Raw
+        The raw instance.
+    head_pos : ndarray
+        The head positions.
+    rotation_limit : float
+        The rotational velocity limit in °/s.
+    translation_limit : float
+        The translational velocity limit in m/s.
+    coil_dists : bool
+        If True, compute time-varying coil distances to determine the number
+        of usable HPI coils.
+    t_step : float
+        The time step for coil calculations.
+    t_window : float
+        The time window for coil calculations.
+    dist_limit : float
+        The distance limit for coil distances (m).
+
+    Returns
+    -------
+    annot : instance of Annotations
+        The annotations.
+    """
+    head_pos_t = head_pos[:, 0]
+    dt = np.diff(head_pos_t)
+
+    coil_dists = False
+    rotation_limit = 45  #
+    translation_limit = 0.1  # m/s
+
+    annot = mne.Annotations([], [], [])
+
+    # Annotate based on bad coil distances
+    if coil_dists:
+        fit_t, counts, n_coils = compute_good_coils(
+            raw, t_step, t_window, dist_limit, verbose=True)
+        changes = np.diff((counts < 3).astype(int))
+        bad_onsets = fit_t[np.where(changes == 1)[0]]
+        bad_offsets = fit_t[np.where(changes == -1)[0]]
+        # Deal with it starting out bad
+        if counts[0] < 3:
+            bad_onsets = np.concatenate([[0.], bad_onsets])
+        if counts[-1] < 3:
+            bad_offsets = np.concatenate([bad_offsets, [raw.times[-1]]])
+        print('  Found %5.1f%% of the recording (%3d segments) to omit due to '
+              'bad coils' % (100 * np.mean(counts < 3), len(bad_onsets)))
+        assert len(bad_onsets) == len(bad_offsets)
+        assert (bad_onsets[1:] > bad_offsets[:-1]).all()
+        for onset, offset in zip(bad_onsets, bad_offsets):
+            annot.append(onset, offset - onset, 'BAD_HPI_COUNT')
+
+    # Annotate based on rotational velocity
+    if np.isfinite(rotation_limit) and rotation_limit > 0:
+        # Rotational velocity (radians / sec)
+        r = mne.transforms._angle_between_quats(head_pos[:-1, 1:4],
+                                                head_pos[1:, 1:4])
+        r /= dt
+        bad_idx = np.where(r >= np.deg2rad(rotation_limit))[0]
+        bad_pct = 100 * dt[bad_idx].sum() / (head_pos[-1, 0] - head_pos[0, 0])
+        print(u'  Found %5.1f%% of the recording (%3d segments) to omit due '
+              u'to bad rotational velocity (>=%5.1f deg/s)'
+              % (bad_pct, len(bad_idx), rotation_limit,))
+        for idx in bad_idx:
+            annot.append(head_pos_t[idx], dt[idx], 'BAD_RV')
+
+    # Annotate based on translational velocity
+    if np.isfinite(translation_limit) and translation_limit > 0:
+        v = np.linalg.norm(np.diff(head_pos[:, 4:7], axis=0), axis=-1)
+        v /= dt
+        bad_idx = np.where(v >= translation_limit)[0]
+        bad_pct = 100 * dt[bad_idx].sum() / (head_pos[-1, 0] - head_pos[0, 0])
+        print(u'  Found %5.1f%% of the recording (%3d segments) to omit due '
+              u'to bad translational velocity (>=%5.1f m/s)'
+              % (bad_pct, len(bad_idx), translation_limit,))
+        for idx in bad_idx:
+            annot.append(head_pos_t[idx], dt[idx], 'BAD_TV')
+
+    return annot
