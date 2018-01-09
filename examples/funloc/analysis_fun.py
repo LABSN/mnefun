@@ -87,7 +87,8 @@ params.runs_empty = ['%s_erm']  # Define empty room runs
 params.proj_nums = [[1, 1, 0],  # ECG
                     [1, 1, 2],  # EOG
                     [0, 0, 0]]  # Continuous (from ERM)
-params.autoreject_thresholds = True  # Set to True to use Autoreject module to set global epoch rejection thresholds  # noqa
+params.autoreject_thresholds = True  # Set to True to use Autoreject module to set global epoch rejection thresholds
+params.autoreject_eog = False  # Set to True to use EOG Autoreject criterion to reject trials based on EOG
 params.cov_method = 'shrunk'  # Cleaner noise covariance regularization
 # python | maxfilter for choosing SSS applied using either Maxfilter or MNE
 params.sss_type = 'python'
