@@ -243,11 +243,10 @@ class Params(Frozen):
         If True use autoreject module to compute global rejection thresholds
         for epoching. Make sure autoreject module is installed. See
         http://autoreject.github.io/ for instructions.
-    autoreject_eog : bool | False
-        If True use rejection thresholds computed by autoreject module to reject
-        trials with strong blink activity or noisy EOG channel. Warning this option
-        may result in conservative rejection criterion resulting in excessive trial
-        rejection. Make sure to check your data after applicaiton.
+    autoreject_types : tuple
+        Default is ('mag', 'grad', 'eeg'). Can set to ('mag', 'grad', 'eeg',
+        'eog) to use EOG channel rejection criterion from autoreject module to
+        reject trials on basis of EOG.
     src_pos : float
         Default is 7 mm. Defines source grid spacing for volumetric source
         space.
@@ -409,7 +408,7 @@ class Params(Frozen):
         self.on_missing = 'error'  # for epochs
         self.subject_run_indices = None
         self.autoreject_thresholds = False
-        self.autoreject_eog = False
+        self.autoreject_types = ('mag', 'grad', 'eeg')
         self.subjects_dir = None
         self.src_pos = 7.
         self.report_params = dict(
@@ -1567,15 +1566,10 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
                                  proj=True, reject=None, flat=None,
                                  preload=True, decim=decim[si])
             new_dict = get_rejection_threshold(temp_epochs)
-            use_reject, use_flat = _restrict_reject_flat(new_dict, p.flat, raw)
-            if p.autoreject_eog:
-                msg = 'You have chosen to reject trials based on criterion computed ' \
-                      'using Autoreject module.\nThis option may result in excessive ' \
-                      'trial rejection. Make sure to check your data!'
-                warnings.warn(msg)
-            else:
-                use_reject.pop('eog', None)
-                use_flat.pop('eog', None)
+            use_reject = dict()
+            use_reject.update((k, new_dict[k]) for k in p.autoreject_types)
+            use_reject, use_flat = _restrict_reject_flat(use_reject,
+                                                         p.flat, raw)
         else:
             use_reject, use_flat = _restrict_reject_flat(p.reject, p.flat, raw)
 
