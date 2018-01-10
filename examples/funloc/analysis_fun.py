@@ -52,14 +52,21 @@ params.plot_drop_logs = False  # Turn off so plots do not halt processing
 
 # The default is to use the median (across runs) of the starting head positions
 # individually for each subject.
-params.trans_to = 'median'
+# params.trans_to = 'median'
 
 # You can also use a translation, plus x-axis rotation (-30 means backward 30°)
 # params.trans_to = (0., 0., 0.05, -30)
 
 # Or you can transform to the time-weighted average head pos
 # for each subject individually.
-# params.trans_to = 'twa'
+params.trans_to = 'twa'
+
+# Data can be annotated for omission (from epoching and destination head
+# position calculation) by setting parameters like these (these are quite
+# stringent!)
+params.rotation_limit = 0.2  # deg/s
+params.translation_limit = 0.0001  # m/s
+params.coil_dist_limit = np.inf
 
 # Set parameters for remotely connecting to acquisition computer
 params.acq_ssh = 'minea'  # Could also be e.g., "eric@minea.ilabs.uw.edu"

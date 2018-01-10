@@ -26,7 +26,8 @@ from mne import (
     convert_forward_solution, write_proj, read_proj, setup_source_space,
     make_forward_solution, write_evokeds, make_sphere_model,
     setup_volume_source_space, pick_info, write_source_spaces,
-    read_source_spaces, write_forward_solution, DipoleFixed)
+    read_source_spaces, write_forward_solution, DipoleFixed,
+    read_annotations)
 
 try:
     from mne import compute_raw_covariance  # up-to-date mne-python
@@ -65,6 +66,7 @@ except ImportError:
         from mne.io.chpi import (_quat_to_rot as quat_to_rot,
                                  _rot_to_quat as rot_to_quat)
 from mne.io import read_raw_fif, concatenate_raws, read_info, write_info
+from mne.io.base import _annotations_starts_stops
 from mne.io.constants import FIFF
 from mne.io.pick import pick_types_forward, pick_types
 from mne.io.meas_info import _empty_info
@@ -416,6 +418,13 @@ class Params(Frozen):
             coil_t_step='auto',
             source=None,
             )
+        self.annotation_params = dict(
+            rotation_limit=np.inf,
+            translation_limit=np.inf,
+            coil_dist_limit=np.inf)
+        self.rotation_limit = np.inf
+        self.translation_limit = np.inf
+        self.coil_dist_limit = np.inf
         self.freeze()
 
     @property
@@ -742,10 +751,21 @@ def calc_twa_hp(p, subj, out_file, ridx):
     for raw_fname in raw_fnames:
         raw = mne.io.read_raw_fif(raw_fname, allow_maxshield='yes',
                                   verbose='error')
-        hp = _headpos(p, raw_fname)
-        dt = np.diff(np.concatenate((hp[:, 0],
-                                     [raw.last_samp / raw.info['sfreq']])))
-        assert (dt > 0).all()
+        hp, annot = _head_pos_annot(p, raw_fname, prefix='          ')
+        raw.annotations = annot
+        good = np.ones(len(raw.times))
+        ts = np.concatenate((hp[:, 0],
+                             [(raw.last_samp + 1) / raw.info['sfreq']]))
+        ts -= raw.first_samp / raw.info['sfreq']
+        idx = raw.time_as_index(ts, use_rounding=True)
+        assert idx[-1] == len(good)
+        # Mark times bad that are bad according to annotations
+        onsets, ends = _annotations_starts_stops(raw, 'bad')
+        for onset, end in zip(onsets, ends):
+            good[onset:end] = 0
+        dt = np.diff(np.cumsum(np.concatenate([[0], good]))[idx])
+        dt = dt / raw.info['sfreq']
+        del good, idx, ts
         pos += np.dot(dt, hp[:, 4:7])
         these_qs = hp[:, 1:4]
         res = 1 - np.sum(these_qs * these_qs, axis=-1, keepdims=True)
@@ -1102,12 +1122,14 @@ def run_sss_locally(p, subjects, run_indices):
             raw.fix_mag_coil_types()
             _load_meg_bads(raw, prebad_file, disp=ii == 0, prefix=' ' * 6)
             print('      Processing %s ...' % op.basename(r))
-            assert isinstance(p.trans_to, (string_types, tuple, type(None)))
-            trans_to = _load_trans_to(p, subj, run_indices[si])
 
             # estimate head position for movement compensation
-            # pos = _calculate_chpi_positions(raw)
-            pos = _headpos(p, r)
+            head_pos, annot = _head_pos_annot(p, r, prefix='        ')
+            raw.annotations = annot
+
+            # get the destination head position
+            assert isinstance(p.trans_to, (string_types, tuple, type(None)))
+            trans_to = _load_trans_to(p, subj, run_indices[si])
 
             # filter cHPI signals
             if p.filter_chpi:
@@ -1124,7 +1146,7 @@ def run_sss_locally(p, subjects, run_indices):
                 ext_order=p.ext_order, calibration=cal_file,
                 cross_talk=ct_file, st_correlation=p.st_correlation,
                 st_duration=st_duration, destination=trans_to,
-                coord_frame='head', head_pos=pos, regularize=reg,
+                coord_frame='head', head_pos=head_pos, regularize=reg,
                 bad_condition='warning')
             print('%i sec' % (time.time() - t0,))
             raw_sss.save(o, overwrite=True, buffer_size_sec=None)
@@ -2456,16 +2478,38 @@ def _prebad(p, subj):
     return prebad_file
 
 
-def _headpos(p, raw_fname):
-    """Helper for locating head position estimation file"""
+def _head_pos_annot(p, raw_fname, prefix='  '):
+    """Locate head position estimation file and do annotations."""
     if p.movecomp is None:
         return None
     pos_fname = raw_fname[:-4] + '.pos'
     if not op.isfile(pos_fname):
+        # XXX Someday we can do:
+        # head_pos = _calculate_chpi_positions(raw)
+        # write_head_positions(pos_fname, head_pos)
         run_sss_positions(raw_fname, pos_fname,
                           host=p.sws_ssh, port=p.sws_port, prefix='        ',
                           work_dir=p.sws_dir)
-    return read_head_pos(pos_fname)
+    head_pos = read_head_pos(pos_fname)
+
+    # do the annotations
+    lims = [p.rotation_limit, p.translation_limit, p.coil_dist_limit]
+    if not np.isfinite(lims).any():
+        annot = None
+    else:
+        annot_fname = raw_fname[:-4] + '-annot.fif'
+        if not op.isfile(annot_fname):
+            raw = mne.io.read_raw_fif(raw_fname, allow_maxshield='yes')
+            print('%sAnnotating raw segments with rotation_limit=%s, '
+                  'translation_limit=%s, coil_dist_limit=%s'
+                  % (prefix, lims[0], lims[1], lims[2]))
+            annot = annotate_head_pos(
+                raw, head_pos, rotation_limit=lims[0],
+                translation_limit=lims[1],
+                coil_dist_limit=lims[2], prefix='  ' + prefix)
+            annot.save(annot_fname)
+        annot = read_annotations(annot_fname)
+    return head_pos, annot
 
 
 def info_sss_basis(info, origin='auto', int_order=8, ext_order=3,
@@ -2890,8 +2934,8 @@ def _spherical_conductor(info, subject, pos):
 
 
 def annotate_head_pos(raw, head_pos, rotation_limit=45, translation_limit=0.1,
-                      coil_dists=True, t_step=0.1, t_window=0.1,
-                      dist_limit=0.005):
+                      coil_dist_limit=0.005, t_step=0.1, t_window=0.1,
+                      prefix='  '):
     u"""Annotate a raw instance based on bad head positions.
 
     Parameters
@@ -2902,36 +2946,39 @@ def annotate_head_pos(raw, head_pos, rotation_limit=45, translation_limit=0.1,
         The head positions.
     rotation_limit : float
         The rotational velocity limit in °/s.
+        Can be infinite to skip rotation checks.
     translation_limit : float
         The translational velocity limit in m/s.
-    coil_dists : bool
-        If True, compute time-varying coil distances to determine the number
-        of usable HPI coils.
+        Can be infinite to skip translation checks.
+    coil_dist_limit : float
+        The distance limit for coil distances (m).
+        Can be infinite to skip the use of coil distances.
     t_step : float
         The time step for coil calculations.
     t_window : float
         The time window for coil calculations.
-    dist_limit : float
-        The distance limit for coil distances (m).
 
     Returns
     -------
-    annot : instance of Annotations
+    annot : instance of Annotations | None
         The annotations.
     """
+    # XXX: Add `sphere_dist_limit` to ensure no sensor collisions at some
+    # point
+    do_rotation = np.isfinite(rotation_limit)
+    do_translation = np.isfinite(translation_limit)
+    do_coils = np.isfinite(coil_dist_limit)
+    if not (do_rotation or do_translation or do_coils):
+        return None
     head_pos_t = head_pos[:, 0]
     dt = np.diff(head_pos_t)
-
-    coil_dists = False
-    rotation_limit = 45  #
-    translation_limit = 0.1  # m/s
 
     annot = mne.Annotations([], [], [])
 
     # Annotate based on bad coil distances
-    if coil_dists:
+    if do_coils:
         fit_t, counts, n_coils = compute_good_coils(
-            raw, t_step, t_window, dist_limit, verbose=True)
+            raw, t_step, t_window, coil_dist_limit, verbose=True)
         changes = np.diff((counts < 3).astype(int))
         bad_onsets = fit_t[np.where(changes == 1)[0]]
         bad_offsets = fit_t[np.where(changes == -1)[0]]
@@ -2940,37 +2987,42 @@ def annotate_head_pos(raw, head_pos, rotation_limit=45, translation_limit=0.1,
             bad_onsets = np.concatenate([[0.], bad_onsets])
         if counts[-1] < 3:
             bad_offsets = np.concatenate([bad_offsets, [raw.times[-1]]])
-        print('  Found %5.1f%% of the recording (%3d segments) to omit due to '
-              'bad coils' % (100 * np.mean(counts < 3), len(bad_onsets)))
+        print('%sOmitting %5.1f%% of the recording (%3d segments) to omit due to '
+              'bad coils'
+              % (prefix, 100 * np.mean(counts < 3), len(bad_onsets)))
         assert len(bad_onsets) == len(bad_offsets)
         assert (bad_onsets[1:] > bad_offsets[:-1]).all()
         for onset, offset in zip(bad_onsets, bad_offsets):
             annot.append(onset, offset - onset, 'BAD_HPI_COUNT')
 
     # Annotate based on rotational velocity
-    if np.isfinite(rotation_limit) and rotation_limit > 0:
+    if do_rotation:
+        assert rotation_limit > 0
         # Rotational velocity (radians / sec)
         r = mne.transforms._angle_between_quats(head_pos[:-1, 1:4],
                                                 head_pos[1:, 1:4])
         r /= dt
         bad_idx = np.where(r >= np.deg2rad(rotation_limit))[0]
         bad_pct = 100 * dt[bad_idx].sum() / (head_pos[-1, 0] - head_pos[0, 0])
-        print(u'  Found %5.1f%% of the recording (%3d segments) to omit due '
-              u'to bad rotational velocity (>=%5.1f deg/s)'
-              % (bad_pct, len(bad_idx), rotation_limit,))
+        print(u'%sOmitting %5.1f%% (%3d segments) due to bad rotational '
+              'velocity (>=%5.1f deg/s), with max %0.2f deg/s'
+              % (prefix, bad_pct, len(bad_idx), rotation_limit,
+                 np.rad2deg(r.max())))
         for idx in bad_idx:
             annot.append(head_pos_t[idx], dt[idx], 'BAD_RV')
 
     # Annotate based on translational velocity
-    if np.isfinite(translation_limit) and translation_limit > 0:
+    if do_translation:
+        assert translation_limit > 0
         v = np.linalg.norm(np.diff(head_pos[:, 4:7], axis=0), axis=-1)
         v /= dt
         bad_idx = np.where(v >= translation_limit)[0]
         bad_pct = 100 * dt[bad_idx].sum() / (head_pos[-1, 0] - head_pos[0, 0])
-        print(u'  Found %5.1f%% of the recording (%3d segments) to omit due '
-              u'to bad translational velocity (>=%5.1f m/s)'
-              % (bad_pct, len(bad_idx), translation_limit,))
+        print(u'%sOmitting %5.1f%% (%3d segments) due to translational '
+              u'velocity (>=%5.1f m/s), with max %0.4f m/s'
+              % (prefix, bad_pct, len(bad_idx), translation_limit, v.max()))
         for idx in bad_idx:
             annot.append(head_pos_t[idx], dt[idx], 'BAD_TV')
 
+    # Annotate on distance from the sensors
     return annot
