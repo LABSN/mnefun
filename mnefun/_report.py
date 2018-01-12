@@ -27,8 +27,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None,
                     fwd=True, inv=True):
     """Generates HTML reports"""
     import matplotlib.pyplot as plt
-    from matplotlib.image import imsave
-    from ._mnefun import (_load_trans_to, plot_good_coils, _headpos,
+    from ._mnefun import (_load_trans_to, plot_good_coils, _head_pos_annot,
                           _get_bem_src_trans, safe_inserter, _prebad,
                           _load_meg_bads)
     if run_indices is None:
@@ -93,7 +92,8 @@ def gen_html_report(p, subjects, structurals, run_indices=None,
                 print(('    %s ... ' % section).ljust(ljust), end='')
                 t0 = time.time()
                 trans_to = _load_trans_to(p, subj, run_indices[si], raw)
-                pos = [_headpos(p, fname) for ri, fname in enumerate(fnames)]
+                pos = [_head_pos_annot(p, fname)[0]
+                       for ri, fname in enumerate(fnames)]
                 fig = plot_head_positions(pos=pos, destination=trans_to,
                                           info=raw.info, show=False)
                 del trans_to
@@ -155,34 +155,42 @@ def gen_html_report(p, subjects, structurals, run_indices=None,
                 assert sss_info is not None
                 t0 = time.time()
                 print(('    %s ... ' % section).ljust(ljust), end='')
-                captions = []
                 figs = []
+                comments = []
                 if p.proj_extra is not None:
-                    captions.append('%s: Custom' % section)
+                    comments.append('Custom')
                     projs = read_proj(op.join(p.work_dir, subj, p.pca_dir,
                                               p.proj_extra))
                     figs.append(plot_projs_topomap(projs, info=sss_info,
                                                    show=False))
                 if any(p.proj_nums[0]):  # ECG
-                    captions.append('%s: ECG' % section)
+                    comments.append('ECG')
                     projs = read_proj(op.join(p.work_dir, subj, p.pca_dir,
                                               'preproc_ecg-proj.fif'))
                     figs.append(plot_projs_topomap(projs, info=sss_info,
                                                    show=False))
                 if any(p.proj_nums[1]):  # EOG
-                    captions.append('%s: Blink' % section)
+                    comments.append('Blink')
                     projs = read_proj(op.join(p.work_dir, subj, p.pca_dir,
                                               'preproc_blink-proj.fif'))
                     figs.append(plot_projs_topomap(projs, info=sss_info,
                                                    show=False))
                 if any(p.proj_nums[2]):  # ERM
-                    captions.append('%s: Continuous' % section)
+                    comments.append('Continuous')
                     projs = read_proj(op.join(p.work_dir, subj, p.pca_dir,
                                               'preproc_cont-proj.fif'))
                     figs.append(plot_projs_topomap(projs, info=sss_info,
                                                    show=False))
-                report.add_figs_to_section(figs, captions, section,
-                                           image_format='svg')
+                # adjust sizes
+                for fig in figs:
+                    n_rows = np.floor(np.sqrt(len(fig.axes)))
+                    n_cols = np.ceil(len(fig.axes) / float(n_rows))
+                    fig.set_size_inches(2 * n_cols, 2 * n_rows)
+                    fig.tight_layout()
+                captions = [section] + [None] * (len(comments) - 1)
+                report.add_figs_to_section(
+                     figs, captions, section, image_format='svg',
+                     comments=comments)
                 print('%5.1f sec' % ((time.time() - t0),))
             else:
                 print('    %s skipped' % section)
@@ -195,8 +203,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None,
                 assert sss_info is not None
                 t0 = time.time()
                 print(('    %s ... ' % section).ljust(ljust), end='')
-                captions = ['Left', 'Front', 'Right']
-                captions = ['%s: %s' % (section, c) for c in captions]
+                captions = [section]
                 try:
                     from mayavi import mlab
                 except ImportError:
@@ -209,7 +216,6 @@ def gen_html_report(p, subjects, structurals, run_indices=None,
                         p, sss_info, subj, struc)
                     offscreen = mlab.options.offscreen
                     mlab.options.offscreen = True
-                    tempdir = mne.utils._TempDir()
                     if len(mne.pick_types(sss_info)):
                         coord_frame = 'meg'
                     else:
@@ -234,20 +240,17 @@ def gen_html_report(p, subjects, structurals, run_indices=None,
                                                'for alignment:\n%s'
                                                % (try_surfs,))
                         fig.scene.parallel_projection = True
-                        images = list()
+                        view = list()
                         for ai, angle in enumerate([180, 90, 0]):
                             mlab.view(angle, 90, focalpoint=(0., 0., 0.),
                                       distance=0.6, figure=fig)
-                            view = mlab.screenshot(figure=fig)
-                            view = view[:, (view != 0).any(0).any(-1)]
-                            view = view[(view != 0).any(1).any(-1)]
-                            images.append(op.join(tempdir, '%s.png' % ai))
-                            imsave(images[-1], view)
+                            view.append(mlab.screenshot(figure=fig))
                         mlab.close(fig)
-                        report.add_images_to_section(
-                            images, captions=captions, section=section)
+                        view = np.concatenate(view, axis=1)
+                        view = view[:, (view != 0).any(0).any(-1)]
+                        view = view[(view != 0).any(1).any(-1)]
+                        report.add_figs_to_section(view, captions, section)
                     finally:
-                        del tempdir
                         mlab.options.offscreen = offscreen
                 print('%5.1f sec' % ((time.time() - t0),))
             else:
@@ -257,7 +260,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None,
             #
             section = 'BEM'
             if p.report_params.get('bem', True):
-                caption = '%s: %s' % (section, struc)
+                caption = '%s<br>%s' % (section, struc)
                 bem, src, trans, _ = _get_bem_src_trans(
                     p, raw.info, subj, struc)
                 if not bem['is_sphere']:
@@ -308,14 +311,42 @@ def gen_html_report(p, subjects, structurals, run_indices=None,
                 else:
                     cov = mne.read_cov(cov_name)
                     evo = mne.read_evokeds(fname_evoked, name)
-                    comments = '%s["%s"] (N=%d)' % (analysis, name, evo.nave)
+                    captions = ('%s<br>%s["%s"] (N=%d)'
+                                % (section, analysis, name, evo.nave))
                     fig = evo.plot_white(cov)
                     report.add_figs_to_section(
-                        fig, captions=section, comments=comments,
-                        section=section, image_format='png')
+                        fig, captions, section=section, image_format='png')
                     print('%5.1f sec' % ((time.time() - t0),))
             else:
                 print('    %s skipped' % section)
+
+            #
+            # Sensor space plots
+            #
+            section = 'Responses'
+            if p.report_params.get('sensor', None) is not None:
+                t0 = time.time()
+                print(('    %s ... ' % section).ljust(ljust), end='')
+                sensor = p.report_params['sensor']
+                assert isinstance(sensor, dict)
+                analysis = sensor['analysis']
+                name = sensor['name']
+                times = sensor.get('times', [0.1])
+                fname_evoked = op.join(inv_dir, '%s_%d%s_%s_%s-ave.fif'
+                                       % (analysis, p.lp_cut, p.inv_tag,
+                                          p.eq_tag, subj))
+                if not op.isfile(fname_evoked):
+                    print('Missing evoked: %s' % fname_evoked)
+                else:
+                    evoked = mne.read_evokeds(fname_evoked, name)
+                    figs = evoked.plot_joint(
+                        times, show=False, topomap_args=dict(outlines='head'))
+                    captions = ('%s<br>%s["%s"] (N=%d)'
+                                % (section, analysis, name, evoked.nave))
+                    captions = [captions] + [None] * (len(figs) - 1)
+                    report.add_figs_to_section(
+                        figs, captions, section=section, image_format='svg')
+                    print('%5.1f sec' % ((time.time() - t0),))
 
             #
             # Source estimation
@@ -328,6 +359,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None,
                 assert isinstance(source, dict)
                 analysis = source['analysis']
                 name = source['name']
+                times = source.get('times', [0.1])
                 # Load the inverse
                 inv_dir = op.join(p.work_dir, subj, p.inverse_dir)
                 fname_inv = op.join(inv_dir,
@@ -342,7 +374,8 @@ def gen_html_report(p, subjects, structurals, run_indices=None,
                     print('Missing evoked: %s' % fname_evoked)
                 else:
                     evoked = mne.read_evokeds(fname_evoked, name)
-                    title = '%s["%s"] (N=%d)' % (analysis, name, evoked.nave)
+                    title = ('%s<br>%s["%s"] (N=%d)'
+                             % (section, analysis, name, evoked.nave))
                     stc = mne.minimum_norm.apply_inverse(
                         evoked, inv, lambda2=source.get('lambda2', 1. / 9.),
                         method=source.get('method', 'dSPM'),
@@ -369,7 +402,6 @@ def gen_html_report(p, subjects, structurals, run_indices=None,
                             clim=clim,
                             )
                         imgs = list()
-                        times = source.get('times', [0.1])
                         for t in times:
                             brain.set_time(t)
                             imgs.append(brain.screenshot())

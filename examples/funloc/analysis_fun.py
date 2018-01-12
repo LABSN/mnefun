@@ -47,19 +47,26 @@ params.subjects = ['subj_01', 'subj_02']
 params.structurals = [None, 'AKCLEE_110_slim']  # None means use sphere
 params.dates = [(2014, 2, 14), None]  # Use "None" to more fully anonymize
 params.score = score  # Scoring function used to slice data into trials
-params.subject_indices = np.arange(2)  # Define which subjects to run
+params.subject_indices = [1]  # np.arange(2)  # Define which subjects to run
 params.plot_drop_logs = False  # Turn off so plots do not halt processing
 
 # The default is to use the median (across runs) of the starting head positions
 # individually for each subject.
-params.trans_to = 'median'
+# params.trans_to = 'median'
 
 # You can also use a translation, plus x-axis rotation (-30 means backward 30°)
 # params.trans_to = (0., 0., 0.05, -30)
 
 # Or you can transform to the time-weighted average head pos
 # for each subject individually.
-# params.trans_to = 'twa'
+params.trans_to = 'twa'
+
+# Data can be annotated for omission (from epoching and destination head
+# position calculation) by setting parameters like these (these are quite
+# stringent!)
+params.rotation_limit = 0.2  # deg/s
+params.translation_limit = 0.0001  # m/s
+params.coil_dist_limit = np.inf
 
 # Set parameters for remotely connecting to acquisition computer
 params.acq_ssh = 'minea'  # Could also be e.g., "eric@minea.ilabs.uw.edu"
@@ -121,6 +128,7 @@ params.must_match = [
 params.report_params.update(  # add a couple of nice diagnostic plots
     whitening=dict(analysis='All', name='All',
                    cov='%s-55-sss-cov.fif'),
+    sensor=dict(analysis='All', name='All', times=[0.1, 0.2]),
     source=dict(analysis='All', name='All',
                 inv='%s-55-sss-meg-eeg-free-inv.fif', times=[0.1, 0.2],
                 views='lat', size=(800, 400)),
@@ -128,7 +136,7 @@ params.report_params.update(  # add a couple of nice diagnostic plots
 )
 
 # Set what processing steps will execute
-default = True
+default = False
 mnefun.do_processing(
     params,
     fetch_raw=default,     # Fetch raw recording files from acquisition machine
@@ -152,6 +160,6 @@ mnefun.do_processing(
     # Make SUBJ/trans/SUBJ-trans.fif using mne_analyze; needed for fwd calc.
     gen_fwd=default,       # Generate forward solutions (and source space)
     gen_inv=default,       # Generate inverses
-    gen_report=default,    # Write mne report html of results to disk
+    gen_report=True,    # Write mne report html of results to disk
     print_status=default,  # Print completeness status update
 )
