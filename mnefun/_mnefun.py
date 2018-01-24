@@ -280,7 +280,7 @@ class Params(Frozen):
                  cov_method='empirical', ssp_eog_reject=None,
                  ssp_ecg_reject=None, baseline='individual',
                  reject_tmin=None, reject_tmax=None,
-                 lp_trans=0.5, hp_trans=0.5, fir_design='firwin2'):
+                 lp_trans=0.5, hp_trans=0.5):
         self.reject = dict(eog=np.inf, grad=1500e-13, mag=5000e-15, eeg=150e-6)
         self.flat = dict(eog=0, grad=1e-13, mag=1e-15, eeg=1e-6)
         if ssp_eog_reject is None:
@@ -305,7 +305,7 @@ class Params(Frozen):
         self.work_dir = os.getcwd()
         self.n_jobs = n_jobs
         self.n_jobs_mkl = n_jobs_mkl
-        self.n_jobs_fir = 'cuda'  # Jobs when using method='fir'
+        self.n_jobs_fir = n_jobs_fir  # Jobs when using method='fir'
         self.n_jobs_resample = n_jobs_resample
         self.filter_length = filter_length
         self.cont_lp = 5
