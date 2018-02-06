@@ -1823,10 +1823,12 @@ def _get_bem_src_trans(p, info, subj, struc):
     else:
         trans = op.join(p.work_dir, subj, p.trans_dir, subj + '-trans.fif')
         if not op.isfile(trans):
+            old = trans
             trans = op.join(p.work_dir, subj, p.trans_dir,
                             subj + '-trans_head2mri.txt')
             if not op.isfile(trans):
-                raise IOError('Unable to find head<->MRI trans file')
+                raise IOError('Unable to find head<->MRI trans files in:\n'
+                              '%s\n%s' % (old, trans))
         trans = mne.read_trans(trans)
         trans = mne.transforms._ensure_trans(trans, 'mri', 'head')
         for mid in ('oct6', 'oct-6'):
