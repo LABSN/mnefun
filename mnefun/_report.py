@@ -277,7 +277,8 @@ def gen_html_report(p, subjects, structurals, run_indices=None,
                         t0 = time.time()
                         print(('    %s ... ' % section).ljust(ljust), end='')
                         report.add_bem_to_section(struc, caption, section,
-                                                  decim=10, n_jobs=1)
+                                                  decim=10, n_jobs=1,
+                                                  subjects_dir=subjects_dir)
                         print('%5.1f sec' % ((time.time() - t0),))
                 else:
                     print('    %s skipped (sphere)' % section)
@@ -392,6 +393,8 @@ def gen_html_report(p, subjects, structurals, run_indices=None,
                         print('Only surface source estimates currently '
                               'supported')
                     else:
+                        subjects_dir = mne.utils.get_subjects_dir(
+                            p.subjects_dir, raise_error=True)
                         brain = stc.plot(
                             hemi=source.get('hemi', 'split'),
                             views=source.get('views', ['lat', 'med']),
@@ -399,7 +402,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None,
                             colormap=source.get('colormap', 'viridis'),
                             transparent=source.get('transparent', True),
                             foreground='k', background='w',
-                            clim=clim,
+                            clim=clim, subjects_dir=subjects_dir,
                             )
                         imgs = list()
                         for t in times:
