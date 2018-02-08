@@ -47,7 +47,7 @@ params.subjects = ['subj_01', 'subj_02']
 params.structurals = [None, 'AKCLEE_110_slim']  # None means use sphere
 params.dates = [(2014, 2, 14), None]  # Use "None" to more fully anonymize
 params.score = score  # Scoring function used to slice data into trials
-params.subject_indices = [1]  # np.arange(2)  # Define which subjects to run
+params.subject_indices = np.arange(2)  # Define which subjects to run
 params.plot_drop_logs = False  # Turn off so plots do not halt processing
 
 # The default is to use the median (across runs) of the starting head positions
@@ -66,7 +66,8 @@ params.trans_to = 'twa'
 # stringent!)
 params.rotation_limit = 0.2  # deg/s
 params.translation_limit = 0.0001  # m/s
-params.coil_dist_limit = np.inf
+params.coil_dist_limit = 0.005
+params.coil_t_step_min = 1.  # 0.01 is better for fast-moving subjects!
 
 # Set parameters for remotely connecting to acquisition computer
 params.acq_ssh = 'minea'  # Could also be e.g., "eric@minea.ilabs.uw.edu"
