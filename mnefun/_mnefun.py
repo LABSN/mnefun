@@ -2519,8 +2519,12 @@ def _head_pos_annot(p, raw_fname, prefix='  '):
                 translation_limit=lims[1],
                 coil_dist_limit=lims[2], t_step=lims[3], t_window=lims[4],
                 prefix='  ' + prefix)
-            annot.save(annot_fname)
-        annot = read_annotations(annot_fname)
+            if annot is not None:
+                annot.save(annot_fname)
+        try:
+            annot = read_annotations(annot_fname)
+        except IOError:  # no annotations requested
+            annot = None
     return head_pos, annot
 
 
