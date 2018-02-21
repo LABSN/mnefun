@@ -2509,11 +2509,13 @@ def _head_pos_annot(p, raw_fname, prefix='  '):
         annot_fname = raw_fname[:-4] + '-annot.fif'
         if not op.isfile(annot_fname):
             raw = mne.io.read_raw_fif(raw_fname, allow_maxshield='yes')
-            print(prefix.join(['', 'Annotating raw segments with:\n',
-                               '  rotation_limit=%s\n' % lims[0],
-                               '  translation_limit=%s\n' % lims[1],
-                               '  coil_dist_limit=%s, t_step=%s, t_window=%s'
-                               % tuple(lims[2:])]))
+            if any(np.isfinite(lims[:3])):
+                print(prefix.join(['', 'Annotating raw segments with:\n',
+                                   '  rotation_limit=%s\n' % lims[0],
+                                   '  translation_limit=%s\n' % lims[1],
+                                   '  coil_dist_limit=%s, t_step=%s, '
+                                   't_window=%s'
+                                   % tuple(lims[2:])]))
             annot = annotate_head_pos(
                 raw, head_pos, rotation_limit=lims[0],
                 translation_limit=lims[1],
