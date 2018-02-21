@@ -61,13 +61,17 @@ params.plot_drop_logs = False  # Turn off so plots do not halt processing
 # for each subject individually.
 params.trans_to = 'twa'
 
+# Set the parameters for head position estimation:
+params.coil_t_window = 'auto'  # use the smallest reasonable window size
+params.coil_t_step_min = 0.01  # this is generally a good value
+params.coil_dist_limit = 0.005  # same as MaxFilter, can be made more lenient
+
 # Data can be annotated for omission (from epoching and destination head
 # position calculation) by setting parameters like these (these are quite
 # stringent!)
 params.rotation_limit = 0.2  # deg/s
 params.translation_limit = 0.0001  # m/s
-params.coil_dist_limit = 0.005
-params.coil_t_step_min = 1.  # 0.01 is better for fast-moving subjects!
+params.annotate_bad_coil_counts = True  # remove segments with < 3 good coils
 
 # Set parameters for remotely connecting to acquisition computer
 params.acq_ssh = 'minea'  # Could also be e.g., "eric@minea.ilabs.uw.edu"

@@ -67,15 +67,12 @@ def gen_html_report(p, subjects, structurals, run_indices=None,
             #
             # Head coils
             #
-            section = 'HPI coil SNR'
-            if p.report_params.get('coil_snr', True) and p.movecomp:
+            section = 'Good HPI count'
+            if p.report_params.get('good_hpi_count', True) and p.movecomp:
                 t0 = time.time()
+                _, _, fit_data = _head_pos_annot(p, fname, prefix='      ')
                 print(('    %s ... ' % section).ljust(ljust), end='')
-                if p.report_params['coil_t_step'] == 'auto':
-                    t_step = raw.times[-1] / 100.  # 100 points
-                else:
-                    t_step = float(p.report_params['coil_t_step'])
-                fig = plot_good_coils(raw, t_step, show=False)
+                fig = plot_good_coils(fit_data, show=False)
                 fig.set_size_inches(10, 2)
                 fig.tight_layout()
                 report.add_figs_to_section(fig, section, section,
