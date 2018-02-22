@@ -41,7 +41,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None,
               % (si + 1, len(subjects), subj))
 
         # raw
-        fnames = get_raw_fnames(p, subj, 'raw', erm=False, add_splits=True,
+        fnames = get_raw_fnames(p, subj, 'raw', erm=False, add_splits=False,
                                 run_indices=run_indices[si])
         if not all(op.isfile(fname) for fname in fnames):
             raise RuntimeError('Cannot create reports until raw data exist')
@@ -70,12 +70,17 @@ def gen_html_report(p, subjects, structurals, run_indices=None,
             section = 'Good HPI count'
             if p.report_params.get('good_hpi_count', True) and p.movecomp:
                 t0 = time.time()
-                _, _, fit_data = _head_pos_annot(p, fname, prefix='      ')
                 print(('    %s ... ' % section).ljust(ljust), end='')
-                fig = plot_good_coils(fit_data, show=False)
-                fig.set_size_inches(10, 2)
-                fig.tight_layout()
-                report.add_figs_to_section(fig, section, section,
+                figs = list()
+                captions = list()
+                for fname in fnames:
+                    _, _, fit_data = _head_pos_annot(p, fname, prefix='      ')
+                    fig = plot_good_coils(fit_data, show=False)
+                    fig.set_size_inches(10, 2)
+                    fig.tight_layout()
+                    figs.append(fig)
+                    captions.append('%s: %s' % (section, op.split(fname)[-1]))
+                report.add_figs_to_section(figs, captions, section,
                                            image_format='svg')
                 print('%5.1f sec' % ((time.time() - t0),))
             else:
@@ -89,14 +94,18 @@ def gen_html_report(p, subjects, structurals, run_indices=None,
                 print(('    %s ... ' % section).ljust(ljust), end='')
                 t0 = time.time()
                 trans_to = _load_trans_to(p, subj, run_indices[si], raw)
-                pos = [_head_pos_annot(p, fname)[0]
-                       for ri, fname in enumerate(fnames)]
-                fig = plot_head_positions(pos=pos, destination=trans_to,
-                                          info=raw.info, show=False)
+                figs = list()
+                captions = list()
+                for fname in fnames:
+                    pos, _, _ = _head_pos_annot(p, fname, prefix='      ')
+                    fig = plot_head_positions(pos=pos, destination=trans_to,
+                                              info=raw.info, show=False)
+                    fig.set_size_inches(10, 6)
+                    fig.tight_layout()
+                    figs.append(fig)
+                    captions.append('%s: %s' % (section, op.split(fname)[-1]))
                 del trans_to
-                fig.set_size_inches(10, 6)
-                fig.tight_layout()
-                report.add_figs_to_section(fig, section, section,
+                report.add_figs_to_section(figs, captions, section,
                                            image_format='svg')
                 print('%5.1f sec' % ((time.time() - t0),))
             else:
