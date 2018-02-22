@@ -71,7 +71,8 @@ params.coil_dist_limit = 0.005  # same as MaxFilter, can be made more lenient
 # stringent!)
 params.rotation_limit = 0.2  # deg/s
 params.translation_limit = 0.0001  # m/s
-params.annotate_bad_coil_counts = True  # remove segments with < 3 good coils
+# remove segments with < 3 good coils for at least 100 ms
+params.coil_bad_count_duration_limit = 0.1
 
 # Set parameters for remotely connecting to acquisition computer
 params.acq_ssh = 'minea'  # Could also be e.g., "eric@minea.ilabs.uw.edu"
@@ -165,6 +166,6 @@ mnefun.do_processing(
     # Make SUBJ/trans/SUBJ-trans.fif using mne_analyze; needed for fwd calc.
     gen_fwd=default,       # Generate forward solutions (and source space)
     gen_inv=default,       # Generate inverses
-    gen_report=default,    # Write mne report html of results to disk
+    gen_report=True,    # Write mne report html of results to disk
     print_status=default,  # Print completeness status update
 )

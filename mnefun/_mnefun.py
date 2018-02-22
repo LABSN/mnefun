@@ -426,10 +426,10 @@ class Params(Frozen):
             )
         self.rotation_limit = np.inf
         self.translation_limit = np.inf
+        self.coil_bad_count_duration_limit = np.inf  # for annotations
         self.coil_dist_limit = 0.005
         self.coil_t_window = 0.2  # default is same as MF
         self.coil_t_step_min = 0.01
-        self.annotate_bad_coil_counts = False
         self.freeze()
 
     @property
@@ -2528,41 +2528,38 @@ def _head_pos_annot(p, raw_fname, prefix='  '):
 
     # do the annotations
     lims = [p.rotation_limit, p.translation_limit, p.coil_dist_limit,
-            p.coil_t_step_min, t_window]
-    if not np.isfinite(lims).any():
+            p.coil_t_step_min, t_window, p.coil_bad_count_duration_limit]
+    annot_fname = raw_fname[:-4] + '-annot.fif'
+    count_fname = raw_fname[:-4] + '-counts.h5'
+    if not op.isfile(annot_fname) and not op.isfile(count_fname):
+        raw = mne.io.read_raw_fif(raw_fname, allow_maxshield='yes')
+        if np.isfinite(lims[:3]).any() or np.isfinite(lims[5]):
+            print(prefix.join(['', 'Annotating raw segments with:\n',
+                               u'  rotation_limit =    %s °/s\n' % lims[0],
+                               u'  translation_limit = %s m/s\n' % lims[1],
+                               u'  coil_dist_limit = %s, t_step = %s, '
+                               't_window = %s'
+                               '(3-good-coil requirement: %s sec)'
+                               % tuple(lims[2:])]))
+        annot, fit_t, counts, n_coils = annotate_head_pos(
+            raw, head_pos, rotation_limit=lims[0],
+            translation_limit=lims[1],
+            coil_dist_limit=lims[2], t_step=lims[3], t_window=lims[4],
+            prefix='  ' + prefix,
+            coil_bad_count_duration_limit=lims[5])
+        if annot is not None:
+            annot.save(annot_fname)
+        if fit_t is not None:
+            write_hdf5(count_fname, dict(fit_t=fit_t, counts=counts,
+                                         n_coils=n_coils), title='mnefun')
+    try:
+        annot = read_annotations(annot_fname)
+    except IOError:  # no annotations requested
         annot = None
-    else:
-        annot_fname = raw_fname[:-4] + '-annot.fif'
-        count_fname = raw_fname[:-4] + '-counts.h5'
-        extra = 'removing' if p.annotate_bad_coil_counts else 'keeping'
-        if not op.isfile(annot_fname) and not op.isfile(count_fname):
-            raw = mne.io.read_raw_fif(raw_fname, allow_maxshield='yes')
-            if any(np.isfinite(lims[:3])):
-                print(prefix.join(['', 'Annotating raw segments with:\n',
-                                   '  rotation_limit=%s\n' % lims[0],
-                                   '  translation_limit=%s\n' % lims[1],
-                                   '  coil_dist_limit=%s, t_step=%s, '
-                                   't_window=%s (%s < 3-good-coil segments)'
-                                   % (tuple(lims[2:]) + (extra,))]))
-            annot, fit_t, counts, n_coils = annotate_head_pos(
-                raw, head_pos, rotation_limit=lims[0],
-                translation_limit=lims[1],
-                coil_dist_limit=lims[2], t_step=lims[3], t_window=lims[4],
-                prefix='  ' + prefix,
-                annotate_bad_coil_counts=p.annotate_bad_coil_counts)
-            if annot is not None:
-                annot.save(annot_fname)
-            if fit_t is not None:
-                write_hdf5(count_fname, dict(fit_t=fit_t, counts=counts,
-                                             n_coils=n_coils), title='mnefun')
-        try:
-            annot = read_annotations(annot_fname)
-        except IOError:  # no annotations requested
-            annot = None
-        try:
-            fit_data = read_hdf5(count_fname, 'mnefun')
-        except IOError:  # no fit data requested
-            fit_data = None
+    try:
+        fit_data = read_hdf5(count_fname, 'mnefun')
+    except IOError:  # no fit data requested
+        fit_data = None
     return head_pos, annot, fit_data
 
 
@@ -3086,7 +3083,7 @@ def _spherical_conductor(info, subject, pos):
 
 def annotate_head_pos(raw, head_pos, rotation_limit=45, translation_limit=0.1,
                       coil_dist_limit=0.005, t_step=0.05, t_window=0.05,
-                      prefix='  ', annotate_bad_coil_counts=True):
+                      prefix='  ', coil_bad_count_duration_limit=0.1):
     u"""Annotate a raw instance based on bad head positions.
 
     Parameters
@@ -3108,8 +3105,8 @@ def annotate_head_pos(raw, head_pos, rotation_limit=45, translation_limit=0.1,
         The time step for coil calculations.
     t_window : float
         The time window for coil calculations.
-    annotate_bad_coil_counts : bool
-        If True, use the coil counts to annotate the data.
+    coil_bad_count_duration_limit : float
+        The lower limit for bad coil counts to remove segments of data.
 
     Returns
     -------
@@ -3140,7 +3137,7 @@ def annotate_head_pos(raw, head_pos, rotation_limit=45, translation_limit=0.1,
         fit_t, counts, n_coils = compute_good_coils(
             raw, t_step, t_window, coil_dist_limit, prefix=prefix,
             verbose=True)
-        if annotate_bad_coil_counts:
+        if np.isfinite(coil_bad_count_duration_limit):
             changes = np.diff((counts < 3).astype(int))
             bad_onsets = fit_t[np.where(changes == 1)[0]]
             bad_offsets = fit_t[np.where(changes == -1)[0]]
@@ -3149,13 +3146,19 @@ def annotate_head_pos(raw, head_pos, rotation_limit=45, translation_limit=0.1,
                 bad_onsets = np.concatenate([[0.], bad_onsets])
             if counts[-1] < 3:
                 bad_offsets = np.concatenate([bad_offsets, [raw.times[-1]]])
-            print('%sOmitting %5.1f%% (%3d segments) to omit '
-                  'due to bad coils (< 3 good)'
-                  % (prefix, 100 * np.mean(counts < 3), len(bad_onsets)))
             assert len(bad_onsets) == len(bad_offsets)
             assert (bad_onsets[1:] > bad_offsets[:-1]).all()
+            count = 0
+            dur = 0.
             for onset, offset in zip(bad_onsets, bad_offsets):
-                annot.append(onset, offset - onset, 'BAD_HPI_COUNT')
+                if offset - onset > coil_bad_count_duration_limit - 1e-6:
+                    annot.append(onset, offset - onset, 'BAD_HPI_COUNT')
+                    dur += offset - onset
+                    count += 1
+            print('%sOmitting %5.1f%% (%3d segments) '
+                  'due to < 3 good coils for over %s sec'
+                  % (prefix, 100 * dur / raw.times[-1], count,
+                     coil_bad_count_duration_limit))
 
     # Annotate based on rotational velocity
     if do_rotation:
