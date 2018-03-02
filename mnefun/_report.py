@@ -62,6 +62,11 @@ def gen_html_report(p, subjects, structurals, run_indices=None,
                                     run_indices[si])
         has_pca = all(op.isfile(fname) for fname in pca_fnames)
 
+        # whitening and source localization
+        cov_name = op.join(p.work_dir, subj, p.cov_dir,
+                           safe_inserter(cov, subj))
+        inv_dir = op.join(p.work_dir, subj, p.inverse_dir)
+
         with plt.style.context(style):
             ljust = 25
             #
@@ -309,9 +314,6 @@ def gen_html_report(p, subjects, structurals, run_indices=None,
                 name = whitening['name']
                 cov = whitening['cov']
                 # Load the inverse
-                cov_dir = op.join(p.work_dir, subj, p.cov_dir)
-                cov_name = op.join(cov_dir, safe_inserter(cov, subj))
-                inv_dir = op.join(p.work_dir, subj, p.inverse_dir)
                 fname_evoked = op.join(inv_dir, '%s_%d%s_%s_%s-ave.fif'
                                        % (analysis, p.lp_cut, p.inv_tag,
                                           p.eq_tag, subj))
@@ -421,7 +423,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None,
                         brain.close()
                         captions = ['%2.3f sec' % t for t in times]
                         report.add_slider_to_section(
-                            imgs, captions=times, section=section,
+                            imgs, captions=captions, section=section,
                             title=title, image_format='png')
                         print('%5.1f sec' % ((time.time() - t0),))
             else:
