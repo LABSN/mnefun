@@ -205,3 +205,13 @@ def get_report_fnames(p, subj):
     fnames = [op.join(p.work_dir, subj, '%s_fil%d_report.html'
                       % (subj, p.lp_cut))]
     return fnames
+
+def get_proj_fnames(p, subj, ):
+    """Get filenames of projections files"""
+    proj_fnames = []
+    proj_dir = op.join(p.work_dir, subj, p.pca_dir)
+    for fn in ['preproc_all-proj.fif', 'preproc_ecg-proj.fif',
+               'preproc_blink-proj.fif', 'preproc_cont-proj.fif']:
+        if op.isfile(op.join(proj_dir, fn)):
+            proj_fnames.append(fn)
+    return proj_fnames
