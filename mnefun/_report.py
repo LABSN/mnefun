@@ -18,7 +18,7 @@ from mne.viz import plot_projs_topomap
 from mne.viz._3d import plot_head_positions
 from mne.report import Report
 
-from ._paths import get_raw_fnames, get_report_fnames
+from ._paths import get_raw_fnames, get_proj_fnames, get_report_fnames
 
 
 def gen_html_report(p, subjects, structurals, run_indices=None,
@@ -157,6 +157,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None,
                 print(('    %s ... ' % section).ljust(ljust), end='')
                 figs = []
                 comments = []
+                proj_files = get_proj_fnames(p, subj)
                 if p.proj_extra is not None:
                     comments.append('Custom')
                     projs = read_proj(op.join(p.work_dir, subj, p.pca_dir,
@@ -164,23 +165,26 @@ def gen_html_report(p, subjects, structurals, run_indices=None,
                     figs.append(plot_projs_topomap(projs, info=sss_info,
                                                    show=False))
                 if any(p.proj_nums[0]):  # ECG
-                    comments.append('ECG')
-                    projs = read_proj(op.join(p.work_dir, subj, p.pca_dir,
-                                              'preproc_ecg-proj.fif'))
-                    figs.append(plot_projs_topomap(projs, info=sss_info,
-                                                   show=False))
+                    if 'preproc_ecg-proj.fif' in proj_files:
+                        comments.append('ECG')
+                        projs = read_proj(op.join(p.work_dir, subj, p.pca_dir,
+                                                  'preproc_ecg-proj.fif'))
+                        figs.append(plot_projs_topomap(projs, info=sss_info,
+                                                       show=False))
                 if any(p.proj_nums[1]):  # EOG
-                    comments.append('Blink')
-                    projs = read_proj(op.join(p.work_dir, subj, p.pca_dir,
-                                              'preproc_blink-proj.fif'))
-                    figs.append(plot_projs_topomap(projs, info=sss_info,
-                                                   show=False))
+                    if 'preproc_blink-proj.fif' in proj_files:
+                        comments.append('Blink')
+                        projs = read_proj(op.join(p.work_dir, subj, p.pca_dir,
+                                                  'preproc_blink-proj.fif'))
+                        figs.append(plot_projs_topomap(projs, info=sss_info,
+                                                       show=False))
                 if any(p.proj_nums[2]):  # ERM
-                    comments.append('Continuous')
-                    projs = read_proj(op.join(p.work_dir, subj, p.pca_dir,
-                                              'preproc_cont-proj.fif'))
-                    figs.append(plot_projs_topomap(projs, info=sss_info,
-                                                   show=False))
+                    if 'preproc_blink-cont.fif' in proj_files:
+                        comments.append('Continuous')
+                        projs = read_proj(op.join(p.work_dir, subj, p.pca_dir,
+                                                  'preproc_cont-proj.fif'))
+                        figs.append(plot_projs_topomap(projs, info=sss_info,
+                                                       show=False))
                 # adjust sizes
                 for fig in figs:
                     n_rows = np.floor(np.sqrt(len(fig.axes)))
