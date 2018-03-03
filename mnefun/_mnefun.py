@@ -2535,11 +2535,11 @@ def _head_pos_annot(p, raw_fname, prefix='  '):
         raw = mne.io.read_raw_fif(raw_fname, allow_maxshield='yes')
         if np.isfinite(lims[:3]).any() or np.isfinite(lims[5]):
             print(prefix.join(['', 'Annotating raw segments with:\n',
-                               u'  rotation_limit =    %s °/s\n' % lims[0],
+                               u'  rotation_limit    = %s °/s\n' % lims[0],
                                u'  translation_limit = %s m/s\n' % lims[1],
-                               u'  coil_dist_limit = %s, t_step = %s, '
-                               't_window = %s'
-                               '(3-good-coil requirement: %s sec)'
+                               u'  coil_dist_limit   = %s m\n'
+                               u'  t_step, t_window  = %s, %s sec\n'
+                               '   3-good limit      = %s sec)'
                                % tuple(lims[2:])]))
         annot, fit_t, counts, n_coils = annotate_head_pos(
             raw, head_pos, rotation_limit=lims[0],
