@@ -1140,8 +1140,12 @@ def run_sss_locally(p, subjects, run_indices):
             print('      Processing %s ...' % op.basename(r))
 
             # estimate head position for movement compensation
-            head_pos, annot, _ = _head_pos_annot(p, r, prefix='        ')
-            raw.annotations = annot
+            if p.movecomp is not None:
+                head_pos, annot, _ = _head_pos_annot(p, r, prefix='        ')
+                raw.annotations = annot
+                del annot
+            else:
+                head_pos = None
 
             # get the destination head position
             assert isinstance(p.trans_to, (string_types, tuple, type(None)))
