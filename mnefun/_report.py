@@ -21,10 +21,7 @@ from mne.report import Report
 from ._paths import get_raw_fnames, get_proj_fnames, get_report_fnames
 
 
-def gen_html_report(p, subjects, structurals, run_indices=None,
-                    raw=True, raw_sss=True, evoked=True, cov=True,
-                    trans=True, epochs=True,
-                    fwd=True, inv=True):
+def gen_html_report(p, subjects, structurals, run_indices=None):
     """Generates HTML reports"""
     import matplotlib.pyplot as plt
     from ._mnefun import (_load_trans_to, plot_good_coils, _head_pos_annot,
@@ -41,7 +38,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None,
               % (si + 1, len(subjects), subj))
 
         # raw
-        fnames = get_raw_fnames(p, subj, 'raw', erm=False, add_splits=True,
+        fnames = get_raw_fnames(p, subj, 'raw', erm=False, add_splits=False,
                                 run_indices=run_indices[si])
         if not all(op.isfile(fname) for fname in fnames):
             raise RuntimeError('Cannot create reports until raw data exist')
@@ -62,23 +59,28 @@ def gen_html_report(p, subjects, structurals, run_indices=None,
                                     run_indices[si])
         has_pca = all(op.isfile(fname) for fname in pca_fnames)
 
+        # whitening and source localization
+        inv_dir = op.join(p.work_dir, subj, p.inverse_dir)
+
         with plt.style.context(style):
             ljust = 25
             #
             # Head coils
             #
-            section = 'HPI coil SNR'
-            if p.report_params.get('coil_snr', True) and p.movecomp:
+            section = 'Good HPI count'
+            if p.report_params.get('good_hpi_count', True) and p.movecomp:
                 t0 = time.time()
                 print(('    %s ... ' % section).ljust(ljust), end='')
-                if p.report_params['coil_t_step'] == 'auto':
-                    t_step = raw.times[-1] / 100.  # 100 points
-                else:
-                    t_step = float(p.report_params['coil_t_step'])
-                fig = plot_good_coils(raw, t_step, show=False)
-                fig.set_size_inches(10, 2)
-                fig.tight_layout()
-                report.add_figs_to_section(fig, section, section,
+                figs = list()
+                captions = list()
+                for fname in fnames:
+                    _, _, fit_data = _head_pos_annot(p, fname, prefix='      ')
+                    fig = plot_good_coils(fit_data, show=False)
+                    fig.set_size_inches(10, 2)
+                    fig.tight_layout()
+                    figs.append(fig)
+                    captions.append('%s: %s' % (section, op.split(fname)[-1]))
+                report.add_figs_to_section(figs, captions, section,
                                            image_format='svg')
                 print('%5.1f sec' % ((time.time() - t0),))
             else:
@@ -92,14 +94,18 @@ def gen_html_report(p, subjects, structurals, run_indices=None,
                 print(('    %s ... ' % section).ljust(ljust), end='')
                 t0 = time.time()
                 trans_to = _load_trans_to(p, subj, run_indices[si], raw)
-                pos = [_head_pos_annot(p, fname)[0]
-                       for ri, fname in enumerate(fnames)]
-                fig = plot_head_positions(pos=pos, destination=trans_to,
-                                          info=raw.info, show=False)
+                figs = list()
+                captions = list()
+                for fname in fnames:
+                    pos, _, _ = _head_pos_annot(p, fname, prefix='      ')
+                    fig = plot_head_positions(pos=pos, destination=trans_to,
+                                              info=raw.info, show=False)
+                    fig.set_size_inches(10, 6)
+                    fig.tight_layout()
+                    figs.append(fig)
+                    captions.append('%s: %s' % (section, op.split(fname)[-1]))
                 del trans_to
-                fig.set_size_inches(10, 6)
-                fig.tight_layout()
-                report.add_figs_to_section(fig, section, section,
+                report.add_figs_to_section(figs, captions, section,
                                            image_format='svg')
                 print('%5.1f sec' % ((time.time() - t0),))
             else:
@@ -301,11 +307,9 @@ def gen_html_report(p, subjects, structurals, run_indices=None,
                 assert isinstance(whitening, dict)
                 analysis = whitening['analysis']
                 name = whitening['name']
-                cov = whitening['cov']
+                cov_name = op.join(p.work_dir, subj, p.cov_dir,
+                                   safe_inserter(whitening['cov'], subj))
                 # Load the inverse
-                cov_dir = op.join(p.work_dir, subj, p.cov_dir)
-                cov_name = op.join(cov_dir, safe_inserter(cov, subj))
-                inv_dir = op.join(p.work_dir, subj, p.inverse_dir)
                 fname_evoked = op.join(inv_dir, '%s_%d%s_%s_%s-ave.fif'
                                        % (analysis, p.lp_cut, p.inv_tag,
                                           p.eq_tag, subj))
@@ -314,11 +318,11 @@ def gen_html_report(p, subjects, structurals, run_indices=None,
                 elif not op.isfile(fname_evoked):
                     print('Missing evoked: %s' % fname_evoked)
                 else:
-                    cov = mne.read_cov(cov_name)
+                    noise_cov = mne.read_cov(cov_name)
                     evo = mne.read_evokeds(fname_evoked, name)
                     captions = ('%s<br>%s["%s"] (N=%d)'
                                 % (section, analysis, name, evo.nave))
-                    fig = evo.plot_white(cov)
+                    fig = evo.plot_white(noise_cov)
                     report.add_figs_to_section(
                         fig, captions, section=section, image_format='png')
                     print('%5.1f sec' % ((time.time() - t0),))
@@ -343,11 +347,11 @@ def gen_html_report(p, subjects, structurals, run_indices=None,
                 if not op.isfile(fname_evoked):
                     print('Missing evoked: %s' % fname_evoked)
                 else:
-                    evoked = mne.read_evokeds(fname_evoked, name)
-                    figs = evoked.plot_joint(
+                    this_evoked = mne.read_evokeds(fname_evoked, name)
+                    figs = this_evoked.plot_joint(
                         times, show=False, topomap_args=dict(outlines='head'))
                     captions = ('%s<br>%s["%s"] (N=%d)'
-                                % (section, analysis, name, evoked.nave))
+                                % (section, analysis, name, this_evoked.nave))
                     captions = [captions] + [None] * (len(figs) - 1)
                     report.add_figs_to_section(
                         figs, captions, section=section, image_format='svg')
@@ -369,7 +373,6 @@ def gen_html_report(p, subjects, structurals, run_indices=None,
                 inv_dir = op.join(p.work_dir, subj, p.inverse_dir)
                 fname_inv = op.join(inv_dir,
                                     safe_inserter(source['inv'], subj))
-                inv = mne.minimum_norm.read_inverse_operator(fname_inv)
                 fname_evoked = op.join(inv_dir, '%s_%d%s_%s_%s-ave.fif'
                                        % (analysis, p.lp_cut, p.inv_tag,
                                           p.eq_tag, subj))
@@ -378,11 +381,13 @@ def gen_html_report(p, subjects, structurals, run_indices=None,
                 elif not op.isfile(fname_evoked):
                     print('Missing evoked: %s' % fname_evoked)
                 else:
-                    evoked = mne.read_evokeds(fname_evoked, name)
+                    inv = mne.minimum_norm.read_inverse_operator(fname_inv)
+                    this_evoked = mne.read_evokeds(fname_evoked, name)
                     title = ('%s<br>%s["%s"] (N=%d)'
-                             % (section, analysis, name, evoked.nave))
+                             % (section, analysis, name, this_evoked.nave))
                     stc = mne.minimum_norm.apply_inverse(
-                        evoked, inv, lambda2=source.get('lambda2', 1. / 9.),
+                        this_evoked, inv,
+                        lambda2=source.get('lambda2', 1. / 9.),
                         method=source.get('method', 'dSPM'),
                         pick_ori=None)
                     stc = abs(stc)
@@ -415,7 +420,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None,
                         brain.close()
                         captions = ['%2.3f sec' % t for t in times]
                         report.add_slider_to_section(
-                            imgs, captions=times, section=section,
+                            imgs, captions=captions, section=section,
                             title=title, image_format='png')
                         print('%5.1f sec' % ((time.time() - t0),))
             else:

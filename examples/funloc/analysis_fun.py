@@ -47,7 +47,7 @@ params.subjects = ['subj_01', 'subj_02']
 params.structurals = [None, 'AKCLEE_110_slim']  # None means use sphere
 params.dates = [(2014, 2, 14), None]  # Use "None" to more fully anonymize
 params.score = score  # Scoring function used to slice data into trials
-params.subject_indices = [1]  # np.arange(2)  # Define which subjects to run
+params.subject_indices = np.arange(2)  # Define which subjects to run
 params.plot_drop_logs = False  # Turn off so plots do not halt processing
 
 # The default is to use the median (across runs) of the starting head positions
@@ -61,12 +61,18 @@ params.plot_drop_logs = False  # Turn off so plots do not halt processing
 # for each subject individually.
 params.trans_to = 'twa'
 
+# Set the parameters for head position estimation:
+params.coil_t_window = 'auto'  # use the smallest reasonable window size
+params.coil_t_step_min = 0.01  # this is generally a good value
+params.coil_dist_limit = 0.005  # same as MaxFilter, can be made more lenient
+
 # Data can be annotated for omission (from epoching and destination head
 # position calculation) by setting parameters like these (these are quite
 # stringent!)
 params.rotation_limit = 0.2  # deg/s
 params.translation_limit = 0.0001  # m/s
-params.coil_dist_limit = np.inf
+# remove segments with < 3 good coils for at least 100 ms
+params.coil_bad_count_duration_limit = 0.1
 
 # Set parameters for remotely connecting to acquisition computer
 params.acq_ssh = 'minea'  # Could also be e.g., "eric@minea.ilabs.uw.edu"

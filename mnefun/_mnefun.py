@@ -28,6 +28,7 @@ from mne import (
     setup_volume_source_space, pick_info, write_source_spaces,
     read_source_spaces, write_forward_solution, DipoleFixed,
     read_annotations)
+from mne.externals.h5io import read_hdf5, write_hdf5
 
 try:
     from mne import compute_raw_covariance  # up-to-date mne-python
@@ -52,7 +53,8 @@ from mne.minimum_norm import make_inverse_operator
 from mne.label import read_label
 from mne.epochs import combine_event_ids
 from mne.chpi import (filter_chpi, read_head_pos, write_head_pos,
-                      _get_hpi_info)
+                      _get_hpi_info, _get_hpi_initial_fit, _setup_hpi_struct,
+                      _fit_cHPI_amplitudes, _fit_magnetic_dipole)
 from mne.io.proj import _needs_eeg_average_ref_proj
 
 from mne.cov import regularize
@@ -414,22 +416,20 @@ class Params(Frozen):
         self.subjects_dir = None
         self.src_pos = 7.
         self.report_params = dict(
-            coil_snr=True,
+            good_hpi_count=True,
             head_movement=True,
             psd=True,
             ssp_topomaps=True,
             source_alignment=True,
             bem=True,
-            coil_t_step='auto',
             source=None,
             )
-        self.annotation_params = dict(
-            rotation_limit=np.inf,
-            translation_limit=np.inf,
-            coil_dist_limit=np.inf)
         self.rotation_limit = np.inf
         self.translation_limit = np.inf
-        self.coil_dist_limit = np.inf
+        self.coil_bad_count_duration_limit = np.inf  # for annotations
+        self.coil_dist_limit = 0.005
+        self.coil_t_window = 0.2  # default is same as MF
+        self.coil_t_step_min = 0.01
         self.freeze()
 
     @property
@@ -747,6 +747,10 @@ def calc_median_hp(p, subj, out_file, ridx):
 
 def calc_twa_hp(p, subj, out_file, ridx):
     """Calculate time-weighted average head position."""
+    if not p.movecomp:
+        # Eventually we could relax this but probably YAGNI
+        raise RuntimeError('Cannot use time-weighted average head position '
+                           'when movecomp is off.')
     print('        Estimating time-weighted average head position ...')
     raw_fnames = get_raw_fnames(p, subj, 'raw', False, False, ridx)
     assert len(raw_fnames) >= 1
@@ -756,7 +760,7 @@ def calc_twa_hp(p, subj, out_file, ridx):
     for raw_fname in raw_fnames:
         raw = mne.io.read_raw_fif(raw_fname, allow_maxshield='yes',
                                   verbose='error')
-        hp, annot = _head_pos_annot(p, raw_fname, prefix='          ')
+        hp, annot, _ = _head_pos_annot(p, raw_fname, prefix='          ')
         raw.annotations = annot
         good = np.ones(len(raw.times))
         ts = np.concatenate((hp[:, 0],
@@ -1004,7 +1008,8 @@ def run_sss_command(fname_in, options, fname_out, host='kasga', port=22,
 
 
 def run_sss_positions(fname_in, fname_out, host='kasga', opts='', port=22,
-                      prefix='  ', work_dir='~/'):
+                      prefix='  ', work_dir='~/', t_window=None,
+                      t_step_min=None, dist_limit=None):
     """Run Maxfilter remotely and fetch resulting file
 
     Parameters
@@ -1025,6 +1030,10 @@ def run_sss_positions(fname_in, fname_out, host='kasga', opts='', port=22,
         The prefix to use when printing status updates.
     work_dir : str
         Where to store the temporary files.
+    t_window : float | None
+        Time window (sec) to use.
+    dist_limit : float | None
+        Distance limit (m) to use.
     """
     # let's make sure we can actually write where we want
     if not op.isfile(fname_in):
@@ -1039,6 +1048,12 @@ def run_sss_positions(fname_in, fname_out, host='kasga', opts='', port=22,
             fnames_in.append(next_name)
         else:
             break
+    if t_window is not None:
+        opts += ' -hpiwin %d' % (round(1000 * t_window),)
+    if t_step_min is not None:
+        opts += ' -hpistep %d' % (round(1000 * t_step_min),)
+    if dist_limit is not None:
+        opts += ' -hpie %d' % (round(1000 * dist_limit),)
 
     t0 = time.time()
     print('%sOn %s: copying' % (prefix, host), end='')
@@ -1055,7 +1070,7 @@ def run_sss_positions(fname_in, fname_out, host='kasga', opts='', port=22,
         remote_out = op.join(work_dir, 'temp_%s_raw_quat.fif' % t0)
         remote_hp = op.join(work_dir, 'temp_%s_hp.txt' % t0)
 
-        print(', running -headpos', end='')
+        print(', running -headpos%s' % opts, end='')
         cmd = ['ssh', '-p', str(port), host,
                '/neuro/bin/util/maxfilter -f ' + remote_ins[fi] + ' -o ' +
                remote_out +
@@ -1129,7 +1144,7 @@ def run_sss_locally(p, subjects, run_indices):
             print('      Processing %s ...' % op.basename(r))
 
             # estimate head position for movement compensation
-            head_pos, annot = _head_pos_annot(p, r, prefix='        ')
+            head_pos, annot, _ = _head_pos_annot(p, r, prefix='        ')
             raw.annotations = annot
 
             # get the destination head position
@@ -2491,35 +2506,76 @@ def _prebad(p, subj):
 def _head_pos_annot(p, raw_fname, prefix='  '):
     """Locate head position estimation file and do annotations."""
     if p.movecomp is None:
-        return None
+        return None, None, None
+    t_window = p.coil_t_window
+    raw = mne.io.read_raw_fif(raw_fname, allow_maxshield='yes')
+    if t_window == 'auto':
+        hpi_freqs, _, _ = _get_hpi_info(raw.info)
+        # Use the longer of 5 cycles and the difference in HPI freqs.
+        # This will be 143 ms for 7 Hz spacing (old) and
+        # 60 ms for 83 Hz lowest freq.
+        t_window = max(5. / min(hpi_freqs), 1. / np.diff(hpi_freqs).min())
+        t_window = round(1000 * t_window) / 1000.  # round to ms
     pos_fname = raw_fname[:-4] + '.pos'
     if not op.isfile(pos_fname):
         # XXX Someday we can do:
-        # head_pos = _calculate_chpi_positions(raw)
+        # head_pos = _calculate_chpi_positions(
+        #     raw, t_window=t_window, dist_limit=dist_limit)
         # write_head_positions(pos_fname, head_pos)
+        print('%sEstimating position file %s' % (prefix, pos_fname,))
         run_sss_positions(raw_fname, pos_fname,
-                          host=p.sws_ssh, port=p.sws_port, prefix='        ',
-                          work_dir=p.sws_dir)
+                          host=p.sws_ssh, port=p.sws_port, prefix='      ',
+                          work_dir=p.sws_dir, t_window=t_window,
+                          t_step_min=p.coil_t_step_min,
+                          dist_limit=p.coil_dist_limit)
     head_pos = read_head_pos(pos_fname)
 
-    # do the annotations
-    lims = [p.rotation_limit, p.translation_limit, p.coil_dist_limit]
-    if not np.isfinite(lims).any():
-        annot = None
+    # do the coil counts
+    count_fname = raw_fname[:-4] + '-counts.h5'
+    if p.coil_dist_limit is None or p.coil_bad_count_duration_limit is None:
+        fit_data = None
     else:
-        annot_fname = raw_fname[:-4] + '-annot.fif'
-        if not op.isfile(annot_fname):
-            raw = mne.io.read_raw_fif(raw_fname, allow_maxshield='yes')
-            print('%sAnnotating raw segments with rotation_limit=%s, '
-                  'translation_limit=%s, coil_dist_limit=%s'
-                  % (prefix, lims[0], lims[1], lims[2]))
-            annot = annotate_head_pos(
-                raw, head_pos, rotation_limit=lims[0],
-                translation_limit=lims[1],
-                coil_dist_limit=lims[2], prefix='  ' + prefix)
+        if not op.isfile(count_fname):
+            fit_t, counts, n_coils = compute_good_coils(
+                raw, p.coil_t_step_min, t_window, p.coil_dist_limit,
+                prefix=prefix, verbose=True)
+            write_hdf5(count_fname,
+                       dict(fit_t=fit_t, counts=counts, n_coils=n_coils,
+                            t_step=p.coil_t_step_min, t_window=t_window,
+                            coil_dist_limit=p.coil_dist_limit), title='mnefun')
+        fit_data = read_hdf5(count_fname, 'mnefun')
+        for key, val in (('t_step', p.coil_t_step_min),
+                         ('t_window', t_window),
+                         ('coil_dist_limit', p.coil_dist_limit)):
+            if fit_data[key] != val:
+                raise RuntimeError('Data mismatch %s (%s != %s), set '
+                                   'to match existing file or delete it:\n%s'
+                                   % (key, val, fit_data[key], count_fname))
+
+    # do the annotations
+    lims = [p.rotation_limit, p.translation_limit, p.coil_dist_limit,
+            p.coil_t_step_min, t_window, p.coil_bad_count_duration_limit]
+    annot_fname = raw_fname[:-4] + '-annot.fif'
+    if not op.isfile(annot_fname):
+        if np.isfinite(lims[:3]).any() or np.isfinite(lims[5]):
+            print(prefix.join(['', 'Annotating raw segments with:\n',
+                               u'  rotation_limit    = %s °/s\n' % lims[0],
+                               u'  translation_limit = %s m/s\n' % lims[1],
+                               u'  coil_dist_limit   = %s m\n' % lims[2],
+                               u'  t_step, t_window  = %s, %s sec\n'
+                               % (lims[3], lims[4]),
+                               '   3-good limit      = %s sec' % (lims[5],)]))
+        annot = annotate_head_pos(
+            raw, head_pos, rotation_limit=lims[0], translation_limit=lims[1],
+            fit_t=fit_data['fit_t'], counts=fit_data['counts'],
+            prefix='  ' + prefix, coil_bad_count_duration_limit=lims[5])
+        if annot is not None:
             annot.save(annot_fname)
+    try:
         annot = read_annotations(annot_fname)
-    return head_pos, annot
+    except IOError:  # no annotations requested
+        annot = None
+    return head_pos, annot, fit_data
 
 
 def info_sss_basis(info, origin='auto', int_order=8, ext_order=3,
@@ -2911,16 +2967,14 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics=None, show=True):
 
 
 @verbose
-def compute_good_coils(raw, t_step=1., t_window=0.2, dist_limit=0.005,
-                       verbose=None):
+def compute_good_coils(raw, t_step=0.01, t_window=0.2, dist_limit=0.005,
+                       prefix='', verbose=None):
     """Comute time-varying coil distances."""
     from scipy.spatial.distance import cdist
-    from mne.chpi import (_get_hpi_initial_fit, _setup_hpi_struct,
-                          _fit_cHPI_amplitudes, _fit_magnetic_dipole)
-    hpi_dig_head_rrs = _get_hpi_initial_fit(raw.info)
+    hpi_dig_head_rrs = _get_hpi_initial_fit(raw.info, verbose=False)
     n_window = (int(round(t_window * raw.info['sfreq'])) // 2) * 2 + 1
     del t_window
-    hpi = _setup_hpi_struct(raw.info, n_window)
+    hpi = _setup_hpi_struct(raw.info, n_window, verbose=False)
     hpi_coil_dists = cdist(hpi_dig_head_rrs, hpi_dig_head_rrs)
     n_step = int(round(t_step * raw.info['sfreq']))
     del t_step
@@ -2929,17 +2983,42 @@ def compute_good_coils(raw, t_step=1., t_window=0.2, dist_limit=0.005,
     head_dev_t = mne.transforms.invert_transform(
         raw.info['dev_head_t'])['trans']
     coil_dev_rrs = mne.transforms.apply_trans(head_dev_t, hpi_dig_head_rrs)
+    last_fit = None
+    last = -10.
+    logger.info('%sComputing %d coil fits in %0.1f ms steps over %0.1f sec'
+                % (prefix, len(starts), (n_step / raw.info['sfreq']) * 1000,
+                   raw.times[-1]))
     for ii, start in enumerate(starts):
         time_sl = slice(max(start - n_window // 2, 0), start + n_window // 2)
-        sin_fit = _fit_cHPI_amplitudes(raw, time_sl, hpi, 0)
+        t = start / raw.info['sfreq']
+        if t - last >= 10. - 1e-7:
+            logger.info('%s    Fitting %0.1f - %0.1f sec'
+                        % (prefix, t, min(t + 10., raw.times[-1])))
+            last = t
+        # Ignore warnings about segments with not enough coils on
+        sin_fit = _fit_cHPI_amplitudes(raw, time_sl, hpi, t, verbose=False)
         # skip this window if it bad.
         if sin_fit is None:
             counts[ii] = 0
             continue
+
+        # check if data has sufficiently changed
+        if last_fit is not None:  # first iteration
+            # The sign of our fits is arbitrary
+            flips = np.sign((sin_fit * last_fit).sum(-1, keepdims=True))
+            sin_fit *= flips
+            corr = np.corrcoef(sin_fit.ravel(), last_fit.ravel())[0, 1]
+            # check to see if we need to continue
+            if corr * corr > 0.98:
+                # don't need to refit data
+                counts[ii] = counts[ii - 1]
+                continue
+
+        last_fit = sin_fit.copy()
+
         outs = [_fit_magnetic_dipole(f, pos, hpi['coils'], hpi['scale'],
                                      hpi['method'])
-                for f, pos, on in zip(sin_fit, coil_dev_rrs, hpi['on'])
-                if on > 0]
+                for f, pos in zip(sin_fit, coil_dev_rrs)]
 
         coil_dev_rrs = np.array([o[0] for o in outs])
         these_dists = cdist(coil_dev_rrs, coil_dev_rrs)
@@ -2960,7 +3039,7 @@ def compute_good_coils(raw, t_step=1., t_window=0.2, dist_limit=0.005,
                 exclude_coils = np.where(use_mask)[0][np.argmax(badness)]
                 use_mask[exclude_coils] = False
         counts[ii] = use_mask.sum()
-    t = (starts + n_window / 2.) / raw.info['sfreq']
+    t = (starts + n_window // 2) / raw.info['sfreq']
     return t, counts, len(hpi_dig_head_rrs)
 
 
@@ -2969,7 +3048,14 @@ def plot_good_coils(raw, t_step=1., t_window=0.2, dist_limit=0.005,
                     show=True, verbose=None):
     """Plot the good coil count as a function of time."""
     import matplotlib.pyplot as plt
-    t, counts, n_coils = compute_good_coils(raw, t_step, t_window, dist_limit)
+    if isinstance(raw, dict):  # fit_data calculated and stored to disk
+        t = raw['fit_t']
+        counts = raw['counts']
+        n_coils = raw['n_coils']
+    else:
+        t, counts, n_coils = compute_good_coils(raw, t_step, t_window,
+                                                dist_limit)
+    del t_step, t_window, dist_limit
     fig, ax = plt.subplots(figsize=(8, 2))
     ax.step(t, counts, zorder=4, color='k', clip_on=False)
     ax.set(xlim=t[[0, -1]], ylim=[0, n_coils], xlabel='Time (sec)',
@@ -3011,29 +3097,31 @@ def _spherical_conductor(info, subject, pos):
 
 
 def annotate_head_pos(raw, head_pos, rotation_limit=45, translation_limit=0.1,
-                      coil_dist_limit=0.005, t_step=0.1, t_window=0.1,
-                      prefix='  '):
-    u"""Annotate a raw instance based on bad head positions.
+                      fit_t=None, counts=None, prefix='  ',
+                      coil_bad_count_duration_limit=0.1):
+    u"""Annotate a raw instance based on coil counts and head positions.
 
     Parameters
     ----------
     raw : instance of Raw
         The raw instance.
-    head_pos : ndarray
-        The head positions.
+    head_pos : ndarray | None
+        The head positions. Can be None if movement compensation is off
+        to short-circuit the function.
     rotation_limit : float
         The rotational velocity limit in °/s.
         Can be infinite to skip rotation checks.
     translation_limit : float
         The translational velocity limit in m/s.
         Can be infinite to skip translation checks.
-    coil_dist_limit : float
-        The distance limit for coil distances (m).
-        Can be infinite to skip the use of coil distances.
-    t_step : float
-        The time step for coil calculations.
-    t_window : float
-        The time window for coil calculations.
+    fit_t : ndarray
+        Fit times.
+    counts : ndarray
+        Coil counts.
+    prefix : str
+        The prefix for printing.
+    coil_bad_count_duration_limit : float
+        The lower limit for bad coil counts to remove segments of data.
 
     Returns
     -------
@@ -3042,9 +3130,9 @@ def annotate_head_pos(raw, head_pos, rotation_limit=45, translation_limit=0.1,
     """
     # XXX: Add `sphere_dist_limit` to ensure no sensor collisions at some
     # point
-    do_rotation = np.isfinite(rotation_limit)
-    do_translation = np.isfinite(translation_limit)
-    do_coils = np.isfinite(coil_dist_limit)
+    do_rotation = np.isfinite(rotation_limit) and head_pos is not None
+    do_translation = np.isfinite(translation_limit) and head_pos is not None
+    do_coils = fit_t is not None and counts is not None
     if not (do_rotation or do_translation or do_coils):
         return None
     head_pos_t = head_pos[:, 0]
@@ -3054,23 +3142,28 @@ def annotate_head_pos(raw, head_pos, rotation_limit=45, translation_limit=0.1,
 
     # Annotate based on bad coil distances
     if do_coils:
-        fit_t, counts, n_coils = compute_good_coils(
-            raw, t_step, t_window, coil_dist_limit, verbose=True)
-        changes = np.diff((counts < 3).astype(int))
-        bad_onsets = fit_t[np.where(changes == 1)[0]]
-        bad_offsets = fit_t[np.where(changes == -1)[0]]
-        # Deal with it starting out bad
-        if counts[0] < 3:
-            bad_onsets = np.concatenate([[0.], bad_onsets])
-        if counts[-1] < 3:
-            bad_offsets = np.concatenate([bad_offsets, [raw.times[-1]]])
-        print('%sOmitting %5.1f%% of the recording (%3d segments) to omit due to '
-              'bad coils'
-              % (prefix, 100 * np.mean(counts < 3), len(bad_onsets)))
-        assert len(bad_onsets) == len(bad_offsets)
-        assert (bad_onsets[1:] > bad_offsets[:-1]).all()
-        for onset, offset in zip(bad_onsets, bad_offsets):
-            annot.append(onset, offset - onset, 'BAD_HPI_COUNT')
+        if np.isfinite(coil_bad_count_duration_limit):
+            changes = np.diff((counts < 3).astype(int))
+            bad_onsets = fit_t[np.where(changes == 1)[0]]
+            bad_offsets = fit_t[np.where(changes == -1)[0]]
+            # Deal with it starting out bad
+            if counts[0] < 3:
+                bad_onsets = np.concatenate([[0.], bad_onsets])
+            if counts[-1] < 3:
+                bad_offsets = np.concatenate([bad_offsets, [raw.times[-1]]])
+            assert len(bad_onsets) == len(bad_offsets)
+            assert (bad_onsets[1:] > bad_offsets[:-1]).all()
+            count = 0
+            dur = 0.
+            for onset, offset in zip(bad_onsets, bad_offsets):
+                if offset - onset > coil_bad_count_duration_limit - 1e-6:
+                    annot.append(onset, offset - onset, 'BAD_HPI_COUNT')
+                    dur += offset - onset
+                    count += 1
+            print('%sOmitting %5.1f%% (%3d segments) '
+                  'due to < 3 good coils for over %s sec'
+                  % (prefix, 100 * dur / raw.times[-1], count,
+                     coil_bad_count_duration_limit))
 
     # Annotate based on rotational velocity
     if do_rotation:
