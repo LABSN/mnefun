@@ -3036,3 +3036,87 @@ def annotate_head_pos(raw, head_pos, rotation_limit=45, translation_limit=0.1,
 
     # Annotate on distance from the sensors
     return annot
+
+
+
+def write_fs_data(p, subjects, structurals, analysis, conditions,
+                  inverse = "meg",
+                  method="dspm", lambda2=0.1111111111111111, pick_ori=None,
+                  n_smooth=25, vertices_to=10242, subjects_dir=None):
+    """Write out group level source data.
+
+    Parameters
+    ----------
+    subjects : list
+        List of subjects to include.
+    structurals : list
+        List of subjects FreeSurfer anatomy folders.
+    analysis : str
+        Name of mnefun analysis of interest.
+    conditions : list
+        List of condition names for evoked datasets in analysis.
+    inverse : "meg", "eeg", "meg-eeg"
+    method : “MNE” | “dSPM” | “sLORETA”
+        Use mininum norm, dSPM (default) or sLORETA.
+    lambda2 : float
+        The regularization parameter.
+    pick_ori : None | “normal” | “vector”
+        If “normal”, rather than pooling the orientations by taking the norm,
+        only the radial component is kept. This is only implemented when
+        working with loose orientations. If “vector”, no pooling of the
+        orientations is done and the vector result will be returned in the
+        form of a mne.VectorSourceEstimate object. This is only implemented
+        when working with loose orientations.
+    n_smooth : int or None
+        Number of iterations for the smoothing of the surface data. If None,
+        smooth is automatically defined to fill the surface with non-zero
+        values.
+    vertices_to : list of arrays of int
+        Vertices for each hemisphere (LH, RH) for subject_to.
+
+    """
+    if subjects_dir is None:
+        subjects_dir = mne.utils.get_subjects_dir(p.subjects_dir,
+                                                  raise_error=True)
+    vertices_to = [np.arange(vertices_to), np.arange(vertices_to)]
+    fname_data = op.join(p.work_dir, analysis + 'fs_data.npz')
+    naves = np.zeros(len(subjects), int)
+    for si, (subj, struc) in enumerate(zip(subjects, structurals)):
+        print('Loading data for subject %s...' % subj)
+        inv_dir = op.join(p.work_dir, subj, p.inverse_dir)
+        s_name = safe_inserter(p.inv_names[0], subj)
+        temp_name = s_name + ('-%d' % p.lp_cut) + p.inv_tag
+        inv_name = op.join(inv_dir, temp_name + '-%s' % inverse + '-inv.fif')
+        # load the inverse
+        inv = read_inverse_operator(inv_name)
+        evoked_fnames = get_epochs_evokeds_fnames(p, subj,
+                                                  analyses)[1]
+        evoked_fname = op.join(inv_dir, '%s_55-sss_eq_%s-ave.fif'
+                        % (analysis, subj))
+        aves = [mne.Evoked(fname, cond, proj=True,
+                           kind='average') for cond in conds]
+        nave = np.unique([a.nave for a in aves])
+        assert len(nave) == 1
+        naves[si] = nave[0]
+
+        # apply inverse, bin, morph
+        stcs = [apply_inverse(ave, inv, lambda2, 'dSPM') for ave in aves]
+        # stcs = [stc.bin(0.02) for stc in stcs]
+        m = mne.compute_morph_matrix(struc, 'fsaverage', stcs[0].vertices,
+                                     fs_verts, n_smooth)
+        stcs = [stc.morph_precomputed('fsaverage', fs_verts, m)
+                for stc in stcs]
+
+        # put in big matrix
+        if subj == subjects[0]:
+            data = np.empty((len(stcs), len(subjects), stcs[0].shape[0],
+                             stcs[0].shape[1]))
+        for di, stc in enumerate(stcs):
+            data[di, si, :, :] = stc.data
+            times = stc.times
+    print('Writing data...')
+    np.savez_compressed(fname_data, data=data, times=times, naves=naves)
+    h5f = h5py.File(fname_data, 'w')
+    for name, data in zip(['data', 'times', 'naves'], [data, times, naves]):
+        h5f.create_dataset(name, data)
+    h5f.close()
