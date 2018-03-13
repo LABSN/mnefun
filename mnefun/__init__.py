@@ -8,6 +8,7 @@ from ._mnefun import (Params, get_fsaverage_medial_vertices,  # noqa
                       info_sss_basis, plot_reconstruction,  # noqa
                       plot_chpi_snr_raw, get_fsaverage_label_operator,  # noqa
                       compute_good_coils, plot_good_coils,  # noqa
-                      compute_auc, combine_medial_labels)  # noqa
+                      compute_auc, combine_medial_labels,  # noqa
+                      clean_brain, plot_colorbar)  # noqa
 
 __version__ = '0.1.0.dev0'

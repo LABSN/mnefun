@@ -2593,6 +2593,73 @@ def info_sss_basis(info, origin='auto', int_order=8, ext_order=3,
     return S
 
 
+def clean_brain(brain_img):
+    """Remove borders of a brain image and make transparent."""
+    bg = (brain_img == brain_img[0, 0]).all(-1)
+    brain_img = brain_img[(~bg).any(axis=-1)]
+    brain_img = brain_img[:, (~bg).any(axis=0)]
+    alpha = 255 * np.ones(brain_img.shape[:-1], np.uint8)
+    x, y = np.where((brain_img == 255).all(-1))
+    alpha[x, y] = 0
+    return np.concatenate((brain_img, alpha[..., np.newaxis]), -1)
+
+
+def plot_colorbar(pos_lims, ticks=None, ticklabels=None, figsize=(1, 2),
+                  labelsize='small', ticklabelsize='x-small', ax=None,
+                  label='', tickrotation=0., orientation='vertical',
+                  end_labels=None):
+    import matplotlib.pyplot as plt
+    from matplotlib.colorbar import ColorbarBase
+    from matplotlib.colors import Normalize
+    with plt.rc_context({'axes.labelsize': labelsize,
+                         'xtick.labelsize': ticklabelsize,
+                         'ytick.labelsize': ticklabelsize}):
+        cmap = mne.viz.utils.mne_analyze_colormap(
+            limits=pos_lims, format='matplotlib')
+        adjust = (ax is None)
+        if ax is None:
+            fig, ax = plt.subplots(1, figsize=figsize)
+        else:
+            fig = ax.figure
+        norm = Normalize(vmin=-pos_lims[2], vmax=pos_lims[2])
+        if ticks is None:
+            ticks = [-pos_lims[2], -pos_lims[1], -pos_lims[0], 0.,
+                     pos_lims[0], pos_lims[1], pos_lims[2]]
+        if ticklabels is None:
+            ticklabels = ticks
+        assert len(ticks) == len(ticklabels)
+        cbar = ColorbarBase(ax, cmap, norm=norm, ticks=ticks, label=label,
+                            orientation=orientation)
+        for key in ('left', 'top',
+                    'bottom' if orientation == 'vertical' else 'right'):
+            ax.spines[key].set_visible(False)
+        cbar.set_ticklabels(ticklabels)
+        if orientation == 'horizontal':
+            plt.setp(ax.xaxis.get_majorticklabels(), rotation=tickrotation)
+        else:
+            plt.setp(ax.yaxis.get_majorticklabels(), rotation=tickrotation)
+        cbar.outline.set_visible(False)
+        lims = np.array(list(ax.get_xlim()) + list(ax.get_ylim()))
+        if end_labels is not None:
+            if orientation == 'horizontal':
+                delta = np.diff(lims[:2]) * np.array([-0.05, 0.05])
+                xs = np.array(lims[:2]) + delta
+                has = ['right', 'left']
+                ys = [lims[2:].mean()] * 2
+                vas = ['center', 'center']
+            else:
+                xs = [lims[:2].mean()] * 2
+                has = ['center'] * 2
+                delta = np.diff(lims[2:]) * np.array([-0.05, 0.05])
+                ys = lims[2:] + delta
+                vas = ['top', 'bottom']
+            for x, y, l, ha, va in zip(xs, ys, end_labels, has, vas):
+                ax.text(x, y, l, ha=ha, va=va, fontsize=ticklabelsize)
+        if adjust:
+            fig.subplots_adjust(0.01, 0.05, 0.2, 0.95)
+    return fig
+
+
 def plot_reconstruction(evoked, origin=(0., 0., 0.04)):
     """Plot the reconstructed data for Evoked
 
