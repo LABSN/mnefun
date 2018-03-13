@@ -1095,6 +1095,26 @@ def run_sss_positions(fname_in, fname_out, host='kasga', opts='', port=22,
     write_head_pos(fname_out, pos_data)
     print(' (%i sec)' % (time.time() - t0,))
 
+def group_analysis(p, subjects, group, stats):
+    """Generate group level statistics
+
+    Since we know all the subjects and the data structure we can automatically
+    compute some statistics with minimal information. This function Will
+    compute different statistics on the data and save it into the grp_avg
+    folder
+
+    Inputs:
+    p        - params structure
+    subjects -
+    groups   - list of group names (or numbers), where each list entry denotes
+               the group that a subject belongs to.
+    stats    - List of statistics to compute on the group. Options are 'mean',
+               'ttest', etc
+    """
+    for si, subj in enumerate(subjects):
+        raw_dir = op.join(p.work_dir, subj, p.raw_dir)
+        sss_dir = op.join(p.work_dir, subj, p.sss_dir)
+        evoked_dir = op.join(p.work_dir, subj, p.inverse_dir)
 
 def run_sss_locally(p, subjects, run_indices):
     """Run SSS locally using maxwell filter in python
