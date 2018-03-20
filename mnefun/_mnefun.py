@@ -2524,7 +2524,7 @@ def _head_pos_annot(p, raw_fname, prefix='  '):
         # write_head_positions(pos_fname, head_pos)
         print('%sEstimating position file %s' % (prefix, pos_fname,))
         run_sss_positions(raw_fname, pos_fname,
-                          host=p.sws_ssh, port=p.sws_port, prefix='      ',
+                          host=p.sws_ssh, port=p.sws_port, prefix=prefix,
                           work_dir=p.sws_dir, t_window=t_window,
                           t_step_min=p.coil_t_step_min,
                           dist_limit=p.coil_dist_limit)
