@@ -40,8 +40,10 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
         # raw
         fnames = get_raw_fnames(p, subj, 'raw', erm=False, add_splits=False,
                                 run_indices=run_indices[si])
-        if not all(op.isfile(fname) for fname in fnames):
-            raise RuntimeError('Cannot create reports until raw data exist')
+        for fname in fnames:
+            if not op.isfile(fname):
+                raise RuntimeError('Cannot create reports until raw data '
+                                   'exist, missing:\n%s' % fname)
         raw = mne.concatenate_raws(
             [read_raw_fif(fname, allow_maxshield='yes')
              for fname in fnames])
@@ -303,29 +305,32 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                 t0 = time.time()
                 print(('    %s ... ' % section).ljust(ljust), end='')
 
-                whitening = p.report_params['whitening']
-                assert isinstance(whitening, dict)
-                analysis = whitening['analysis']
-                name = whitening['name']
-                cov_name = op.join(p.work_dir, subj, p.cov_dir,
-                                   safe_inserter(whitening['cov'], subj))
-                # Load the inverse
-                fname_evoked = op.join(inv_dir, '%s_%d%s_%s_%s-ave.fif'
-                                       % (analysis, p.lp_cut, p.inv_tag,
-                                          p.eq_tag, subj))
-                if not op.isfile(cov_name):
-                    print('Missing cov: %s' % cov_name)
-                elif not op.isfile(fname_evoked):
-                    print('Missing evoked: %s' % fname_evoked)
-                else:
-                    noise_cov = mne.read_cov(cov_name)
-                    evo = mne.read_evokeds(fname_evoked, name)
-                    captions = ('%s<br>%s["%s"] (N=%d)'
-                                % (section, analysis, name, evo.nave))
-                    fig = evo.plot_white(noise_cov)
-                    report.add_figs_to_section(
-                        fig, captions, section=section, image_format='png')
-                    print('%5.1f sec' % ((time.time() - t0),))
+                whitenings = p.report_params['whitening']
+                if not isinstance(whitenings, (list, tuple)):
+                    whitenings = [whitenings]
+                for whitening in whitenings:
+                    assert isinstance(whitening, dict)
+                    analysis = whitening['analysis']
+                    name = whitening['name']
+                    cov_name = op.join(p.work_dir, subj, p.cov_dir,
+                                       safe_inserter(whitening['cov'], subj))
+                    # Load the inverse
+                    fname_evoked = op.join(inv_dir, '%s_%d%s_%s_%s-ave.fif'
+                                           % (analysis, p.lp_cut, p.inv_tag,
+                                              p.eq_tag, subj))
+                    if not op.isfile(cov_name):
+                        print('Missing cov: %s' % cov_name)
+                    elif not op.isfile(fname_evoked):
+                        print('Missing evoked: %s' % fname_evoked)
+                    else:
+                        noise_cov = mne.read_cov(cov_name)
+                        evo = mne.read_evokeds(fname_evoked, name)
+                        captions = ('%s<br>%s["%s"] (N=%d)'
+                                    % (section, analysis, name, evo.nave))
+                        fig = evo.plot_white(noise_cov)
+                        report.add_figs_to_section(
+                            fig, captions, section=section, image_format='png')
+                print('%5.1f sec' % ((time.time() - t0),))
             else:
                 print('    %s skipped' % section)
 
@@ -336,26 +341,32 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
             if p.report_params.get('sensor', None) is not None:
                 t0 = time.time()
                 print(('    %s ... ' % section).ljust(ljust), end='')
-                sensor = p.report_params['sensor']
-                assert isinstance(sensor, dict)
-                analysis = sensor['analysis']
-                name = sensor['name']
-                times = sensor.get('times', [0.1])
-                fname_evoked = op.join(inv_dir, '%s_%d%s_%s_%s-ave.fif'
-                                       % (analysis, p.lp_cut, p.inv_tag,
-                                          p.eq_tag, subj))
-                if not op.isfile(fname_evoked):
-                    print('Missing evoked: %s' % fname_evoked)
-                else:
-                    this_evoked = mne.read_evokeds(fname_evoked, name)
-                    figs = this_evoked.plot_joint(
-                        times, show=False, topomap_args=dict(outlines='head'))
-                    captions = ('%s<br>%s["%s"] (N=%d)'
-                                % (section, analysis, name, this_evoked.nave))
-                    captions = [captions] + [None] * (len(figs) - 1)
-                    report.add_figs_to_section(
-                        figs, captions, section=section, image_format='svg')
-                    print('%5.1f sec' % ((time.time() - t0),))
+                sensors = p.report_params['sensor']
+                if not isinstance(sensors, (list, tuple)):
+                    sensors = [sensors]
+                for sensor in sensors:
+                    assert isinstance(sensor, dict)
+                    analysis = sensor['analysis']
+                    name = sensor['name']
+                    times = sensor.get('times', [0.1])
+                    fname_evoked = op.join(inv_dir, '%s_%d%s_%s_%s-ave.fif'
+                                           % (analysis, p.lp_cut, p.inv_tag,
+                                              p.eq_tag, subj))
+                    if not op.isfile(fname_evoked):
+                        print('Missing evoked: %s' % fname_evoked)
+                    else:
+                        this_evoked = mne.read_evokeds(fname_evoked, name)
+                        figs = this_evoked.plot_joint(
+                            times, show=False,
+                            topomap_args=dict(outlines='head'))
+                        captions = ('%s<br>%s["%s"] (N=%d)'
+                                    % (section, analysis, name,
+                                       this_evoked.nave))
+                        captions = [captions] + [None] * (len(figs) - 1)
+                        report.add_figs_to_section(
+                            figs, captions, section=section,
+                            image_format='svg')
+                print('%5.1f sec' % ((time.time() - t0),))
 
             #
             # Source estimation
@@ -364,65 +375,69 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
             if p.report_params.get('source', None) is not None:
                 t0 = time.time()
                 print(('    %s ... ' % section).ljust(ljust), end='')
-                source = p.report_params['source']
-                assert isinstance(source, dict)
-                analysis = source['analysis']
-                name = source['name']
-                times = source.get('times', [0.1])
-                # Load the inverse
-                inv_dir = op.join(p.work_dir, subj, p.inverse_dir)
-                fname_inv = op.join(inv_dir,
-                                    safe_inserter(source['inv'], subj))
-                fname_evoked = op.join(inv_dir, '%s_%d%s_%s_%s-ave.fif'
-                                       % (analysis, p.lp_cut, p.inv_tag,
-                                          p.eq_tag, subj))
-                if not op.isfile(fname_inv):
-                    print('Missing inv: %s' % fname_inv)
-                elif not op.isfile(fname_evoked):
-                    print('Missing evoked: %s' % fname_evoked)
-                else:
-                    inv = mne.minimum_norm.read_inverse_operator(fname_inv)
-                    this_evoked = mne.read_evokeds(fname_evoked, name)
-                    title = ('%s<br>%s["%s"] (N=%d)'
-                             % (section, analysis, name, this_evoked.nave))
-                    stc = mne.minimum_norm.apply_inverse(
-                        this_evoked, inv,
-                        lambda2=source.get('lambda2', 1. / 9.),
-                        method=source.get('method', 'dSPM'),
-                        pick_ori=None)
-                    stc = abs(stc)
-                    # get clim using the reject_tmin <->reject_tmax
-                    stc_crop = stc.copy().crop(p.reject_tmin, p.reject_tmax)
-                    clim = source.get('clim', dict(kind='percent',
-                                                   lims=[82, 90, 98]))
-                    clim = mne.viz._3d._limits_to_control_points(
-                         clim, stc_crop.data, 'viridis')[0]  # cmap is dummy
-                    clim = dict(kind='value', lims=clim)
-                    if not isinstance(stc, mne.SourceEstimate):
-                        print('Only surface source estimates currently '
-                              'supported')
+                sources = p.report_params['source']
+                if not isinstance(sources, (list, tuple)):
+                    sources = [sources]
+                for source in sources:
+                    assert isinstance(source, dict)
+                    analysis = source['analysis']
+                    name = source['name']
+                    times = source.get('times', [0.1])
+                    # Load the inverse
+                    inv_dir = op.join(p.work_dir, subj, p.inverse_dir)
+                    fname_inv = op.join(inv_dir,
+                                        safe_inserter(source['inv'], subj))
+                    fname_evoked = op.join(inv_dir, '%s_%d%s_%s_%s-ave.fif'
+                                           % (analysis, p.lp_cut, p.inv_tag,
+                                              p.eq_tag, subj))
+                    if not op.isfile(fname_inv):
+                        print('Missing inv: %s' % fname_inv)
+                    elif not op.isfile(fname_evoked):
+                        print('Missing evoked: %s' % fname_evoked)
                     else:
-                        subjects_dir = mne.utils.get_subjects_dir(
-                            p.subjects_dir, raise_error=True)
-                        brain = stc.plot(
-                            hemi=source.get('hemi', 'split'),
-                            views=source.get('views', ['lat', 'med']),
-                            size=source.get('size', (800, 600)),
-                            colormap=source.get('colormap', 'viridis'),
-                            transparent=source.get('transparent', True),
-                            foreground='k', background='w',
-                            clim=clim, subjects_dir=subjects_dir,
-                            )
-                        imgs = list()
-                        for t in times:
-                            brain.set_time(t)
-                            imgs.append(brain.screenshot())
-                        brain.close()
-                        captions = ['%2.3f sec' % t for t in times]
-                        report.add_slider_to_section(
-                            imgs, captions=captions, section=section,
-                            title=title, image_format='png')
-                        print('%5.1f sec' % ((time.time() - t0),))
+                        inv = mne.minimum_norm.read_inverse_operator(fname_inv)
+                        this_evoked = mne.read_evokeds(fname_evoked, name)
+                        title = ('%s<br>%s["%s"] (N=%d)'
+                                 % (section, analysis, name, this_evoked.nave))
+                        stc = mne.minimum_norm.apply_inverse(
+                            this_evoked, inv,
+                            lambda2=source.get('lambda2', 1. / 9.),
+                            method=source.get('method', 'dSPM'),
+                            pick_ori=None)
+                        stc = abs(stc)
+                        # get clim using the reject_tmin <->reject_tmax
+                        stc_crop = stc.copy().crop(
+                            p.reject_tmin, p.reject_tmax)
+                        clim = source.get('clim', dict(kind='percent',
+                                                       lims=[82, 90, 98]))
+                        clim = mne.viz._3d._limits_to_control_points(
+                             clim, stc_crop.data, 'viridis')[0]  # dummy cmap
+                        clim = dict(kind='value', lims=clim)
+                        if not isinstance(stc, mne.SourceEstimate):
+                            print('Only surface source estimates currently '
+                                  'supported')
+                        else:
+                            subjects_dir = mne.utils.get_subjects_dir(
+                                p.subjects_dir, raise_error=True)
+                            brain = stc.plot(
+                                hemi=source.get('hemi', 'split'),
+                                views=source.get('views', ['lat', 'med']),
+                                size=source.get('size', (800, 600)),
+                                colormap=source.get('colormap', 'viridis'),
+                                transparent=source.get('transparent', True),
+                                foreground='k', background='w',
+                                clim=clim, subjects_dir=subjects_dir,
+                                )
+                            imgs = list()
+                            for t in times:
+                                brain.set_time(t)
+                                imgs.append(brain.screenshot())
+                            brain.close()
+                            captions = ['%2.3f sec' % t for t in times]
+                            report.add_slider_to_section(
+                                imgs, captions=captions, section=section,
+                                title=title, image_format='png')
+                print('%5.1f sec' % ((time.time() - t0),))
             else:
                 print('    %s skipped' % section)
 

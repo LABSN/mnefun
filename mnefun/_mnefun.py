@@ -1832,6 +1832,7 @@ def gen_forwards(p, subjects, structurals, run_indices):
 
 def _get_bem_src_trans(p, info, subj, struc):
     subjects_dir = mne.utils.get_subjects_dir(p.subjects_dir, raise_error=True)
+    assert isinstance(subjects_dir, string_types)
     if struc is None:  # spherical case
         bem, src, trans = _spherical_conductor(info, subj, p.src_pos)
         bem_type = 'spherical-model'
