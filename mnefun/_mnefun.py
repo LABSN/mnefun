@@ -1532,7 +1532,9 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
 
     # let's do some sanity checks
     if len(in_names) != len(in_numbers):
-        raise RuntimeError('in_names must have same length as in_numbers')
+        raise RuntimeError('in_names (%d) must have same length as '
+                           'in_numbers (%d)'
+                           % (len(in_names), len(in_numbers)))
     if np.any(np.array(in_numbers) <= 0):
         raise ValueError('in_numbers must all be > 0')
     if len(out_names) != len(out_numbers):
@@ -1629,6 +1631,13 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
         # now deal with conditions to save evoked
         if p.disp_files:
             print('    Matching trial counts and saving data to disk.')
+        for var, name in ((out_names, 'out_names'),
+                          (out_numbers, 'out_numbers'),
+                          (must_match, 'must_match'),
+                          (evoked_fnames, 'evoked_fnames')):
+            if len(var) != len(analyses):
+                raise ValueError('len(%s) (%s) != len(analyses) (%s)'
+                                 % (name, len(var), len(analyses)))
         for analysis, names, numbers, match, fn in zip(analyses, out_names,
                                                        out_numbers, must_match,
                                                        evoked_fnames):
@@ -1674,8 +1683,10 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
             # now make evoked for each out type
             evokeds = list()
             for name in names:
-                evokeds.append(e[name].average())
-                evokeds.append(e[name].standard_error())
+                this_e = e[name]
+                if len(this_e) > 0:
+                    evokeds.append(this_e.average())
+                    evokeds.append(this_e.standard_error())
             write_evokeds(fn, evokeds)
             naves = [str(n) for n in sorted(set([evoked.nave
                                                  for evoked in evokeds]))]
