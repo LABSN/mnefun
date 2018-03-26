@@ -2576,7 +2576,7 @@ def _head_pos_annot(p, raw_fname, prefix='  '):
                                u'  coil_dist_limit   = %s m\n' % lims[2],
                                u'  t_step, t_window  = %s, %s sec\n'
                                % (lims[3], lims[4]),
-                               '   3-good limit      = %s sec' % (lims[5],)]))
+                               u'  3-good limit      = %s sec' % (lims[5],)]))
         annot = annotate_head_pos(
             raw, head_pos, rotation_limit=lims[0], translation_limit=lims[1],
             fit_t=fit_data['fit_t'], counts=fit_data['counts'],
