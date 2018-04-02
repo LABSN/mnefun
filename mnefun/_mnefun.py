@@ -75,6 +75,7 @@ from mne.io.meas_info import _empty_info
 from mne.minimum_norm import write_inverse_operator
 from mne.utils import run_subprocess, _time_mask
 from mne.viz import plot_drop_log, tight_layout
+from mne.externals.six import string_types
 
 from ._paths import (get_raw_fnames, get_event_fnames,
                      get_epochs_evokeds_fnames, safe_inserter, _regex_convert)
@@ -82,12 +83,6 @@ from ._status import print_proc_status
 from ._reorder import fix_eeg_channels
 from ._report import gen_html_report
 from ._scoring import default_score
-
-# python2/3 conversions
-try:
-    string_types = basestring  # noqa, analysis:ignore
-except Exception:
-    string_types = str
 
 try:
     from functools import reduce
@@ -2383,82 +2378,6 @@ def timestring(t):
 
     return "%d:%02d:%02d.%03d" % tuple(reduce(rediv, [[t * 1000, ], 1000, 60,
                                                       60]))
-
-
-# noinspection PyPep8Naming,PyPep8Naming,PyPep8Naming
-def anova_time(X, transform=True, signed_p=True, gg=True):
-    """A mass-univariate two-way ANOVA (with time as a co-variate)
-
-    Parameters
-    ----------
-    X : array
-        X should have the following dimensions::
-
-            (n_subjects, 2 * n_time, n_src)
-
-        or::
-
-            (n_subjects, 2, n_time, n_src)
-
-        This then calculates the paired t-values at each spatial location
-        using time as a co-variate.
-    transform : bool
-        If True, transform using the square root.
-    signed_p : bool
-        If True, change the p-value sign to match that of the t-statistic.
-    gg : bool
-        If True, correct DOF.
-
-    Returns
-    -------
-    t : array
-        t-values from the contrast, has the same length as the number of
-        spatial locations.
-    p : array
-        Corresponding p values of the contrast.
-    dof : int
-        Degrees of freedom, with conservative Greenhouse-Geisser
-        correction based on the number of time points (n_time - 1).
-    """
-    import patsy
-    from scipy import linalg, stats
-    if X.ndim == 3:
-        n_subjects, n_nested, n_src = X.shape
-        n_time = n_nested // 2
-        assert n_nested % 2 == 0
-    else:
-        assert X.ndim == 4
-        n_subjects, n_cond, n_time, n_src = X.shape
-        assert n_cond == 2
-    X = np.reshape(X, (n_subjects, 2 * n_time, n_src))
-    # Turn Y into (2 x n_time x n_subjects) x n_sources
-    X = np.reshape(X, (2 * n_time * n_subjects, n_src), order='F')
-    if transform:
-        np.sqrt(X, out=X)
-    cv, tv, sv = np.meshgrid(np.arange(2), np.arange(n_time),
-                             np.arange(n_subjects), indexing='ij')
-    dmat = patsy.dmatrix('C(cv) + C(tv) + C(sv)',
-                         dict(cv=cv.ravel(), tv=tv.ravel(), sv=sv.ravel()))
-    dof = dmat.shape[0] - np.linalg.matrix_rank(dmat)
-    c = np.zeros((1, dmat.shape[1]))
-    c[0, 1] = 1  # Contrast for just picking up condition difference
-    # Equivalent, but slower here:
-    assert np.isfinite(dmat).all()
-    # b = np.dot(linalg.pinv(dmat), X)
-    b = linalg.lstsq(dmat, X)[0]
-    assert np.isfinite(b).all()
-    X -= np.dot(dmat, b)
-    X *= X
-    R = np.sum(X, axis=0)[:, np.newaxis]
-    R /= dof
-    e = np.sqrt(R * np.dot(c, linalg.lstsq(np.dot(dmat.T, dmat), c.T)[0]))
-    t = (np.dot(c, b) / e.T).T
-    if n_time > 1 and gg:
-        dof = dof / float(n_time - 1)  # Greenhouse-Geisser correction
-    p = 2 * stats.t.cdf(-abs(t), dof)
-    if signed_p:
-        p *= np.sign(t)
-    return t, p, dof
 
 
 def source_script(script_name):
