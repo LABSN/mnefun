@@ -31,6 +31,9 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
         run_indices = [None] * len(subjects)
     style = {'axes.spines.right': 'off', 'axes.spines.top': 'off',
              'axes.grid': True}
+    time_kwargs = dict()
+    if 'time_unit' in mne.fixes._get_args(mne.viz.plot_evoked):
+        time_kwargs['time_unit'] = 's'
     for si, subj in enumerate(subjects):
         struc = structurals[si]
         report = Report(verbose=False)
@@ -327,7 +330,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                         evo = mne.read_evokeds(fname_evoked, name)
                         captions = ('%s<br>%s["%s"] (N=%d)'
                                     % (section, analysis, name, evo.nave))
-                        fig = evo.plot_white(noise_cov)
+                        fig = evo.plot_white(noise_cov, **time_kwargs)
                         report.add_figs_to_section(
                             fig, captions, section=section, image_format='png')
                 print('%5.1f sec' % ((time.time() - t0),))
@@ -357,8 +360,8 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                     else:
                         this_evoked = mne.read_evokeds(fname_evoked, name)
                         figs = this_evoked.plot_joint(
-                            times, show=False,
-                            topomap_args=dict(outlines='head'))
+                            times, show=False, ts_args=dict(**time_kwargs),
+                            topomap_args=dict(outlines='head', **time_kwargs))
                         captions = ('%s<br>%s["%s"] (N=%d)'
                                     % (section, analysis, name,
                                        this_evoked.nave))
