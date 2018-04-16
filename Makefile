@@ -21,12 +21,10 @@ clean-build:
 clean-ctags:
 	rm -f tags
 
-clean: clean-build clean-pyc clean-so clean-ctags
+clean-cache:
+	find . -name "__pycache__" | xargs rm -rf
 
-flake:
-	if command -v flake8 > /dev/null; then \
-		flake8 --count mnefun; \
-	fi
+clean: clean-build clean-pyc clean-so clean-ctags clean-cache
 
 nosetests:
 	rm -f .coverage

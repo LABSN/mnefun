@@ -105,6 +105,30 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                     pos, _, _ = _head_pos_annot(p, fname, prefix='      ')
                     fig = plot_head_positions(pos=pos, destination=trans_to,
                                               info=raw.info, show=False)
+                    for ax in fig.axes[::2]:
+                        """
+                        # tighten to the sensor limits
+                        assert ax.lines[0].get_color() == (0., 0., 0., 1.)
+                        mn, mx = np.inf, -np.inf
+                        for line in ax.lines:
+                            ydata = line.get_ydata()
+                            if np.isfinite(ydata).any():
+                                mn = min(np.nanmin(ydata), mn)
+                                mx = max(np.nanmax(line.get_ydata()), mx)
+                        """
+                        # always show at least 10cm span, and use tight limits
+                        # if greater than that
+                        coord = ax.lines[0].get_ydata()
+                        for line in ax.lines:
+                            if line.get_color() == 'r':
+                                extra = line.get_ydata()[0]
+                        mn, mx = coord.min(), coord.max()
+                        md = (mn + mx) / 2.
+                        mn = min([mn, md - 50., extra])
+                        mx = max([mx, md + 50., extra])
+                        assert (mn <= coord).all()
+                        assert (mx >= coord).all()
+                        ax.set_ylim(mn, mx)
                     fig.set_size_inches(10, 6)
                     fig.tight_layout()
                     figs.append(fig)
