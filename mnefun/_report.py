@@ -31,6 +31,9 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
         run_indices = [None] * len(subjects)
     style = {'axes.spines.right': 'off', 'axes.spines.top': 'off',
              'axes.grid': True}
+    time_kwargs = dict()
+    if 'time_unit' in mne.fixes._get_args(mne.viz.plot_evoked):
+        time_kwargs['time_unit'] = 's'
     for si, subj in enumerate(subjects):
         struc = structurals[si]
         report = Report(verbose=False)
@@ -102,6 +105,30 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                     pos, _, _ = _head_pos_annot(p, fname, prefix='      ')
                     fig = plot_head_positions(pos=pos, destination=trans_to,
                                               info=raw.info, show=False)
+                    for ax in fig.axes[::2]:
+                        """
+                        # tighten to the sensor limits
+                        assert ax.lines[0].get_color() == (0., 0., 0., 1.)
+                        mn, mx = np.inf, -np.inf
+                        for line in ax.lines:
+                            ydata = line.get_ydata()
+                            if np.isfinite(ydata).any():
+                                mn = min(np.nanmin(ydata), mn)
+                                mx = max(np.nanmax(line.get_ydata()), mx)
+                        """
+                        # always show at least 10cm span, and use tight limits
+                        # if greater than that
+                        coord = ax.lines[0].get_ydata()
+                        for line in ax.lines:
+                            if line.get_color() == 'r':
+                                extra = line.get_ydata()[0]
+                        mn, mx = coord.min(), coord.max()
+                        md = (mn + mx) / 2.
+                        mn = min([mn, md - 50., extra])
+                        mx = max([mx, md + 50., extra])
+                        assert (mn <= coord).all()
+                        assert (mx >= coord).all()
+                        ax.set_ylim(mn, mx)
                     fig.set_size_inches(10, 6)
                     fig.tight_layout()
                     figs.append(fig)
@@ -327,7 +354,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                         evo = mne.read_evokeds(fname_evoked, name)
                         captions = ('%s<br>%s["%s"] (N=%d)'
                                     % (section, analysis, name, evo.nave))
-                        fig = evo.plot_white(noise_cov)
+                        fig = evo.plot_white(noise_cov, **time_kwargs)
                         report.add_figs_to_section(
                             fig, captions, section=section, image_format='png')
                 print('%5.1f sec' % ((time.time() - t0),))
@@ -357,8 +384,8 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                     else:
                         this_evoked = mne.read_evokeds(fname_evoked, name)
                         figs = this_evoked.plot_joint(
-                            times, show=False,
-                            topomap_args=dict(outlines='head'))
+                            times, show=False, ts_args=dict(**time_kwargs),
+                            topomap_args=dict(outlines='head', **time_kwargs))
                         captions = ('%s<br>%s["%s"] (N=%d)'
                                     % (section, analysis, name,
                                        this_evoked.nave))
@@ -411,7 +438,8 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                         clim = source.get('clim', dict(kind='percent',
                                                        lims=[82, 90, 98]))
                         clim = mne.viz._3d._limits_to_control_points(
-                             clim, stc_crop.data, 'viridis')[0]  # dummy cmap
+                             clim, stc_crop.data, 'viridis',
+                             transparent=True)[0]  # dummy cmap
                         clim = dict(kind='value', lims=clim)
                         if not isinstance(stc, mne.SourceEstimate):
                             print('Only surface source estimates currently '

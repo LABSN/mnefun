@@ -664,14 +664,18 @@ def fetch_raw_files(p, subjects, run_indices):
         finder = (finder_stem + ' -o '.join([' -type f -regex ' +
                                              _regex_convert(f)
                                              for f in fnames]))
+        # Ignore "Permission denied" errors:
+        # https://unix.stackexchange.com/questions/42841/how-to-skip-permission-denied-errors-when-running-find-in-linux  # noqa
+        finder += '2>&1 | grep -v "Permission denied"'
         stdout_ = run_subprocess(
             ['ssh', '-p', str(p.acq_port), p.acq_ssh, finder],
             stdout=subprocess.PIPE, stderr=subprocess.PIPE)[0]
         remote_fnames = [x.strip() for x in stdout_.splitlines()]
-        if not any(fname.startswith(rd + '/') for rd in use_dir
+        if not any(fname.startswith(rd.rstrip('/') + '/') for rd in use_dir
                    for fname in remote_fnames):
             raise IOError('Unable to find files at remote locations. '
-                          'Check filenames.')
+                          'Check filenames, for example:\n%s'
+                          % remote_fnames[:1])
         # make the name "local" to the acq dir, so that the name works
         # remotely during rsync and locally during copyfile
         remote_dir = [fn[:fn.index(op.basename(fn))]
