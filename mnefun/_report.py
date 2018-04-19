@@ -438,7 +438,8 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                         clim = source.get('clim', dict(kind='percent',
                                                        lims=[82, 90, 98]))
                         clim = mne.viz._3d._limits_to_control_points(
-                             clim, stc_crop.data, 'viridis')[0]  # dummy cmap
+                             clim, stc_crop.data, 'viridis',
+                             transparent=True)[0]  # dummy cmap
                         clim = dict(kind='value', lims=clim)
                         if not isinstance(stc, mne.SourceEstimate):
                             print('Only surface source estimates currently '
