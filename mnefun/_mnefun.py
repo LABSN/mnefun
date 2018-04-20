@@ -425,6 +425,7 @@ class Params(Frozen):
         self.coil_dist_limit = 0.005
         self.coil_t_window = 0.2  # default is same as MF
         self.coil_t_step_min = 0.01
+        self.proj_ave = False
         self.freeze()
 
     @property
@@ -2220,7 +2221,8 @@ def do_preprocessing_combined(p, subjects, run_indices):
                                  tmin=ecg_t_lims[0], tmax=ecg_t_lims[1],
                                  l_freq=None, h_freq=None, no_proj=True,
                                  qrs_threshold='auto', ch_name=p.ecg_channel,
-                                 reject=p.ssp_ecg_reject, return_drop_log=True)
+                                 reject=p.ssp_ecg_reject, return_drop_log=True,
+                                 average=p.proj_ave)
             n_good = sum(len(d) == 0 for d in drop_log)
             if n_good >= 20:
                 write_events(ecg_eve, ecg_events)
@@ -2252,7 +2254,7 @@ def do_preprocessing_combined(p, subjects, run_indices):
                                  tmin=eog_t_lims[0], tmax=eog_t_lims[1],
                                  l_freq=None, h_freq=None, no_proj=True,
                                  ch_name=p.eog_channel,
-                                 reject=p.ssp_eog_reject)
+                                 reject=p.ssp_eog_reject, average=p.proj_ave)
             if eog_events.shape[0] >= 5:
                 write_events(eog_eve, eog_events)
                 write_proj(eog_proj, pr)
