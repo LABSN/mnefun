@@ -100,6 +100,8 @@ params.runs_empty = ['%s_erm']  # Define empty room runs
 params.proj_nums = [[1, 1, 0],  # ECG
                     [1, 1, 2],  # EOG
                     [0, 0, 0]]  # Continuous (from ERM)
+params.proj_ave = True  # better projections by averaging ECG/EOG epochs
+
 # Set to True to use Autoreject module to set global epoch rejection thresholds
 params.autoreject_thresholds = False
 # Set to ('meg', 'eeg', eog') to reject trials based on EOG
