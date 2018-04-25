@@ -973,6 +973,7 @@ def run_sss_command(fname_in, options, fname_out, host='kasga', port=22,
     remote_out = op.join(work_dir, 'temp_%s_raw_sss.fif' % t0)
     remote_pos = op.join(work_dir, 'temp_%s_raw_sss.pos' % t0)
     print('%sOn %s: copying' % (prefix, host), end='')
+    fname_in = op.realpath(fname_in)  # in case it's a symlink
     cmd = ['scp', '-P' + port, fname_in, host + ':' + remote_in]
     run_subprocess(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
@@ -1057,7 +1058,8 @@ def run_sss_positions(fname_in, fname_out, host='kasga', opts='', port=22,
 
     t0 = time.time()
     print('%sOn %s: copying' % (prefix, host), end='')
-    cmd = ['rsync', '--partial', '-ave', 'ssh -p %s' % port, '--include', '*/']
+    cmd = ['rsync', '--partial', '-Lave', 'ssh -p %s' % port,
+           '--include', '*/']
     for fname in fnames_in:
         cmd += ['--include', op.basename(fname)]
     cmd += ['--exclude', '*', op.dirname(fnames_in[0]) + '/',
