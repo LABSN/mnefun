@@ -108,3 +108,29 @@ def _is_file_unfixed(fname, anon=None):
     need_reorder = (write_key not in raw.info['description'])
     need_anon = (anon_key not in raw.info['description'])
     return need_reorder, need_anon, write_key, anon_key, picks, order
+
+
+ch_names_uw_70 = [
+    'Fp1', 'Fpz', 'Fp2',
+    'AF3', 'AFz', 'AF4',  # AF7/8
+    'F7', 'F5', 'F3', 'F1', 'Fz', 'F2', 'F4', 'F6', 'F8',
+    'FT7', 'FC5', 'FC3', 'FC1', 'FCz', 'FC2', 'FC4', 'FC6', 'FT8',  # FT9/10
+    'T7', 'C5', 'C3', 'C1', 'Cz', 'C2', 'C4', 'C6', 'T8',  # T9/10
+    'TP7', 'CP5', 'CP3', 'CP1', 'CPz', 'CP2', 'CP4', 'CP6', 'TP8',  # TP9/10
+    'P9', 'P7', 'P3', 'P1', 'Pz', 'P2', 'P4', 'P8', 'P10',  # P5/6
+    'PO7', 'PO3', 'POz', 'PO4', 'PO8',
+    'O1', 'Oz', 'O2',
+    'Iz',
+    ]
+ch_names_uw_60 = [
+    'Fp1', 'Fpz', 'Fp2',
+    'AF7', 'AF3', 'AF4', 'AF8',
+    'F7', 'F5', 'F3', 'F1', 'Fz', 'F2', 'F4', 'F6', 'F8',
+    'FT9', 'FT7', 'FC5', 'FC1', 'FC2', 'FC6', 'FT8', 'FT10',
+    'T9', 'T7', 'C5', 'C3', 'C1', 'Cz', 'C2', 'C4', 'C6', 'T8', 'T10',
+    'TP9', 'TP7', 'CP3', 'CP1', 'CP2', 'CP4', 'TP8', 'TP10',
+    'P7', 'P5', 'P3', 'P1', 'Pz', 'P2', 'P4', 'P6', 'P8',
+    'PO7', 'PO3', 'PO4', 'PO8',
+    'O1', 'Oz', 'O2',
+    'Iz']
+assert len(ch_names_uw_70) == len(ch_names_uw_60) == 60
