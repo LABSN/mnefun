@@ -597,7 +597,7 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
         decim = [decim] * len(p.subjects)
     assert len(decim) == n_subj_orig
     decim = np.array(decim)
-    assert decim.dtype == np.int64
+    assert np.issubdtype(decim.dtype, np.int), (decim.dtype, decim.dtype.char)
     assert decim.ndim == 1
     assert decim.size == len(p.subjects)
     decim = decim[sinds]
@@ -1357,7 +1357,7 @@ def fix_eeg_files(p, subjects, structurals=None, dates=None, run_indices=None):
         # noinspection PyPep8
         if structurals is not None and structurals[si] is not None and \
                 dates is not None:
-            assert isinstance(structurals[si], str)
+            assert isinstance(structurals[si], string_types)
             assert dates[si] is None or (isinstance(dates[si], tuple) and
                                          len(dates[si]) == 3)
             assert dates[si] is None or all([isinstance(d, int)
