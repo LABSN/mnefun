@@ -1783,6 +1783,8 @@ def gen_inverses(p, subjects, run_indices):
                 rank['eeg'] = estimate_rank(eps._data.transpose([1, 0, 2]).
                                             reshape(len(eps.picks), -1),
                                             tol=1e-6)
+            for k, v in rank.items():
+                print(' %s : rank %2d\n' % (k, v), end='')
         else:
             rank = None
         if make_erm_inv:
