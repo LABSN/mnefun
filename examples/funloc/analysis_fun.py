@@ -95,6 +95,7 @@ params.get_projs_from = np.arange(1)
 params.inv_names = ['%s']
 params.inv_runs = [np.arange(1)]
 params.runs_empty = ['%s_erm']  # Define empty room runs
+params.compute_rank = True  # compute rank of the noise covariance matrix
 
 # Define number of SSP projectors. Columns correspond to Grad/Mag/EEG chans
 params.proj_nums = [[1, 1, 0],  # ECG
