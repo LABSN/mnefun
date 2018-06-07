@@ -208,6 +208,9 @@ class Params(Frozen):
         Low-pass transition band.
     hp_trans : float
         High-pass transition band.
+
+    Attributes
+    ----------
     movecomp : str | None
         Movement compensation to use. Can be 'inter' or None.
     sss_type : str
@@ -249,9 +252,6 @@ class Params(Frozen):
     src_pos : float
         Default is 7 mm. Defines source grid spacing for volumetric source
         space.
-
-    Attributes
-    ----------
     on_missing : string
         Can set to ‘error’ | ‘warning’ | ‘ignore’. Default is 'error'. Determine
         what to do if one or several event ids are not found in the recording
