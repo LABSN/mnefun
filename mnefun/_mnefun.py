@@ -208,6 +208,9 @@ class Params(Frozen):
         Low-pass transition band.
     hp_trans : float
         High-pass transition band.
+
+    Attributes
+    ----------
     movecomp : str | None
         Movement compensation to use. Can be 'inter' or None.
     sss_type : str
@@ -249,6 +252,13 @@ class Params(Frozen):
     src_pos : float
         Default is 7 mm. Defines source grid spacing for volumetric source
         space.
+    on_missing : string
+        Can set to ‘error’ | ‘warning’ | ‘ignore’. Default is 'error'. Determine
+        what to do if one or several event ids are not found in the recording
+        during epoching. See mne.Epochs docstring for further details.
+    compute_rank : bool
+        Default is False. Set to True to compute rank of the noise covariance
+        matrix during inverse kernel computation.
 
     Returns
     -------
@@ -426,6 +436,7 @@ class Params(Frozen):
         self.coil_t_window = 0.2  # default is same as MF
         self.coil_t_step_min = 0.01
         self.proj_ave = False
+        self.compute_rank = False
         self.freeze()
 
     @property
@@ -1756,6 +1767,26 @@ def gen_inverses(p, subjects, run_indices):
             out_flags += ['-meg-eeg']
             meg_bools += [True]
             eeg_bools += [True]
+        if p.compute_rank:
+            from mne.utils import estimate_rank
+            epochs_fnames, _ = get_epochs_evokeds_fnames(p, subj, p.analyses)
+            _, fif_file = epochs_fnames
+            epochs = mne.read_epochs(fif_file)
+            rank = dict()
+            if meg:
+                eps = epochs.copy().pick_types(meg=meg, eeg=False)
+                rank['meg'] = estimate_rank(eps._data.transpose([1, 0, 2]).
+                                            reshape(len(eps.picks), -1),
+                                            tol=1e-6)
+            if eeg:
+                eps = epochs.copy().pick_types(meg=False, eeg=eeg)
+                rank['eeg'] = estimate_rank(eps._data.transpose([1, 0, 2]).
+                                            reshape(len(eps.picks), -1),
+                                            tol=1e-6)
+            for k, v in rank.items():
+                print(' %s : rank %2d\n' % (k, v), end='')
+        else:
+            rank = None
         if make_erm_inv:
             erm_name = op.join(cov_dir, safe_inserter(p.runs_empty[0], subj) +
                                p.pca_extra + p.inv_tag + '-cov.fif')
@@ -1788,7 +1819,7 @@ def gen_inverses(p, subjects, run_indices):
                     inv_name = op.join(inv_dir, temp_name + f + s + '-inv.fif')
                     inv = make_inverse_operator(raw.info, fwd_restricted, cov,
                                                 loose=l, depth=d, fixed=x,
-                                                use_cps=True)
+                                                use_cps=True, rank=rank)
                     write_inverse_operator(inv_name, inv)
                     if (not e) and make_erm_inv:
                         inv_name = op.join(inv_dir, temp_name + f +
