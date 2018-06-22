@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 from ._paths import get_raw_fnames, get_event_fnames
+from ._reorder import ch_names_uw_60, ch_names_uw_70
 from ._mnefun import (
     Params, get_fsaverage_medial_vertices, safe_inserter,
     extract_expyfun_events, do_processing, run_sss_command, run_sss_positions,
