@@ -295,6 +295,45 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
             else:
                 print('    %s skipped' % section)
             #
+            # SNR
+            #
+            section = 'snr'
+            if p.report_params.get('snr', None) is not None:
+                t0 = time.time()
+                print(('    %s ... ' % section).ljust(ljust), end='')
+                snrs = p.report_params['snr']
+                if not isinstance(snrs, (list, tuple)):
+                    snrs = [snrs]
+                for snr in snrs:
+                    assert isinstance(snr, dict)
+                    analysis = snr['analysis']
+                    name = snr['name']
+                    times = snr.get('times', [0.1])
+                    inv_dir = op.join(p.work_dir, subj, p.inverse_dir)
+                    fname_inv = op.join(inv_dir,
+                                        safe_inserter(snr['inv'], subj))
+                    fname_evoked = op.join(inv_dir, '%s_%d%s_%s_%s-ave.fif'
+                                           % (analysis, p.lp_cut, p.inv_tag,
+                                              p.eq_tag, subj))
+                    if not op.isfile(fname_inv):
+                        print('Missing inv: %s' % fname_inv)
+                    elif not op.isfile(fname_evoked):
+                        print('Missing evoked: %s' % fname_evoked)
+                    else:
+                        inv = mne.minimum_norm.read_inverse_operator(fname_inv)
+                        this_evoked = mne.read_evokeds(fname_evoked, name)
+                        title = ('%s<br>%s["%s"] (N=%d)'
+                                 % (section, analysis, name, this_evoked.nave))
+                        figs = plot_snr_estimate(this_evoked, inv)
+                        figs.axes[0].set_ylim(auto=True)
+                        captions = ('%s<br>%s["%s"] (N=%d)'
+                                    % (section, analysis, name,
+                                       this_evoked.nave))
+                        report.add_figs_to_section(
+                            figs, captions, section=section,
+                            image_format='svg')
+                print('%5.1f sec' % ((time.time() - t0),))
+            #
             # BEM
             #
             section = 'BEM'
