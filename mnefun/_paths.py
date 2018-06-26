@@ -68,7 +68,7 @@ def get_event_fnames(p, subj, run_indices=None):
 
 def _regex_convert(f):
     """Helper to regex a given filename (for split file purposes)"""
-    return '.*%s-?[0-9]*.fif' % op.basename(f)[:-4]
+    return '.*%s-?[0-9]*.fif$' % op.basename(f)[:-4]
 
 
 def get_raw_fnames(p, subj, which='raw', erm=True, add_splits=False,
@@ -205,3 +205,13 @@ def get_report_fnames(p, subj):
     fnames = [op.join(p.work_dir, subj, '%s_fil%d_report.html'
                       % (subj, p.lp_cut))]
     return fnames
+
+def get_proj_fnames(p, subj, ):
+    """Get filenames of projections files"""
+    proj_fnames = []
+    proj_dir = op.join(p.work_dir, subj, p.pca_dir)
+    for fn in ['preproc_all-proj.fif', 'preproc_ecg-proj.fif',
+               'preproc_blink-proj.fif', 'preproc_cont-proj.fif']:
+        if op.isfile(op.join(proj_dir, fn)):
+            proj_fnames.append(fn)
+    return proj_fnames
