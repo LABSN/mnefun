@@ -298,7 +298,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
             #
             # SNR
             #
-            section = 'snr'
+            section = 'evoked_snr'
             if p.report_params.get('snr', None) is not None:
                 t0 = time.time()
                 print(('    %s ... ' % section).ljust(ljust), end='')
