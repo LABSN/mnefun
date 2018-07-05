@@ -325,7 +325,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                         this_evoked = mne.read_evokeds(fname_evoked, name)
                         title = ('%s<br>%s["%s"] (N=%d)'
                                  % (section, analysis, name, this_evoked.nave))
-                        figs = plot_snr_estimate(this_evoked, inv)
+                        figs = plot_snr_estimate(this_evoked, inv, verbose=False)
                         figs.axes[0].set_ylim(auto=True)
                         captions = ('%s<br>%s["%s"] (N=%d)'
                                     % (section, analysis, name,
