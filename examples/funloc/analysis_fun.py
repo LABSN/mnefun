@@ -141,6 +141,8 @@ params.report_params.update(  # add a couple of nice diagnostic plots
     source=dict(analysis='All', name='All',
                 inv='%s-55-sss-meg-eeg-free-inv.fif', times=[0.1, 0.2],
                 views='lat', size=(800, 400)),
+    snr=dict(analysis='All', name='All',
+             inv='%s-55-sss-meg-eeg-free-inv.fif'),
     psd=False,  # often slow
 )
 
