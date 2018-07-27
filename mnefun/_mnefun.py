@@ -6,6 +6,7 @@ from __future__ import print_function
 
 import os
 import os.path as op
+from contextlib import contextmanager
 from copy import deepcopy
 import warnings
 from shutil import move, copy2
@@ -253,9 +254,10 @@ class Params(Frozen):
         Default is 7 mm. Defines source grid spacing for volumetric source
         space.
     on_missing : string
-        Can set to ‘error’ | ‘warning’ | ‘ignore’. Default is 'error'. Determine
-        what to do if one or several event ids are not found in the recording
-        during epoching. See mne.Epochs docstring for further details.
+        Can set to ‘error’ | ‘warning’ | ‘ignore’. Default is 'error'.
+        Determine what to do if one or several event ids are not found in the
+        recording during epoching. See mne.Epochs docstring for further
+        details.
     compute_rank : bool
         Default is False. Set to True to compute rank of the noise covariance
         matrix during inverse kernel computation.
@@ -3166,3 +3168,12 @@ def annotate_head_pos(raw, head_pos, rotation_limit=45, translation_limit=0.1,
 
     # Annotate on distance from the sensors
     return annot
+
+
+@contextmanager
+def mlab_offscreen(offscreen=True):
+    from mayavi import mlab
+    old_offscreen = mlab.options.offscreen
+    mlab.options.offscreen = offscreen
+    yield
+    mlab.options.offscreen = old_offscreen

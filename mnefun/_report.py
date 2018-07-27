@@ -27,7 +27,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
     import matplotlib.pyplot as plt
     from ._mnefun import (_load_trans_to, plot_good_coils, _head_pos_annot,
                           _get_bem_src_trans, safe_inserter, _prebad,
-                          _load_meg_bads)
+                          _load_meg_bads, mlab_offscreen)
     if run_indices is None:
         run_indices = [None] * len(subjects)
     style = {'axes.spines.right': 'off', 'axes.spines.top': 'off',
@@ -254,13 +254,11 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                         p.subjects_dir, raise_error=True)
                     bem, src, trans, _ = _get_bem_src_trans(
                         p, sss_info, subj, struc)
-                    offscreen = mlab.options.offscreen
-                    mlab.options.offscreen = True
                     if len(mne.pick_types(sss_info)):
                         coord_frame = 'meg'
                     else:
                         coord_frame = 'head'
-                    try:
+                    with mlab_offscreen():
                         fig = mlab.figure(bgcolor=(0., 0., 0.),
                                           size=(1000, 1000))
                         kwargs = dict(
@@ -286,12 +284,10 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                                       distance=0.6, figure=fig)
                             view.append(mlab.screenshot(figure=fig))
                         mlab.close(fig)
-                        view = np.concatenate(view, axis=1)
-                        view = view[:, (view != 0).any(0).any(-1)]
-                        view = view[(view != 0).any(1).any(-1)]
-                        report.add_figs_to_section(view, captions, section)
-                    finally:
-                        mlab.options.offscreen = offscreen
+                    view = np.concatenate(view, axis=1)
+                    view = view[:, (view != 0).any(0).any(-1)]
+                    view = view[(view != 0).any(1).any(-1)]
+                    report.add_figs_to_section(view, captions, section)
                 print('%5.1f sec' % ((time.time() - t0),))
             else:
                 print('    %s skipped' % section)
@@ -487,20 +483,22 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                         else:
                             subjects_dir = mne.utils.get_subjects_dir(
                                 p.subjects_dir, raise_error=True)
-                            brain = stc.plot(
-                                hemi=source.get('hemi', 'split'),
-                                views=source.get('views', ['lat', 'med']),
-                                size=source.get('size', (800, 600)),
-                                colormap=source.get('colormap', 'viridis'),
-                                transparent=source.get('transparent', True),
-                                foreground='k', background='w',
-                                clim=clim, subjects_dir=subjects_dir,
-                                )
-                            imgs = list()
-                            for t in times:
-                                brain.set_time(t)
-                                imgs.append(brain.screenshot())
-                            brain.close()
+                            with mlab_offscreen():
+                                brain = stc.plot(
+                                    hemi=source.get('hemi', 'split'),
+                                    views=source.get('views', ['lat', 'med']),
+                                    size=source.get('size', (800, 600)),
+                                    colormap=source.get('colormap', 'viridis'),
+                                    transparent=source.get('transparent',
+                                                           True),
+                                    foreground='k', background='w',
+                                    clim=clim, subjects_dir=subjects_dir,
+                                    )
+                                imgs = list()
+                                for t in times:
+                                    brain.set_time(t)
+                                    imgs.append(brain.screenshot())
+                                brain.close()
                             captions = ['%2.3f sec' % t for t in times]
                             report.add_slider_to_section(
                                 imgs, captions=captions, section=section,
