@@ -176,7 +176,8 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                         ax.set(title='')
                 for fig in figs:
                     fig.set_size_inches(8, 8)
-                    fig.tight_layout()
+                    with warnings.catch_warnings(record=True):
+                        fig.tight_layout()
                 report.add_figs_to_section(figs, captions, section,
                                            image_format='svg')
                 print('%5.1f sec' % ((time.time() - t0),))
@@ -294,7 +295,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
             #
             # SNR
             #
-            section = 'evoked_snr'
+            section = 'SNR'
             if p.report_params.get('snr', None) is not None:
                 t0 = time.time()
                 print(('    %s ... ' % section).ljust(ljust), end='')
@@ -321,7 +322,8 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                         this_evoked = mne.read_evokeds(fname_evoked, name)
                         title = ('%s<br>%s["%s"] (N=%d)'
                                  % (section, analysis, name, this_evoked.nave))
-                        figs = plot_snr_estimate(this_evoked, inv, verbose=False)
+                        figs = plot_snr_estimate(this_evoked, inv,
+                                                 verbose=False)
                         figs.axes[0].set_ylim(auto=True)
                         captions = ('%s<br>%s["%s"] (N=%d)'
                                     % (section, analysis, name,
