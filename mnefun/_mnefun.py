@@ -2673,6 +2673,7 @@ def plot_colorbar(pos_lims, ticks=None, ticklabels=None, figsize=(1, 2),
                     'bottom' if orientation == 'vertical' else 'right'):
             ax.spines[key].set_visible(False)
         cbar.set_ticklabels(ticklabels)
+        cbar.patch.set(facecolor='0.5', edgecolor='0.5')
         if orientation == 'horizontal':
             plt.setp(ax.xaxis.get_majorticklabels(), rotation=tickrotation)
         else:
