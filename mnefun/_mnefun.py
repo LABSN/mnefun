@@ -1597,7 +1597,7 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
 
         # read in events
         events = list()
-        for fname in get_event_fnames(p, subj, run_indices[si])]:
+        for fname in get_event_fnames(p, subj, run_indices[si]):
             these_events = read_events(fname)
             if len(np.unique(these_events[:, 0])) != len(these_events):
                 raise RuntimeError('Non-unique event samples found in %s'
