@@ -393,7 +393,7 @@ class Params(Frozen):
         # Use more than EXTRA points to fit headshape
         self.dig_with_eeg = False
         # Function to pick a subset of events to use to make a covariance
-        self.pick_events_cov = lambda x: x
+        self.pick_events_cov = None
         self.cov_method = cov_method
         self.proj_extra = None
         # These should be overridden by the user unless they are only doing
@@ -610,9 +610,8 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
         decim = [decim] * len(p.subjects)
     assert len(decim) == n_subj_orig
     decim = np.array(decim)
-    assert np.issubdtype(decim.dtype, np.int), (decim.dtype, decim.dtype.char)
-    assert decim.ndim == 1
-    assert decim.size == len(p.subjects)
+    assert decim.dtype.char in 'il', decim.dtype
+    assert decim.shape == (len(p.subjects),), decim.shape
     decim = decim[sinds]
 
     run_indices = p.subject_run_indices
@@ -1596,13 +1595,20 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
         raw = concatenate_raws(raw)
 
         # read in events
-        events = [read_events(fname) for fname in
-                  get_event_fnames(p, subj, run_indices[si])]
+        events = list()
+        for fname in get_event_fnames(p, subj, run_indices[si]):
+            these_events = read_events(fname)
+            if len(np.unique(these_events[:, 0])) != len(these_events):
+                raise RuntimeError('Non-unique event samples found in %s'
+                                   % (fname,))
+            events.append(these_events)
         events = concatenate_events(events, first_samps, last_samps)
+        if len(np.unique(events[:, 0])) != len(events):
+            raise RuntimeError('Non-unique event samples found after '
+                               'concatenation')
         # do time adjustment
-        t_adj = np.zeros((1, 3), dtype='int')
-        t_adj[0, 0] = np.round(-p.t_adjust * raw.info['sfreq']).astype(int)
-        events = events.astype(int) + t_adj
+        t_adj = int(np.round(-p.t_adjust * raw.info['sfreq']))
+        events[:, 0] += t_adj
         new_sfreq = raw.info['sfreq'] / decim[si]
         if p.disp_files:
             print('    Epoching data (decim=%s -> sfreq=%s Hz).'
@@ -1743,7 +1749,7 @@ def gen_inverses(p, subjects, run_indices):
     for si, subj in enumerate(subjects):
         out_flags, meg_bools, eeg_bools = [], [], []
         if p.disp_files:
-            print('  Subject %s. ' % subj)
+            print('  Subject %s' % subj, end='')
         inv_dir = op.join(p.work_dir, subj, p.inverse_dir)
         fwd_dir = op.join(p.work_dir, subj, p.forward_dir)
         cov_dir = op.join(p.work_dir, subj, p.cov_dir)
@@ -1777,16 +1783,16 @@ def gen_inverses(p, subjects, run_indices):
             rank = dict()
             if meg:
                 eps = epochs.copy().pick_types(meg=meg, eeg=False)
-                rank['meg'] = estimate_rank(eps._data.transpose([1, 0, 2]).
-                                            reshape(len(eps.picks), -1),
-                                            tol=1e-6)
+                eps = eps.get_data().transpose([1, 0, 2])
+                eps = eps.reshape(len(eps), -1)
+                rank['meg'] = estimate_rank(eps, tol=1e-6)
             if eeg:
                 eps = epochs.copy().pick_types(meg=False, eeg=eeg)
-                rank['eeg'] = estimate_rank(eps._data.transpose([1, 0, 2]).
-                                            reshape(len(eps.picks), -1),
-                                            tol=1e-6)
+                eps = eps.get_data().transpose([1, 0, 2])
+                eps = eps.reshape(len(eps), -1)
+                rank['eeg'] = estimate_rank(eps, tol=1e-6)
             for k, v in rank.items():
-                print(' %s : rank %2d\n' % (k, v), end='')
+                print(' : %s rank %2d' % (k.upper(), v), end='')
         else:
             rank = None
         if make_erm_inv:
@@ -1946,7 +1952,9 @@ def gen_covariances(p, subjects, run_indices):
             write_cov(empty_cov_name, cov)
 
         # Make evoked covariances
-        for inv_name, inv_run in zip(p.inv_names, p.inv_runs):
+        for ii, (inv_name, inv_run) in enumerate(zip(p.inv_names, p.inv_runs)):
+            cov_name = op.join(cov_dir, safe_inserter(inv_name, subj) +
+                               ('-%d' % p.lp_cut) + p.inv_tag + '-cov.fif')
             if run_indices[si] is None:
                 ridx = inv_run
             else:
@@ -1964,12 +1972,16 @@ def gen_covariances(p, subjects, run_indices):
             _fix_raw_eog_cals(raws, raw_fnames)  # safe b/c cov only needs MEEG
             raw = concatenate_raws(raws)
             events = [read_events(e) for e in eve_fnames]
-            old_count = sum(len(e) for e in events)
-            events = [p.pick_events_cov(e) for e in events]
-            new_count = sum(len(e) for e in events)
-            if new_count != old_count:
-                print('  Using %s instead of %s original events for '
-                      'covariance calculation' % (new_count, old_count))
+            if p.pick_events_cov is not None:
+                old_count = sum(len(e) for e in events)
+                if callable(p.pick_events_cov):
+                    picker = p.pick_events_cov
+                else:
+                    picker = p.pick_events_cov[ii]
+                events = [picker(e) for e in events]
+                new_count = sum(len(e) for e in events)
+                print('  Using %s/%s events for %s'
+                      % (new_count, old_count, op.basename(cov_name)))
             events = concatenate_events(events, first_samps,
                                         last_samps)
             use_reject, use_flat = _restrict_reject_flat(p.reject, p.flat, raw)
@@ -1977,8 +1989,6 @@ def gen_covariances(p, subjects, run_indices):
                             tmax=p.bmax, baseline=(None, None), proj=False,
                             reject=use_reject, flat=use_flat, preload=True)
             epochs.pick_types(meg=True, eeg=True, exclude=[])
-            cov_name = op.join(cov_dir, safe_inserter(inv_name, subj) +
-                               ('-%d' % p.lp_cut) + p.inv_tag + '-cov.fif')
             cov = compute_covariance(epochs, method=p.cov_method)
             write_cov(cov_name, cov)
 
@@ -2662,6 +2672,7 @@ def plot_colorbar(pos_lims, ticks=None, ticklabels=None, figsize=(1, 2),
                     'bottom' if orientation == 'vertical' else 'right'):
             ax.spines[key].set_visible(False)
         cbar.set_ticklabels(ticklabels)
+        cbar.patch.set(facecolor='0.5', edgecolor='0.5')
         if orientation == 'horizontal':
             plt.setp(ax.xaxis.get_majorticklabels(), rotation=tickrotation)
         else:
