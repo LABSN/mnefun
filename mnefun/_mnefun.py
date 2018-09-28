@@ -610,9 +610,8 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
         decim = [decim] * len(p.subjects)
     assert len(decim) == n_subj_orig
     decim = np.array(decim)
-    assert np.issubdtype(decim.dtype, np.int), (decim.dtype, decim.dtype.char)
-    assert decim.ndim == 1
-    assert decim.size == len(p.subjects)
+    assert decim.dtype.char in 'il', decim.dtype
+    assert decim.shape == (len(p.subjects),), decim.shape
     decim = decim[sinds]
 
     run_indices = p.subject_run_indices
