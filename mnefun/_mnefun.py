@@ -3188,3 +3188,16 @@ def mlab_offscreen(offscreen=True):
     mlab.options.offscreen = offscreen
     yield
     mlab.options.offscreen = old_offscreen
+
+
+def discretize_cmap(colormap, lims, transparent=True):
+    from matplotlib import colors, pyplot as plt
+    n_pts = lims[1] - lims[0]
+    vals = np.round(np.linspace(-0.5, n_pts - 0.5, 256)) / (n_pts - 1)
+    colormap = plt.get_cmap(colormap)(vals)
+    if transparent:
+        colormap[:, 3] = np.clip((vals + 1. / (n_pts - 1)) * 2, 0, 1)
+        colormap[0, 3] = 0.
+    colormap = colors.ListedColormap(colormap)
+    use_lims = [lims[0] - 0.5, np.mean(lims), lims[1] + 0.5]
+    return colormap, use_lims

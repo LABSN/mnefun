@@ -84,7 +84,7 @@ def anova_time(X, transform=True, signed_p=True, gg=True):
     return t, p, dof
 
 
-def hotelling_t2_baseline(stc, n_ave, baseline=(None, 0)):
+def hotelling_t2_baseline(stc, n_ave, baseline=(None, 0), check_baseline=True):
     """Compute p values from a baseline-corrected VectorSourceEstimate."""
     assert isinstance(stc, mne.VectorSourceEstimate)
     assert isinstance(baseline, tuple) and len(baseline) == 2
@@ -95,8 +95,9 @@ def hotelling_t2_baseline(stc, n_ave, baseline=(None, 0)):
         mask &= stc.times <= baseline[1]
     assert mask.any()
     baseline = stc.data[..., mask]
-    np.testing.assert_allclose(baseline.mean(-1), 0.,
-                               atol=1e-12 * baseline.max())
+    if check_baseline:
+        np.testing.assert_allclose(baseline.mean(-1), 0.,
+                                   atol=1e-6 * baseline.max())
     # Following definition 2 from:
     #
     #     https://en.wikipedia.org/wiki/Hotelling%27s_T-squared_distribution
@@ -104,7 +105,8 @@ def hotelling_t2_baseline(stc, n_ave, baseline=(None, 0)):
     # Estimate the unbiased sample covariance matrix during the baseline:
     sigma = np.einsum('vot,vrt->vor', baseline, baseline)
     sigma /= (mask.sum() - 1)
-    np.testing.assert_allclose(np.cov(baseline[0]), sigma[0])
+    if check_baseline:
+        np.testing.assert_allclose(np.cov(baseline[0]), sigma[0])
     # We need to correct this estimate by scaling by n_ave to get the value
     # that would have existed in the un-averaged data::
     #
