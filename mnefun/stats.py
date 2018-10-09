@@ -134,7 +134,6 @@ def hotelling_t2_baseline(stc, n_ave, baseline=(None, 0), check_baseline=True):
 
 def hotelling_t2(epochs, inv_op, baseline=(None, 0)):
     """Compute p values from a VectorSourceEstimate."""
-    from scipy import stats
     assert inv_op.ndim == 3 and inv_op.shape[1] == 3
     data = epochs.get_data()
     tmin, tstep = epochs.times[0], 1. / epochs.info['sfreq']
@@ -156,7 +155,10 @@ def hotelling_t2(epochs, inv_op, baseline=(None, 0)):
         # Compute covariances and then invert them
         S_inv = np.einsum('vos,se,vre->vor', inv_op, sens_cov, inv_op)
         for ci, c in enumerate(S_inv):
-            S_inv[ci] = linalg.pinv(c)
+            try:
+                S_inv[ci] = linalg.inv(c)
+            except np.linalg.LinAlgError:
+                S_inv[ci] = linalg.pinv(c)
         # This is really a T**2, but to save mem we convert inplace
         F = np.einsum('vo,vor,vr->v', mu, S_inv, mu)
         F *= n_ave
