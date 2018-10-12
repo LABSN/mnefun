@@ -76,6 +76,7 @@ from mne.io.meas_info import _empty_info
 from mne.minimum_norm import write_inverse_operator
 from mne.utils import run_subprocess, _time_mask
 from mne.viz import plot_drop_log, tight_layout
+from mne.fixes import _get_args as get_args
 from mne.externals.six import string_types
 
 from ._paths import (get_raw_fnames, get_event_fnames,
@@ -562,7 +563,7 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
              'Status',
              ]
     score_fun = p.score if p.score is not None else default_score
-    if len(mne.utils._get_args(score_fun)) == 2:
+    if len(get_args(score_fun)) == 2:
         score_fun_two = score_fun
 
         def score_fun(p, subjects, run_indices):
@@ -773,7 +774,10 @@ def calc_twa_hp(p, subj, out_file, ridx):
         raw = mne.io.read_raw_fif(raw_fname, allow_maxshield='yes',
                                   verbose='error')
         hp, annot, _ = _head_pos_annot(p, raw_fname, prefix='          ')
-        raw.annotations = annot
+        try:
+            raw.set_annotations(annot)
+        except AttributeError:
+            raw.annotations = annot
         good = np.ones(len(raw.times))
         ts = np.concatenate((hp[:, 0],
                              [(raw.last_samp + 1) / raw.info['sfreq']]))
@@ -1159,7 +1163,10 @@ def run_sss_locally(p, subjects, run_indices):
 
             # estimate head position for movement compensation
             head_pos, annot, _ = _head_pos_annot(p, r, prefix='        ')
-            raw.annotations = annot
+            try:
+                raw.set_annotations(annot)
+            except AttributeError:
+                raw.annotations = annot
 
             # get the destination head position
             assert isinstance(p.trans_to, (string_types, tuple, type(None)))
@@ -1467,7 +1474,8 @@ def combine_medial_labels(labels, subject='fsaverage', surf='white',
                           dist_limit=0.02, subjects_dir=None):
     subjects_dir = mne.utils.get_subjects_dir(subjects_dir, raise_error=True)
     rrs = dict((hemi, mne.read_surface(op.join(subjects_dir, subject, 'surf',
-                                       '%s.%s' % (hemi, surf)))[0] / 1000.)
+                                               '%s.%s'
+                                               % (hemi, surf)))[0] / 1000.)
                for hemi in ('lh', 'rh'))
     use_labels = list()
     used = np.zeros(len(labels), bool)
@@ -2023,7 +2031,7 @@ def _get_fir_kwargs(fir_design):
     """Get FIR kwargs in backward-compatible way."""
     fir_kwargs = dict()
     old_kwargs = dict()
-    if 'fir_design' in mne.fixes._get_args(mne.filter.filter_data):
+    if 'fir_design' in get_args(mne.filter.filter_data):
         fir_kwargs.update(fir_design=fir_design)
         old_kwargs.update(fir_design='firwin2')
     elif fir_design != 'firwin2':
@@ -2999,8 +3007,12 @@ def compute_good_coils(raw, t_step=0.01, t_window=0.2, dist_limit=0.005,
 
         last_fit = sin_fit.copy()
 
+        kwargs = dict()
+        if 'too_close' in get_args(_fit_magnetic_dipole):
+            kwargs['too_close'] = 'warning'
+
         outs = [_fit_magnetic_dipole(f, pos, hpi['coils'], hpi['scale'],
-                                     hpi['method'])
+                                     hpi['method'], **kwargs)
                 for f, pos in zip(sin_fit, coil_dev_rrs)]
 
         coil_dev_rrs = np.array([o[0] for o in outs])
