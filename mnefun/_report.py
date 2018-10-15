@@ -413,7 +413,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                     assert isinstance(sensor, dict)
                     analysis = sensor['analysis']
                     name = sensor['name']
-                    times = sensor.get('times', [0.1])
+                    times = sensor.get('times', [0.1, 0.2])
                     fname_evoked = op.join(inv_dir, '%s_%d%s_%s_%s-ave.fif'
                                            % (analysis, p.lp_cut, p.inv_tag,
                                               p.eq_tag, subj))
@@ -447,7 +447,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                     assert isinstance(source, dict)
                     analysis = source['analysis']
                     name = source['name']
-                    times = source.get('times', [0.1])
+                    times = source.get('times', [0.1, 0.2])
                     # Load the inverse
                     inv_dir = op.join(p.work_dir, subj, p.inverse_dir)
                     fname_inv = op.join(inv_dir,
@@ -475,9 +475,13 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                             p.reject_tmin, p.reject_tmax)
                         clim = source.get('clim', dict(kind='percent',
                                                        lims=[82, 90, 98]))
-                        clim = mne.viz._3d._limits_to_control_points(
+                        out = mne.viz._3d._limits_to_control_points(
                              clim, stc_crop.data, 'viridis',
-                             transparent=True)[0]  # dummy cmap
+                             transparent=True)  # dummy cmap
+                        if isinstance(out[0], (list, tuple, np.ndarray)):
+                            clim = out[0]  # old MNE
+                        else:
+                            clim = out[1]  # new MNE (0.17+)
                         clim = dict(kind='value', lims=clim)
                         if not isinstance(stc, mne.SourceEstimate):
                             print('Only surface source estimates currently '
