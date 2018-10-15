@@ -1914,8 +1914,9 @@ def _get_bem_src_trans(p, info, subj, struc):
                 break
         else:  # if neither exists, use last filename
             print('  Creating source space for %s...' % subj)
-            src = setup_source_space(struc, spacing='oct6',
-                                     n_jobs=p.n_jobs)
+            src = setup_source_space(
+                struc, spacing='oct6', subjects_dir=p.subjects_dir,
+                n_jobs=p.n_jobs)
             write_source_spaces(src_space_file, src)
         src = read_source_spaces(src_space_file)
         bem = op.join(subjects_dir, struc, 'bem', '%s-%s-bem-sol.fif'
