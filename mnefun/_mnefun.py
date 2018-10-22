@@ -1223,6 +1223,8 @@ def _load_trans_to(p, subj, run_indices, raw=None):
                                subj + '_twa_pos.fif')
             if not op.isfile(trans_to):
                 calc_twa_hp(p, subj, trans_to, run_indices)
+        else:
+            trans_to = p.trans_to
         trans_to = mne.read_trans(trans_to)
     elif p.trans_to is None:
         trans_to = None if raw is None else raw.info['dev_head_t']
