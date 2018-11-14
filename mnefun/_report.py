@@ -27,7 +27,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
     import matplotlib.pyplot as plt
     from ._mnefun import (_load_trans_to, plot_good_coils, _head_pos_annot,
                           _get_bem_src_trans, safe_inserter, _prebad,
-                          _load_meg_bads, mlab_offscreen)
+                          _load_meg_bads, mlab_offscreen, _fix_raw_eog_cals)
     if run_indices is None:
         run_indices = [None] * len(subjects)
     style = {'axes.spines.right': 'off', 'axes.spines.top': 'off',
@@ -48,9 +48,10 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
             if not op.isfile(fname):
                 raise RuntimeError('Cannot create reports until raw data '
                                    'exist, missing:\n%s' % fname)
-        raw = mne.concatenate_raws(
-            [read_raw_fif(fname, allow_maxshield='yes')
-             for fname in fnames])
+        raw = [read_raw_fif(fname, allow_maxshield='yes')
+               for fname in fnames]
+        _fix_raw_eog_cals(raw)
+        raw = mne.concatenate_raws(raw)
         prebad_file = _prebad(p, subj)
         _load_meg_bads(raw, prebad_file, disp=False)
 

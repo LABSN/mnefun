@@ -74,7 +74,7 @@ from mne.io.constants import FIFF
 from mne.io.pick import pick_types_forward, pick_types
 from mne.io.meas_info import _empty_info
 from mne.minimum_norm import write_inverse_operator
-from mne.utils import run_subprocess, _time_mask
+from mne.utils import run_subprocess, _time_mask, estimate_rank
 from mne.viz import plot_drop_log, tight_layout
 from mne.fixes import _get_args as get_args
 from mne.externals.six import string_types
@@ -440,6 +440,7 @@ class Params(Frozen):
         self.coil_t_step_min = 0.01
         self.proj_ave = False
         self.compute_rank = False
+        self.cov_rank = 'full'
         self.freeze()
 
     @property
@@ -1601,7 +1602,7 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
             last_samps.append(raw._last_samps[-1])
         # read in raw files
         raw = [read_raw_fif(fname, preload=False) for fname in raw_names]
-        _fix_raw_eog_cals(raw, raw_names)  # EOG epoch scales might be bad!
+        _fix_raw_eog_cals(raw)  # EOG epoch scales might be bad!
         raw = concatenate_raws(raw)
 
         # read in events
@@ -1741,6 +1742,33 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
             plot_drop_log(drop_log, threshold=p.drop_thresh, subject=subj)
 
 
+def _compute_rank(p, subj, run_indices):
+    """Compute rank of the data."""
+    if not p.compute_rank:
+        return None
+    raw_fname = get_raw_fnames(p, subj, 'pca', True, False, run_indices)[0]
+    raw = read_raw_fif(raw_fname)
+    meg, eeg = 'meg' in raw, 'eeg' in raw
+
+    epochs_fnames, _ = get_epochs_evokeds_fnames(p, subj, p.analyses)
+    _, fif_file = epochs_fnames
+    epochs = mne.read_epochs(fif_file)
+    rank = dict()
+    if meg:
+        eps = epochs.copy().pick_types(meg=meg, eeg=False)
+        eps = eps.get_data().transpose([1, 0, 2])
+        eps = eps.reshape(len(eps), -1)
+        rank['meg'] = estimate_rank(eps, tol=1e-6)
+    if eeg:
+        eps = epochs.copy().pick_types(meg=False, eeg=eeg)
+        eps = eps.get_data().transpose([1, 0, 2])
+        eps = eps.reshape(len(eps), -1)
+        rank['eeg'] = estimate_rank(eps, tol=1e-6)
+    for k, v in rank.items():
+        print(' : %s rank %2d' % (k.upper(), v), end='')
+    return rank
+
+
 def gen_inverses(p, subjects, run_indices):
     """Generate inverses
 
@@ -1785,32 +1813,20 @@ def gen_inverses(p, subjects, run_indices):
             out_flags += ['-meg-eeg']
             meg_bools += [True]
             eeg_bools += [True]
-        if p.compute_rank:
-            from mne.utils import estimate_rank
-            epochs_fnames, _ = get_epochs_evokeds_fnames(p, subj, p.analyses)
-            _, fif_file = epochs_fnames
-            epochs = mne.read_epochs(fif_file)
-            rank = dict()
-            if meg:
-                eps = epochs.copy().pick_types(meg=meg, eeg=False)
-                eps = eps.get_data().transpose([1, 0, 2])
-                eps = eps.reshape(len(eps), -1)
-                rank['meg'] = estimate_rank(eps, tol=1e-6)
-            if eeg:
-                eps = epochs.copy().pick_types(meg=False, eeg=eeg)
-                eps = eps.get_data().transpose([1, 0, 2])
-                eps = eps.reshape(len(eps), -1)
-                rank['eeg'] = estimate_rank(eps, tol=1e-6)
-            for k, v in rank.items():
-                print(' : %s rank %2d' % (k.upper(), v), end='')
-        else:
-            rank = None
+        # maybe we should only do this if p.cov_rank == 'full'?
+        rank = _compute_rank(p, subj, run_indices[si])
         if make_erm_inv:
             erm_name = op.join(cov_dir, safe_inserter(p.runs_empty[0], subj) +
                                p.pca_extra + p.inv_tag + '-cov.fif')
             empty_cov = read_cov(erm_name)
-            if empty_cov.get('method', 'empirical') == 'empirical':
-                empty_cov = regularize(empty_cov, raw.info)
+            if empty_cov.get('method', 'empirical') == 'empirical' or \
+                    p.cov_rank != 'full':
+                kwargs = dict()
+                # The empty-room covariance can have a different spatial
+                # pattern
+                if 'rank' in get_args(regularize):
+                    kwargs['rank'] = 'full'
+                empty_cov = regularize(empty_cov, raw.info, **kwargs)
         for name in p.inv_names:
             s_name = safe_inserter(name, subj)
             temp_name = s_name + ('-%d' % p.lp_cut) + p.inv_tag
@@ -1846,6 +1862,8 @@ def gen_inverses(p, subjects, run_indices):
                                                     empty_cov, loose=l,
                                                     depth=d, fixed=x)
                         write_inverse_operator(inv_name, inv)
+        if p.disp_files:
+            print()
 
 
 def gen_forwards(p, subjects, structurals, run_indices):
@@ -1943,10 +1961,24 @@ def gen_covariances(p, subjects, run_indices):
         Run indices to include.
     """
     for si, subj in enumerate(subjects):
-        print('  Subject %s/%s...' % (si + 1, len(subjects)))
+        print('  Subject %2d/%2d...' % (si + 1, len(subjects)), end='')
         cov_dir = op.join(p.work_dir, subj, p.cov_dir)
         if not op.isdir(cov_dir):
             os.mkdir(cov_dir)
+        has_rank_arg = 'rank' in get_args(compute_covariance)
+        kwargs = dict()
+        if p.cov_rank == 'full':  # backward compat
+            if has_rank_arg:
+                kwargs['rank'] = 'full'
+        else:
+            if not has_rank_arg:
+                raise RuntimeError(
+                    'There is no "rank" argument of compute_covariance, '
+                    'you need to update MNE-Python')
+            if p.cov_rank is None:
+                kwargs['rank'] = _compute_rank(p, subj, run_indices[si])
+            else:
+                kwargs['rank'] = p.cov_rank
 
         # Make empty room cov
         if p.runs_empty:
@@ -1959,7 +1991,8 @@ def gen_covariances(p, subjects, run_indices):
             raw = read_raw_fif(empty_fif, preload=True)
             raw.pick_types(meg=True, eog=True, exclude='bads')
             use_reject, use_flat = _restrict_reject_flat(p.reject, p.flat, raw)
-            cov = compute_raw_covariance(raw, reject=use_reject, flat=use_flat)
+            cov = compute_raw_covariance(raw, reject=use_reject, flat=use_flat,
+                                         **kwargs)
             write_cov(empty_cov_name, cov)
 
         # Make evoked covariances
@@ -1980,7 +2013,7 @@ def gen_covariances(p, subjects, run_indices):
                 raws.append(read_raw_fif(raw_fname, preload=False))
                 first_samps.append(raws[-1]._first_samps[0])
                 last_samps.append(raws[-1]._last_samps[-1])
-            _fix_raw_eog_cals(raws, raw_fnames)  # safe b/c cov only needs MEEG
+            _fix_raw_eog_cals(raws)  # safe b/c cov only needs MEEG
             raw = concatenate_raws(raws)
             events = [read_events(e) for e in eve_fnames]
             if p.pick_events_cov is not None:
@@ -2000,11 +2033,19 @@ def gen_covariances(p, subjects, run_indices):
                             tmax=p.bmax, baseline=(None, None), proj=False,
                             reject=use_reject, flat=use_flat, preload=True)
             epochs.pick_types(meg=True, eeg=True, exclude=[])
-            cov = compute_covariance(epochs, method=p.cov_method)
+            cov = compute_covariance(epochs, method=p.cov_method,
+                                     **kwargs)
+            if kwargs.get('rank', None) not in (None, 'full'):
+                want_rank = sum(kwargs['rank'].values())
+                out_rank = mne.cov.compute_whitener(cov, epochs.info,
+                                                    return_rank=True,
+                                                    verbose=False)[2]
+                assert want_rank == out_rank
             write_cov(cov_name, cov)
+        print()
 
 
-def _fix_raw_eog_cals(raws, raw_names):
+def _fix_raw_eog_cals(raws):
     """Fix for annoying issue where EOG cals don't match"""
     # Warning: this will only produce correct EOG scalings with preloaded
     # raw data!
@@ -2018,7 +2059,8 @@ def _fix_raw_eog_cals(raws, raw_names):
             assert np.array_equal(picks, picks_2)
             these_cals = _cals(r)[picks]
             if not np.array_equal(first_cals, these_cals):
-                warnings.warn('Adjusting EOG cals for %s' % raw_names[ri + 1])
+                warnings.warn('Adjusting EOG cals for %s'
+                              % op.basename(r._filenames[0]))
                 _cals(r)[picks] = first_cals
 
 
@@ -2074,7 +2116,7 @@ def _raw_LRFCP(raw_names, sfreq, l_freq, h_freq, n_jobs, n_jobs_resample,
                      l_trans_bandwidth=l_trans, h_trans_bandwidth=h_trans,
                      fir_window=fir_window, **fir_kwargs)
         raw.append(r)
-    _fix_raw_eog_cals(raw, raw_names)
+    _fix_raw_eog_cals(raw)
     raws_del = raw[1:]
 
     raw = concatenate_raws(raw, preload=preload)
