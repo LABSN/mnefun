@@ -77,7 +77,6 @@ from mne.minimum_norm import write_inverse_operator
 from mne.utils import run_subprocess, _time_mask, estimate_rank
 from mne.viz import plot_drop_log, tight_layout
 from mne.fixes import _get_args as get_args
-from mne.externals.six import string_types
 
 from ._paths import (get_raw_fnames, get_event_fnames,
                      get_epochs_evokeds_fnames, safe_inserter, _regex_convert)
@@ -333,7 +332,7 @@ class Params(Frozen):
         self.drop_thresh = drop_thresh
         self.bem_type = bem_type
         self.match_fun = match_fun
-        if isinstance(epochs_type, string_types):
+        if isinstance(epochs_type, str):
             epochs_type = (epochs_type,)
         if not all([t in ('mat', 'fif') for t in epochs_type]):
             raise ValueError('All entries in "epochs_type" must be "mat" '
@@ -462,21 +461,21 @@ class Params(Frozen):
             Structural template to use.
         """
         if struc_template is not None:
-            if isinstance(struc_template, string_types):
+            if isinstance(struc_template, str):
                 def fun(x):
                     return struc_template % x
             else:
                 fun = struc_template
             new = [fun(subj) for subj in self.subjects]
-            assert all(isinstance(subj, string_types) for subj in new)
+            assert all(isinstance(subj, str) for subj in new)
             self.structurals = new
-        if isinstance(subj_template, string_types):
+        if isinstance(subj_template, str):
             def fun(x):
                 return subj_template % x
         else:
             fun = subj_template
         new = [fun(subj) for subj in self.subjects]
-        assert all(isinstance(subj, string_types) for subj in new)
+        assert all(isinstance(subj, str) for subj in new)
         self.subjects = new
 
 
@@ -671,7 +670,7 @@ def fetch_raw_files(p, subjects, run_indices):
                                 run_indices[si])
         assert len(fnames) > 0
         # build remote raw file finder
-        if isinstance(p.acq_dir, string_types):
+        if isinstance(p.acq_dir, str):
             use_dir = [p.acq_dir]
         else:
             use_dir = p.acq_dir
@@ -828,7 +827,7 @@ def push_raw_files(p, subjects, run_indices):
     # do all copies at once to avoid multiple logins
     copy2(op.join(op.dirname(__file__), 'run_sss.sh'), p.work_dir)
     includes = ['--include', op.sep + 'run_sss.sh']
-    if not isinstance(p.trans_to, string_types):
+    if not isinstance(p.trans_to, str):
         raise TypeError(' Illegal head transformation argument to MaxFilter.')
     elif p.trans_to not in ('default', 'median'):
         _check_trans_file(p)
@@ -884,7 +883,7 @@ def push_raw_files(p, subjects, run_indices):
 
 def _check_trans_file(p):
     """Helper to make sure our trans_to file exists"""
-    if not isinstance(p.trans_to, string_types):
+    if not isinstance(p.trans_to, str):
         raise ValueError('trans_to must be a string')
     if p.trans_to not in ('default', 'median'):
         if not op.isfile(op.join(p.work_dir, p.trans_to)):
@@ -1133,7 +1132,7 @@ def run_sss_locally(p, subjects, run_indices):
         ct_file = p.ct_file
     assert isinstance(p.tsss_dur, float) and p.tsss_dur > 0
     st_duration = p.tsss_dur
-    assert (isinstance(p.sss_regularize, string_types) or
+    assert (isinstance(p.sss_regularize, str) or
             p.sss_regularize is None)
     reg = p.sss_regularize
 
@@ -1170,7 +1169,7 @@ def run_sss_locally(p, subjects, run_indices):
                 raw.annotations = annot
 
             # get the destination head position
-            assert isinstance(p.trans_to, (string_types, tuple, type(None)))
+            assert isinstance(p.trans_to, (str, tuple, type(None)))
             trans_to = _load_trans_to(p, subj, run_indices[si])
 
             # filter cHPI signals
@@ -1213,7 +1212,7 @@ def run_sss_locally(p, subjects, run_indices):
 
 
 def _load_trans_to(p, subj, run_indices, raw=None):
-    if isinstance(p.trans_to, string_types):
+    if isinstance(p.trans_to, str):
         if p.trans_to == 'median':
             trans_to = op.join(p.work_dir, subj, p.raw_dir,
                                subj + '_median_pos.fif')
@@ -1379,7 +1378,7 @@ def fix_eeg_files(p, subjects, structurals=None, dates=None, run_indices=None):
         # noinspection PyPep8
         if structurals is not None and structurals[si] is not None and \
                 dates is not None:
-            assert isinstance(structurals[si], string_types)
+            assert isinstance(structurals[si], str)
             assert dates[si] is None or (isinstance(dates[si], tuple) and
                                          len(dates[si]) == 3)
             assert dates[si] is None or all([isinstance(d, int)
@@ -1912,7 +1911,7 @@ def gen_forwards(p, subjects, structurals, run_indices):
 
 def _get_bem_src_trans(p, info, subj, struc):
     subjects_dir = mne.utils.get_subjects_dir(p.subjects_dir, raise_error=True)
-    assert isinstance(subjects_dir, string_types)
+    assert isinstance(subjects_dir, str)
     if struc is None:  # spherical case
         bem, src, trans = _spherical_conductor(info, subj, p.src_pos)
         bem_type = 'spherical-model'

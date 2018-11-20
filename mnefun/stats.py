@@ -7,7 +7,6 @@ from scipy import linalg, stats
 
 import mne
 from mne.stats import fdr_correction
-from mne.externals.six import string_types
 
 
 def anova_time(X, transform=True, signed_p=True, gg=True):
@@ -233,7 +232,7 @@ def partial_conjunction(p, alpha=0.05, method='fisher', fdr_method='indep'):
     """
     from scipy.stats import combine_pvalues
     known_types = ('fisher', 'stouffer', 'simes')
-    if not isinstance(method, string_types) or method not in known_types:
+    if not isinstance(method, str) or method not in known_types:
         raise ValueError('Method must be one of %s, got %s'
                          % (known_types, method))
     p = np.array(p)  # copy
