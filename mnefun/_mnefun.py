@@ -2590,7 +2590,7 @@ def _head_pos_annot(p, raw_fname, prefix='  '):
     lims = [p.rotation_limit, p.translation_limit, p.coil_dist_limit,
             p.coil_t_step_min, t_window, p.coil_bad_count_duration_limit]
     annot_fname = raw_fname[:-4] + '-annot.fif'
-    if not op.isfile(annot_fname):
+    if not op.isfile(annot_fname) and fit_data is not None:
         if np.isfinite(lims[:3]).any() or np.isfinite(lims[5]):
             print(prefix.join(['', 'Annotating raw segments with:\n',
                                u'  rotation_limit    = %s °/s\n' % lims[0],
