@@ -1024,8 +1024,8 @@ def run_sss_command(fname_in, options, fname_out, host='kasga', port=22,
         print(' (%i sec)' % (time.time() - t0,))
 
 
-def run_sss_positions(fname_in, fname_out, host='kasga', opts='', port=22,
-                      prefix='  ', work_dir='~/', t_window=None,
+def run_sss_positions(fname_in, fname_out, host='kasga', opts='-force',
+                      port=22, prefix='  ', work_dir='~/', t_window=None,
                       t_step_min=None, dist_limit=None):
     """Run Maxfilter remotely and fetch resulting file
 
@@ -1088,7 +1088,7 @@ def run_sss_positions(fname_in, fname_out, host='kasga', opts='', port=22,
         remote_out = op.join(work_dir, 'temp_%s_raw_quat.fif' % t0)
         remote_hp = op.join(work_dir, 'temp_%s_hp.txt' % t0)
 
-        print(', running -headpos%s' % opts, end='')
+        print(', running -headpos %s' % opts, end='')
         cmd = ['ssh', '-p', str(port), host,
                '/neuro/bin/util/maxfilter -f ' + remote_ins[fi] + ' -o ' +
                remote_out +
