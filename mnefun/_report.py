@@ -27,7 +27,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
     import matplotlib.pyplot as plt
     from ._mnefun import (_load_trans_to, plot_good_coils, _head_pos_annot,
                           _get_bem_src_trans, safe_inserter, _prebad,
-                          _load_meg_bads, mlab_offscreen)
+                          _load_meg_bads, mlab_offscreen, _fix_raw_eog_cals)
     if run_indices is None:
         run_indices = [None] * len(subjects)
     style = {'axes.spines.right': 'off', 'axes.spines.top': 'off',
@@ -48,9 +48,10 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
             if not op.isfile(fname):
                 raise RuntimeError('Cannot create reports until raw data '
                                    'exist, missing:\n%s' % fname)
-        raw = mne.concatenate_raws(
-            [read_raw_fif(fname, allow_maxshield='yes')
-             for fname in fnames])
+        raw = [read_raw_fif(fname, allow_maxshield='yes')
+               for fname in fnames]
+        _fix_raw_eog_cals(raw)
+        raw = mne.concatenate_raws(raw)
         prebad_file = _prebad(p, subj)
         _load_meg_bads(raw, prebad_file, disp=False)
 
@@ -188,7 +189,8 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
             # SSP
             #
             section = 'SSP topomaps'
-            if p.report_params.get('ssp_topomaps', True) and has_pca:
+            if p.report_params.get('ssp_topomaps', True) and has_pca and \
+                    np.sum(p.proj_nums) > 0:
                 assert sss_info is not None
                 t0 = time.time()
                 print(('    %s ... ' % section).ljust(ljust), end='')
@@ -366,7 +368,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
             # Whitening
             #
             section = 'Whitening'
-            if p.report_params.get('whitening', None) is not None:
+            if p.report_params.get('whitening', False):
                 t0 = time.time()
                 print(('    %s ... ' % section).ljust(ljust), end='')
 
@@ -403,7 +405,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
             # Sensor space plots
             #
             section = 'Responses'
-            if p.report_params.get('sensor', None) is not None:
+            if p.report_params.get('sensor', False):
                 t0 = time.time()
                 print(('    %s ... ' % section).ljust(ljust), end='')
                 sensors = p.report_params['sensor']
@@ -437,7 +439,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
             # Source estimation
             #
             section = 'Source estimation'
-            if p.report_params.get('source', None) is not None:
+            if p.report_params.get('source', False):
                 t0 = time.time()
                 print(('    %s ... ' % section).ljust(ljust), end='')
                 sources = p.report_params['source']

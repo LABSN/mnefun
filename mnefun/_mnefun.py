@@ -74,10 +74,9 @@ from mne.io.constants import FIFF
 from mne.io.pick import pick_types_forward, pick_types
 from mne.io.meas_info import _empty_info
 from mne.minimum_norm import write_inverse_operator
-from mne.utils import run_subprocess, _time_mask
+from mne.utils import run_subprocess, _time_mask, estimate_rank
 from mne.viz import plot_drop_log, tight_layout
 from mne.fixes import _get_args as get_args
-from mne.externals.six import string_types
 
 from ._paths import (get_raw_fnames, get_event_fnames,
                      get_epochs_evokeds_fnames, safe_inserter, _regex_convert)
@@ -333,7 +332,7 @@ class Params(Frozen):
         self.drop_thresh = drop_thresh
         self.bem_type = bem_type
         self.match_fun = match_fun
-        if isinstance(epochs_type, string_types):
+        if isinstance(epochs_type, str):
             epochs_type = (epochs_type,)
         if not all([t in ('mat', 'fif') for t in epochs_type]):
             raise ValueError('All entries in "epochs_type" must be "mat" '
@@ -440,6 +439,7 @@ class Params(Frozen):
         self.coil_t_step_min = 0.01
         self.proj_ave = False
         self.compute_rank = False
+        self.cov_rank = 'full'
         self.freeze()
 
     @property
@@ -461,21 +461,21 @@ class Params(Frozen):
             Structural template to use.
         """
         if struc_template is not None:
-            if isinstance(struc_template, string_types):
+            if isinstance(struc_template, str):
                 def fun(x):
                     return struc_template % x
             else:
                 fun = struc_template
             new = [fun(subj) for subj in self.subjects]
-            assert all(isinstance(subj, string_types) for subj in new)
+            assert all(isinstance(subj, str) for subj in new)
             self.structurals = new
-        if isinstance(subj_template, string_types):
+        if isinstance(subj_template, str):
             def fun(x):
                 return subj_template % x
         else:
             fun = subj_template
         new = [fun(subj) for subj in self.subjects]
-        assert all(isinstance(subj, string_types) for subj in new)
+        assert all(isinstance(subj, str) for subj in new)
         self.subjects = new
 
 
@@ -670,7 +670,7 @@ def fetch_raw_files(p, subjects, run_indices):
                                 run_indices[si])
         assert len(fnames) > 0
         # build remote raw file finder
-        if isinstance(p.acq_dir, string_types):
+        if isinstance(p.acq_dir, str):
             use_dir = [p.acq_dir]
         else:
             use_dir = p.acq_dir
@@ -827,7 +827,7 @@ def push_raw_files(p, subjects, run_indices):
     # do all copies at once to avoid multiple logins
     copy2(op.join(op.dirname(__file__), 'run_sss.sh'), p.work_dir)
     includes = ['--include', op.sep + 'run_sss.sh']
-    if not isinstance(p.trans_to, string_types):
+    if not isinstance(p.trans_to, str):
         raise TypeError(' Illegal head transformation argument to MaxFilter.')
     elif p.trans_to not in ('default', 'median'):
         _check_trans_file(p)
@@ -883,7 +883,7 @@ def push_raw_files(p, subjects, run_indices):
 
 def _check_trans_file(p):
     """Helper to make sure our trans_to file exists"""
-    if not isinstance(p.trans_to, string_types):
+    if not isinstance(p.trans_to, str):
         raise ValueError('trans_to must be a string')
     if p.trans_to not in ('default', 'median'):
         if not op.isfile(op.join(p.work_dir, p.trans_to)):
@@ -1024,8 +1024,8 @@ def run_sss_command(fname_in, options, fname_out, host='kasga', port=22,
         print(' (%i sec)' % (time.time() - t0,))
 
 
-def run_sss_positions(fname_in, fname_out, host='kasga', opts='', port=22,
-                      prefix='  ', work_dir='~/', t_window=None,
+def run_sss_positions(fname_in, fname_out, host='kasga', opts='-force',
+                      port=22, prefix='  ', work_dir='~/', t_window=None,
                       t_step_min=None, dist_limit=None):
     """Run Maxfilter remotely and fetch resulting file
 
@@ -1088,7 +1088,7 @@ def run_sss_positions(fname_in, fname_out, host='kasga', opts='', port=22,
         remote_out = op.join(work_dir, 'temp_%s_raw_quat.fif' % t0)
         remote_hp = op.join(work_dir, 'temp_%s_hp.txt' % t0)
 
-        print(', running -headpos%s' % opts, end='')
+        print(', running -headpos %s' % opts, end='')
         cmd = ['ssh', '-p', str(port), host,
                '/neuro/bin/util/maxfilter -f ' + remote_ins[fi] + ' -o ' +
                remote_out +
@@ -1132,7 +1132,7 @@ def run_sss_locally(p, subjects, run_indices):
         ct_file = p.ct_file
     assert isinstance(p.tsss_dur, float) and p.tsss_dur > 0
     st_duration = p.tsss_dur
-    assert (isinstance(p.sss_regularize, string_types) or
+    assert (isinstance(p.sss_regularize, str) or
             p.sss_regularize is None)
     reg = p.sss_regularize
 
@@ -1169,7 +1169,7 @@ def run_sss_locally(p, subjects, run_indices):
                 raw.annotations = annot
 
             # get the destination head position
-            assert isinstance(p.trans_to, (string_types, tuple, type(None)))
+            assert isinstance(p.trans_to, (str, tuple, type(None)))
             trans_to = _load_trans_to(p, subj, run_indices[si])
 
             # filter cHPI signals
@@ -1212,7 +1212,7 @@ def run_sss_locally(p, subjects, run_indices):
 
 
 def _load_trans_to(p, subj, run_indices, raw=None):
-    if isinstance(p.trans_to, string_types):
+    if isinstance(p.trans_to, str):
         if p.trans_to == 'median':
             trans_to = op.join(p.work_dir, subj, p.raw_dir,
                                subj + '_median_pos.fif')
@@ -1378,7 +1378,7 @@ def fix_eeg_files(p, subjects, structurals=None, dates=None, run_indices=None):
         # noinspection PyPep8
         if structurals is not None and structurals[si] is not None and \
                 dates is not None:
-            assert isinstance(structurals[si], string_types)
+            assert isinstance(structurals[si], str)
             assert dates[si] is None or (isinstance(dates[si], tuple) and
                                          len(dates[si]) == 3)
             assert dates[si] is None or all([isinstance(d, int)
@@ -1601,7 +1601,7 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
             last_samps.append(raw._last_samps[-1])
         # read in raw files
         raw = [read_raw_fif(fname, preload=False) for fname in raw_names]
-        _fix_raw_eog_cals(raw, raw_names)  # EOG epoch scales might be bad!
+        _fix_raw_eog_cals(raw)  # EOG epoch scales might be bad!
         raw = concatenate_raws(raw)
 
         # read in events
@@ -1741,6 +1741,33 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
             plot_drop_log(drop_log, threshold=p.drop_thresh, subject=subj)
 
 
+def _compute_rank(p, subj, run_indices):
+    """Compute rank of the data."""
+    if not p.compute_rank:
+        return None
+    raw_fname = get_raw_fnames(p, subj, 'pca', True, False, run_indices)[0]
+    raw = read_raw_fif(raw_fname)
+    meg, eeg = 'meg' in raw, 'eeg' in raw
+
+    epochs_fnames, _ = get_epochs_evokeds_fnames(p, subj, p.analyses)
+    _, fif_file = epochs_fnames
+    epochs = mne.read_epochs(fif_file)
+    rank = dict()
+    if meg:
+        eps = epochs.copy().pick_types(meg=meg, eeg=False)
+        eps = eps.get_data().transpose([1, 0, 2])
+        eps = eps.reshape(len(eps), -1)
+        rank['meg'] = estimate_rank(eps, tol=1e-6)
+    if eeg:
+        eps = epochs.copy().pick_types(meg=False, eeg=eeg)
+        eps = eps.get_data().transpose([1, 0, 2])
+        eps = eps.reshape(len(eps), -1)
+        rank['eeg'] = estimate_rank(eps, tol=1e-6)
+    for k, v in rank.items():
+        print(' : %s rank %2d' % (k.upper(), v), end='')
+    return rank
+
+
 def gen_inverses(p, subjects, run_indices):
     """Generate inverses
 
@@ -1785,32 +1812,20 @@ def gen_inverses(p, subjects, run_indices):
             out_flags += ['-meg-eeg']
             meg_bools += [True]
             eeg_bools += [True]
-        if p.compute_rank:
-            from mne.utils import estimate_rank
-            epochs_fnames, _ = get_epochs_evokeds_fnames(p, subj, p.analyses)
-            _, fif_file = epochs_fnames
-            epochs = mne.read_epochs(fif_file)
-            rank = dict()
-            if meg:
-                eps = epochs.copy().pick_types(meg=meg, eeg=False)
-                eps = eps.get_data().transpose([1, 0, 2])
-                eps = eps.reshape(len(eps), -1)
-                rank['meg'] = estimate_rank(eps, tol=1e-6)
-            if eeg:
-                eps = epochs.copy().pick_types(meg=False, eeg=eeg)
-                eps = eps.get_data().transpose([1, 0, 2])
-                eps = eps.reshape(len(eps), -1)
-                rank['eeg'] = estimate_rank(eps, tol=1e-6)
-            for k, v in rank.items():
-                print(' : %s rank %2d' % (k.upper(), v), end='')
-        else:
-            rank = None
+        # maybe we should only do this if p.cov_rank == 'full'?
+        rank = _compute_rank(p, subj, run_indices[si])
         if make_erm_inv:
             erm_name = op.join(cov_dir, safe_inserter(p.runs_empty[0], subj) +
                                p.pca_extra + p.inv_tag + '-cov.fif')
             empty_cov = read_cov(erm_name)
-            if empty_cov.get('method', 'empirical') == 'empirical':
-                empty_cov = regularize(empty_cov, raw.info)
+            if empty_cov.get('method', 'empirical') == 'empirical' or \
+                    p.cov_rank != 'full':
+                kwargs = dict()
+                # The empty-room covariance can have a different spatial
+                # pattern
+                if 'rank' in get_args(regularize):
+                    kwargs['rank'] = 'full'
+                empty_cov = regularize(empty_cov, raw.info, **kwargs)
         for name in p.inv_names:
             s_name = safe_inserter(name, subj)
             temp_name = s_name + ('-%d' % p.lp_cut) + p.inv_tag
@@ -1846,6 +1861,8 @@ def gen_inverses(p, subjects, run_indices):
                                                     empty_cov, loose=l,
                                                     depth=d, fixed=x)
                         write_inverse_operator(inv_name, inv)
+        if p.disp_files:
+            print()
 
 
 def gen_forwards(p, subjects, structurals, run_indices):
@@ -1894,7 +1911,7 @@ def gen_forwards(p, subjects, structurals, run_indices):
 
 def _get_bem_src_trans(p, info, subj, struc):
     subjects_dir = mne.utils.get_subjects_dir(p.subjects_dir, raise_error=True)
-    assert isinstance(subjects_dir, string_types)
+    assert isinstance(subjects_dir, str)
     if struc is None:  # spherical case
         bem, src, trans = _spherical_conductor(info, subj, p.src_pos)
         bem_type = 'spherical-model'
@@ -1943,10 +1960,24 @@ def gen_covariances(p, subjects, run_indices):
         Run indices to include.
     """
     for si, subj in enumerate(subjects):
-        print('  Subject %s/%s...' % (si + 1, len(subjects)))
+        print('  Subject %2d/%2d...' % (si + 1, len(subjects)), end='')
         cov_dir = op.join(p.work_dir, subj, p.cov_dir)
         if not op.isdir(cov_dir):
             os.mkdir(cov_dir)
+        has_rank_arg = 'rank' in get_args(compute_covariance)
+        kwargs = dict()
+        if p.cov_rank == 'full':  # backward compat
+            if has_rank_arg:
+                kwargs['rank'] = 'full'
+        else:
+            if not has_rank_arg:
+                raise RuntimeError(
+                    'There is no "rank" argument of compute_covariance, '
+                    'you need to update MNE-Python')
+            if p.cov_rank is None:
+                kwargs['rank'] = _compute_rank(p, subj, run_indices[si])
+            else:
+                kwargs['rank'] = p.cov_rank
 
         # Make empty room cov
         if p.runs_empty:
@@ -1959,7 +1990,8 @@ def gen_covariances(p, subjects, run_indices):
             raw = read_raw_fif(empty_fif, preload=True)
             raw.pick_types(meg=True, eog=True, exclude='bads')
             use_reject, use_flat = _restrict_reject_flat(p.reject, p.flat, raw)
-            cov = compute_raw_covariance(raw, reject=use_reject, flat=use_flat)
+            cov = compute_raw_covariance(raw, reject=use_reject, flat=use_flat,
+                                         **kwargs)
             write_cov(empty_cov_name, cov)
 
         # Make evoked covariances
@@ -1980,7 +2012,7 @@ def gen_covariances(p, subjects, run_indices):
                 raws.append(read_raw_fif(raw_fname, preload=False))
                 first_samps.append(raws[-1]._first_samps[0])
                 last_samps.append(raws[-1]._last_samps[-1])
-            _fix_raw_eog_cals(raws, raw_fnames)  # safe b/c cov only needs MEEG
+            _fix_raw_eog_cals(raws)  # safe b/c cov only needs MEEG
             raw = concatenate_raws(raws)
             events = [read_events(e) for e in eve_fnames]
             if p.pick_events_cov is not None:
@@ -2000,11 +2032,19 @@ def gen_covariances(p, subjects, run_indices):
                             tmax=p.bmax, baseline=(None, None), proj=False,
                             reject=use_reject, flat=use_flat, preload=True)
             epochs.pick_types(meg=True, eeg=True, exclude=[])
-            cov = compute_covariance(epochs, method=p.cov_method)
+            cov = compute_covariance(epochs, method=p.cov_method,
+                                     **kwargs)
+            if kwargs.get('rank', None) not in (None, 'full'):
+                want_rank = sum(kwargs['rank'].values())
+                out_rank = mne.cov.compute_whitener(cov, epochs.info,
+                                                    return_rank=True,
+                                                    verbose=False)[2]
+                assert want_rank == out_rank
             write_cov(cov_name, cov)
+        print()
 
 
-def _fix_raw_eog_cals(raws, raw_names):
+def _fix_raw_eog_cals(raws):
     """Fix for annoying issue where EOG cals don't match"""
     # Warning: this will only produce correct EOG scalings with preloaded
     # raw data!
@@ -2018,7 +2058,8 @@ def _fix_raw_eog_cals(raws, raw_names):
             assert np.array_equal(picks, picks_2)
             these_cals = _cals(r)[picks]
             if not np.array_equal(first_cals, these_cals):
-                warnings.warn('Adjusting EOG cals for %s' % raw_names[ri + 1])
+                warnings.warn('Adjusting EOG cals for %s'
+                              % op.basename(r._filenames[0]))
                 _cals(r)[picks] = first_cals
 
 
@@ -2074,7 +2115,7 @@ def _raw_LRFCP(raw_names, sfreq, l_freq, h_freq, n_jobs, n_jobs_resample,
                      l_trans_bandwidth=l_trans, h_trans_bandwidth=h_trans,
                      fir_window=fir_window, **fir_kwargs)
         raw.append(r)
-    _fix_raw_eog_cals(raw, raw_names)
+    _fix_raw_eog_cals(raw)
     raws_del = raw[1:]
 
     raw = concatenate_raws(raw, preload=preload)
@@ -2549,7 +2590,7 @@ def _head_pos_annot(p, raw_fname, prefix='  '):
     lims = [p.rotation_limit, p.translation_limit, p.coil_dist_limit,
             p.coil_t_step_min, t_window, p.coil_bad_count_duration_limit]
     annot_fname = raw_fname[:-4] + '-annot.fif'
-    if not op.isfile(annot_fname):
+    if not op.isfile(annot_fname) and fit_data is not None:
         if np.isfinite(lims[:3]).any() or np.isfinite(lims[5]):
             print(prefix.join(['', 'Annotating raw segments with:\n',
                                u'  rotation_limit    = %s °/s\n' % lims[0],

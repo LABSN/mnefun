@@ -7,7 +7,6 @@ from scipy import linalg, stats
 
 import mne
 from mne.stats import fdr_correction
-from mne.externals.six import string_types
 
 
 def anova_time(X, transform=True, signed_p=True, gg=True):
@@ -132,7 +131,7 @@ def hotelling_t2_baseline(stc, n_ave, baseline=(None, 0), check_baseline=True):
     return stc
 
 
-def hotelling_t2(epochs, inv_op, baseline=(None, 0)):
+def hotelling_t2(epochs, inv_op, src, baseline=(None, 0), update_interval=10):
     """Compute p values from a VectorSourceEstimate."""
     assert inv_op.ndim == 3 and inv_op.shape[1] == 3
     data = epochs.get_data()
@@ -147,7 +146,8 @@ def hotelling_t2(epochs, inv_op, baseline=(None, 0)):
     #
     F_p = np.zeros((inv_op.shape[0], data.shape[-1]))
     for ti in range(data.shape[-1]):
-        print(' %s' % ti, end='')
+        if update_interval is not None and ti % update_interval == 0:
+            print(' %s' % ti, end='')
         this_data = data[:, :, ti].T
         sens_cov = np.cov(this_data, ddof=1)
         # Compute the means
@@ -165,8 +165,7 @@ def hotelling_t2(epochs, inv_op, baseline=(None, 0)):
         F *= F_dof / float(3 * max(n_ave - 1, 1))
         F_p[:, ti] = 1 - stats.f.cdf(F, 3, F_dof)
     stc = mne.SourceEstimate(
-        F_p, [s['vertno'] for s in inv_op['src']], tmin, tstep,
-        inv_op['src'][0]['subject_his_id'])
+        F_p, [s['vertno'] for s in src], tmin, tstep, src[0]['subject_his_id'])
     return stc
 
 
@@ -233,7 +232,7 @@ def partial_conjunction(p, alpha=0.05, method='fisher', fdr_method='indep'):
     """
     from scipy.stats import combine_pvalues
     known_types = ('fisher', 'stouffer', 'simes')
-    if not isinstance(method, string_types) or method not in known_types:
+    if not isinstance(method, str) or method not in known_types:
         raise ValueError('Method must be one of %s, got %s'
                          % (known_types, method))
     p = np.array(p)  # copy

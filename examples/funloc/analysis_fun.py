@@ -39,7 +39,7 @@ except ImportError:
     handler = None
 
 params = mnefun.Params(tmin=-0.2, tmax=0.5, t_adjust=-4e-3,
-                       n_jobs=6, n_jobs_mkl=1,
+                       n_jobs=6, n_jobs_mkl=1, cov_method='shrunk',
                        n_jobs_fir='cuda', n_jobs_resample='cuda',
                        decim=5, proj_sfreq=200, filter_length='auto')
 
@@ -96,6 +96,7 @@ params.inv_names = ['%s']
 params.inv_runs = [np.arange(1)]
 params.runs_empty = ['%s_erm']  # Define empty room runs
 params.compute_rank = True  # compute rank of the noise covariance matrix
+params.cov_rank = None  # preserve cov rank when using advanced estimators
 
 # Define number of SSP projectors. Columns correspond to Grad/Mag/EEG chans
 params.proj_nums = [[1, 1, 0],  # ECG
