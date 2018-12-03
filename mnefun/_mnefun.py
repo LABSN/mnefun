@@ -783,9 +783,11 @@ def calc_twa_hp(p, subj, out_file, ridx):
                              [(raw.last_samp + 1) / raw.info['sfreq']]))
         ts -= raw.first_samp / raw.info['sfreq']
         idx = raw.time_as_index(ts, use_rounding=True)
-        if ts[0] == -1:  # annoying rounding errors
+        if idx[0] == -1:  # annoying rounding errors
+            idx[0] = 0
             ts[0] = 0
             assert ts[1] > 0
+            assert idx[1] > 0
         assert (ts >= 0).all()
         assert idx[-1] == len(good)
         # Mark times bad that are bad according to annotations
