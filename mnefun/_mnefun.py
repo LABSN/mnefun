@@ -807,7 +807,7 @@ def calc_twa_hp(p, subj, out_file, ridx):
         for onset, end in zip(onsets, ends):
             good[onset:end] = 0
         dt = np.diff(np.cumsum(np.concatenate([[0], good]))[idx])
-        assert (dt > 0).all()
+        assert (dt >= 0).all()
         dt = dt / raw.info['sfreq']
         del good, idx
         pos += np.dot(dt, hp[:, 4:7])
