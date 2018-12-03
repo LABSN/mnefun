@@ -783,12 +783,17 @@ def calc_twa_hp(p, subj, out_file, ridx):
                              [(raw.last_samp + 1) / raw.info['sfreq']]))
         ts -= raw.first_samp / raw.info['sfreq']
         idx = raw.time_as_index(ts, use_rounding=True)
+        if ts[0] == -1:  # annoying rounding errors
+            ts[0] = 0
+            assert ts[1] > 0
+        assert (ts >= 0).all()
         assert idx[-1] == len(good)
         # Mark times bad that are bad according to annotations
         onsets, ends = _annotations_starts_stops(raw, 'bad')
         for onset, end in zip(onsets, ends):
             good[onset:end] = 0
         dt = np.diff(np.cumsum(np.concatenate([[0], good]))[idx])
+        assert (dt > 0).all()
         dt = dt / raw.info['sfreq']
         del good, idx, ts
         pos += np.dot(dt, hp[:, 4:7])
@@ -804,7 +809,11 @@ def calc_twa_hp(p, subj, out_file, ridx):
         # qs.append(these_qs)
         outers = np.einsum('ij,ik->ijk', these_qs, these_qs)
         A += outers.sum(axis=0)
-        norm += dt.sum()
+        dt_sum = dt.sum()
+        assert dt_sum >= 0
+        norm += dt_sum
+    if norm <= 0:
+        raise RuntimeError('No good segments found (norm=%s)' % (norm,))
     A /= norm
     best_q = linalg.eigh(A)[1][:, -1]  # largest eigenvector is the wavg
     # Same as the largest eigenvector from the concatenation of all
@@ -813,6 +822,7 @@ def calc_twa_hp(p, subj, out_file, ridx):
     trans = np.eye(4)
     trans[:3, :3] = quat_to_rot(best_q)
     trans[:3, 3] = pos / norm
+    assert np.linalg.norm(trans[:3, 3]) < 1  # less than 1 meter is sane
     dev_head_t = mne.Transform('meg', 'head', trans)
     info = _empty_info(raw.info['sfreq'])
     info['dev_head_t'] = dev_head_t
