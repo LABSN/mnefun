@@ -779,17 +779,29 @@ def calc_twa_hp(p, subj, out_file, ridx):
         except AttributeError:
             raw.annotations = annot
         good = np.ones(len(raw.times))
+        hp_ts = hp[:, 0] - raw.first_samp / raw.info['sfreq']
+        if hp_ts[0] < 0:
+            hp_ts[0] = 0
+            assert hp_ts[1] > 1. / raw.info['sfreq']
+        mask = hp_ts <= raw.times[-1]
+        if not mask.all():
+            warnings.warn('          '
+                          'Removing %0.1f%% time points > raw.times[-1] (%s)'
+                           % ((~mask).sum() / float(len(mask)), raw.times[-1]))
+            hp = hp[mask]
+        del mask, hp_ts
         ts = np.concatenate((hp[:, 0],
                              [(raw.last_samp + 1) / raw.info['sfreq']]))
+        assert (np.diff(ts) > 0).all()
         ts -= raw.first_samp / raw.info['sfreq']
         idx = raw.time_as_index(ts, use_rounding=True)
+        del ts
         if idx[0] == -1:  # annoying rounding errors
             idx[0] = 0
-            ts[0] = 0
-            assert ts[1] > 0
             assert idx[1] > 0
-        assert (ts >= 0).all()
+        assert (idx >= 0).all()
         assert idx[-1] == len(good)
+        assert (np.diff(idx) > 0).all()
         # Mark times bad that are bad according to annotations
         onsets, ends = _annotations_starts_stops(raw, 'bad')
         for onset, end in zip(onsets, ends):
@@ -797,7 +809,7 @@ def calc_twa_hp(p, subj, out_file, ridx):
         dt = np.diff(np.cumsum(np.concatenate([[0], good]))[idx])
         assert (dt > 0).all()
         dt = dt / raw.info['sfreq']
-        del good, idx, ts
+        del good, idx
         pos += np.dot(dt, hp[:, 4:7])
         these_qs = hp[:, 1:4]
         res = 1 - np.sum(these_qs * these_qs, axis=-1, keepdims=True)
