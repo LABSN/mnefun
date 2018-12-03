@@ -20,6 +20,7 @@ from scipy import linalg, io as spio
 from numpy.testing import assert_allclose
 
 import mne
+from mne.defaults import DEFAULTS
 from mne import (
     compute_proj_raw, make_fixed_length_events, Epochs, find_events,
     read_events, write_events, concatenate_events, read_cov,
@@ -1645,7 +1646,7 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
         events[:, 0] += t_adj
         new_sfreq = raw.info['sfreq'] / decim[si]
         if p.disp_files:
-            print('    Epoching data (decim=%s -> sfreq=%s Hz).'
+            print('    Epoching data (decim=%s -> sfreq=%0.1f Hz).'
                   % (decim[si], new_sfreq))
         if new_sfreq not in sfreqs:
             if len(sfreqs) > 0:
@@ -1653,20 +1654,33 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
                               'to previous values %s' % (new_sfreq, sfreqs))
             sfreqs.add(new_sfreq)
         if p.autoreject_thresholds:
+            assert len(p.autoreject_types) > 0
+            assert all(a in ('mag', 'grad', 'eeg', 'ecg', 'eog')
+                       for a in p.autoreject_types)
             from autoreject import get_rejection_threshold
-            print('     Using autreject to compute rejection thresholds')
-            temp_epochs = Epochs(raw, events, event_id=None, tmin=p.tmin,
-                                 tmax=p.tmax, baseline=_get_baseline(p),
-                                 proj=True, reject=None, flat=None,
-                                 preload=True, decim=decim[si])
-            new_dict = get_rejection_threshold(temp_epochs)
+            print('    Computing autoreject thresholds', end='')
+            rtmin = p.reject_tmin if p.reject_tmin is not None else p.tmin
+            rtmax = p.reject_tmax if p.reject_tmax is not None else p.tmax
+            temp_epochs = Epochs(
+                raw, events, event_id=None, tmin=rtmin, tmax=rtmax,
+                baseline=_get_baseline(p), proj=True, reject=None, flat=None,
+                preload=True, decim=decim[si])
+            kwargs = dict()
+            if 'verbose' in get_args(get_rejection_threshold):
+                kwargs['verbose'] = False
+            new_dict = get_rejection_threshold(temp_epochs, **kwargs)
             use_reject = dict()
-            use_reject.update((k, new_dict[k]) for k in p.autoreject_types)
-            use_reject, use_flat = _restrict_reject_flat(use_reject,
-                                                         p.flat, raw)
+            msgs = list()
+            for k in p.autoreject_types:
+                msgs.append('%s=%d %s'
+                            % (k, DEFAULTS['scalings'][k] * new_dict[k],
+                               DEFAULTS['units'][k]))
+                use_reject[k] = new_dict[k]
+            print(': ' + ', '.join(msgs))
         else:
-            use_reject, use_flat = _restrict_reject_flat(p.reject, p.flat, raw)
+            use_reject = p.reject
 
+        use_reject, use_flat = _restrict_reject_flat(use_reject, p.flat, raw)
         epochs = Epochs(raw, events, event_id=old_dict, tmin=p.tmin,
                         tmax=p.tmax, baseline=_get_baseline(p),
                         reject=use_reject, flat=use_flat, proj='delayed',
