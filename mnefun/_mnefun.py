@@ -31,7 +31,7 @@ from mne import (
     read_source_spaces, write_forward_solution, DipoleFixed,
     read_annotations)
 from mne.externals.h5io import read_hdf5, write_hdf5
-
+from mne.utils import _pl
 try:
     from mne import compute_raw_covariance  # up-to-date mne-python
 except ImportError:  # oldmne-python
@@ -1096,6 +1096,9 @@ def run_sss_positions(fname_in, fname_out, host='kasga', opts='-force',
         opts += ' -hpistep %d' % (round(1000 * t_step_min),)
     if dist_limit is not None:
         opts += ' -hpie %d' % (round(1000 * dist_limit),)
+    else:
+        dist_limit = 0.005
+    gof_limit = 0.98
 
     t0 = time.time()
     print('%sOn %s: copying' % (prefix, host), end='')
@@ -1131,7 +1134,26 @@ def run_sss_positions(fname_in, fname_out, host='kasga', opts='-force',
     # concatenate hp pos file for split raw files if any
     data = []
     for f in fnames_out:
-        data.append(read_head_pos(op.join(pout, f)))
+        this_pos = read_head_pos(op.join(pout, f))
+        # sanitize the stupid thing; sometimes MaxFilter produces a line of all
+        # (or mostly) zeros, presumably because on the first sample it can say
+        # "fit not good enough, use the last one" but the last one is just
+        # whatever is in the malloc()'ed array.
+        # Let's use a heuristic of at least two entries being
+        # zero, or any invalid quat, or an invalid position, and take the
+        # next valid one
+        if len(this_pos > 0) and not _pos_valid(this_pos[0],
+                                                dist_limit, gof_limit):
+            first_valid = np.where((this_pos[1:, 7] >= gof_limit) &
+                                   (this_pos[1:, 8] <= dist_limit))[0][0] + 1
+            print('%sFound %d invalid position%s from MaxFilter, '
+                  'replacing with: %r'
+                  % (prefix, first_valid, _pl(first_valid),
+                     this_pos[first_valid].tolist()))
+            this_pos[:first_valid, 1:7] = this_pos[first_valid, 1:7]
+            this_pos[:first_valid, 7] = gof_limit
+            this_pos[:first_valid, 8] = dist_limit
+        data.append(this_pos)
         os.remove(op.join(pout, f))
     pos_data = np.concatenate(np.array(data))
     print(', writing', end='')
@@ -2575,6 +2597,13 @@ def _prebad(p, subj):
     return prebad_file
 
 
+def _pos_valid(pos, dist_limit, gof_limit):
+    """Check for a reasonable head position."""
+    return np.abs(pos[1:4]).max() <= 1 and \
+        np.linalg.norm(pos[4:7]) <= 10 and \
+        pos[7] >= gof_limit and pos[8] <= dist_limit  # GOF limit
+
+
 def _head_pos_annot(p, raw_fname, prefix='  '):
     """Locate head position estimation file and do annotations."""
     if p.movecomp is None:
@@ -2601,6 +2630,7 @@ def _head_pos_annot(p, raw_fname, prefix='  '):
                           t_step_min=p.coil_t_step_min,
                           dist_limit=p.coil_dist_limit)
     head_pos = read_head_pos(pos_fname)
+    assert head_pos[0, 7] >= 0.98  # otherwise we need to go back and fix!
 
     # do the coil counts
     count_fname = raw_fname[:-4] + '-counts.h5'
