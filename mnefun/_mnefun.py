@@ -1805,13 +1805,10 @@ def _compute_rank(p, subj, run_indices):
     """Compute rank of the data."""
     if not p.compute_rank:
         return None
-    raw_fname = get_raw_fnames(p, subj, 'pca', True, False, run_indices)[0]
-    raw = read_raw_fif(raw_fname)
-    meg, eeg = 'meg' in raw, 'eeg' in raw
-
     epochs_fnames, _ = get_epochs_evokeds_fnames(p, subj, p.analyses)
     _, fif_file = epochs_fnames
     epochs = mne.read_epochs(fif_file)
+    meg, eeg = 'meg' in epochs, 'eeg' in epochs
     rank = dict()
     if meg:
         eps = epochs.copy().pick_types(meg=meg, eeg=False)
@@ -1854,11 +1851,12 @@ def gen_inverses(p, subjects, run_indices):
             os.mkdir(inv_dir)
         make_erm_inv = len(p.runs_empty) > 0
 
-        # Shouldn't matter which raw file we use
-        raw_fname = get_raw_fnames(p, subj, 'pca', True, False,
-                                   run_indices[si])[0]
-        raw = read_raw_fif(raw_fname)
-        meg, eeg = 'meg' in raw, 'eeg' in raw
+        epochs_fnames, _ = get_epochs_evokeds_fnames(p, subj, p.analyses)
+        _, fif_file = epochs_fnames
+        epochs = mne.read_epochs(fif_file, preload=False)
+        del epochs_fnames, fif_file
+
+        meg, eeg = 'meg' in epochs, 'eeg' in epochs
 
         if meg:
             out_flags += ['-meg']
@@ -1878,14 +1876,17 @@ def gen_inverses(p, subjects, run_indices):
             erm_name = op.join(cov_dir, safe_inserter(p.runs_empty[0], subj) +
                                p.pca_extra + p.inv_tag + '-cov.fif')
             empty_cov = read_cov(erm_name)
-            if empty_cov.get('method', 'empirical') == 'empirical' or \
-                    p.cov_rank != 'full':
-                kwargs = dict()
-                # The empty-room covariance can have a different spatial
-                # pattern
-                if 'rank' in get_args(regularize):
-                    kwargs['rank'] = 'full'
-                empty_cov = regularize(empty_cov, raw.info, **kwargs)
+            # The empty-room covariance can have a different spatial
+            # pattern. Before we were doing the below processing.
+            # Really we should process the empty room with "movement
+            # compensation" so it gets close to the same rank!
+            #
+            # if empty_cov.get('method', 'empirical') == 'empirical' or \
+            #         p.cov_rank != 'full':
+            #     kwargs = dict()
+            #     if 'rank' in get_args(regularize):
+            #         kwargs['rank'] = 'full'
+            #     empty_cov = regularize(empty_cov, epochs.info, **kwargs)
         for name in p.inv_names:
             s_name = safe_inserter(name, subj)
             temp_name = s_name + ('-%d' % p.lp_cut) + p.inv_tag
@@ -1905,21 +1906,21 @@ def gen_inverses(p, subjects, run_indices):
                                ('-%d' % p.lp_cut) + p.inv_tag + '-cov.fif')
             cov = read_cov(cov_name)
             if cov.get('method', 'empirical') == 'empirical':
-                cov = regularize(cov, raw.info)
+                cov = regularize(cov, epochs.info)
             for f, m, e in zip(out_flags, meg_bools, eeg_bools):
                 fwd_restricted = pick_types_forward(fwd, meg=m, eeg=e)
                 for l, s, x, d in zip(looses, tags, fixeds, depths):
                     inv_name = op.join(inv_dir, temp_name + f + s + '-inv.fif')
-                    inv = make_inverse_operator(raw.info, fwd_restricted, cov,
-                                                loose=l, depth=d, fixed=x,
-                                                use_cps=True, rank=rank)
+                    inv = make_inverse_operator(
+                        epochs.info, fwd_restricted, cov,
+                        loose=l, depth=d, fixed=x, use_cps=True, rank=rank)
                     write_inverse_operator(inv_name, inv)
                     if (not e) and make_erm_inv:
                         inv_name = op.join(inv_dir, temp_name + f +
                                            p.inv_erm_tag + s + '-inv.fif')
-                        inv = make_inverse_operator(raw.info, fwd_restricted,
-                                                    empty_cov, loose=l,
-                                                    depth=d, fixed=x)
+                        inv = make_inverse_operator(
+                            epochs.info, fwd_restricted, empty_cov,
+                            loose=l, depth=d, fixed=x)
                         write_inverse_operator(inv_name, inv)
         if p.disp_files:
             print()
