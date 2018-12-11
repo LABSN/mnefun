@@ -441,6 +441,7 @@ class Params(Frozen):
         self.proj_ave = False
         self.compute_rank = False
         self.cov_rank = 'full'
+        self.force_erm_cov_rank_full = True  # force empty-room inv rank
         self.freeze()
 
     @property
@@ -786,9 +787,9 @@ def calc_twa_hp(p, subj, out_file, ridx):
             assert hp_ts[1] > 1. / raw.info['sfreq']
         mask = hp_ts <= raw.times[-1]
         if not mask.all():
-            warnings.warn('          '
-                          'Removing %0.1f%% time points > raw.times[-1] (%s)'
-                           % ((~mask).sum() / float(len(mask)), raw.times[-1]))
+            warnings.warn(
+                '          Removing %0.1f%% time points > raw.times[-1] (%s)'
+                % ((~mask).sum() / float(len(mask)), raw.times[-1]))
             hp = hp[mask]
         del mask, hp_ts
         ts = np.concatenate((hp[:, 0],
@@ -1199,8 +1200,14 @@ def run_sss_locally(p, subjects, run_indices):
         erm_files_out = get_raw_fnames(p, subj, 'sss', 'only')
         prebad_file = _prebad(p, subj)
 
+        # get the destination head position
+        assert isinstance(p.trans_to, (str, tuple, type(None)))
+        trans_to = _load_trans_to(p, subj, run_indices[si])
         #  process raw files
-        for ii, (r, o) in enumerate(zip(raw_files, raw_files_out)):
+        raw_head_pos = raw_annot = raw_info = None
+        assert len(raw_files) > 0
+        for ii, (r, o) in enumerate(zip(raw_files + erm_files,
+                                        raw_files_out + erm_files_out)):
             if not op.isfile(r):
                 raise NameError('File not found (' + r + ')')
             raw = read_raw_fif(r, preload=True, allow_maxshield='yes')
@@ -1208,16 +1215,27 @@ def run_sss_locally(p, subjects, run_indices):
             _load_meg_bads(raw, prebad_file, disp=ii == 0, prefix=' ' * 6)
             print('      Processing %s ...' % op.basename(r))
 
-            # estimate head position for movement compensation
-            head_pos, annot, _ = _head_pos_annot(p, r, prefix='        ')
+            # For the empty room files, mimic the necessary components
+            if r in erm_files:
+                for key in ('dev_head_t', 'hpi_meas', 'hpi_subsystem', 'dig'):
+                    raw.info[key] = raw_info[key]
+                raw_head_pos[:, 0] -= raw_head_pos[0, 0]
+                raw_head_pos[:, 0] += raw.first_samp / raw.info['sfreq']
+                if raw_annot is not None:
+                    raw_annot.orig_time = mne.annotations._handle_meas_date(raw.info['orig_time'])  # noqa
+                head_pos, annot = raw_head_pos, raw_annot
+            else:
+                # estimate head position for movement compensation
+                head_pos, annot, _ = _head_pos_annot(p, r, prefix='        ')
+                if raw_info is None:
+                    raw_head_pos = head_pos.copy()
+                    raw_annot = annot
+                    raw_info = raw.info.copy()
+
             try:
                 raw.set_annotations(annot)
             except AttributeError:
                 raw.annotations = annot
-
-            # get the destination head position
-            assert isinstance(p.trans_to, (str, tuple, type(None)))
-            trans_to = _load_trans_to(p, subj, run_indices[si])
 
             # filter cHPI signals
             if p.filter_chpi:
@@ -1230,30 +1248,12 @@ def run_sss_locally(p, subjects, run_indices):
             t0 = time.time()
             print('        Running maxwell_filter ... ', end='')
             raw_sss = maxwell_filter(
-                raw, origin=p.sss_origin, int_order=p.int_order,
+                raw, head_pos=head_pos,
+                origin=p.sss_origin, int_order=p.int_order,
                 ext_order=p.ext_order, calibration=cal_file,
                 cross_talk=ct_file, st_correlation=p.st_correlation,
                 st_duration=st_duration, destination=trans_to,
-                coord_frame='head', head_pos=head_pos, regularize=reg,
-                bad_condition='warning')
-            print('%i sec' % (time.time() - t0,))
-            raw_sss.save(o, overwrite=True, buffer_size_sec=None)
-        #  process erm files if any
-        for ii, (r, o) in enumerate(zip(erm_files, erm_files_out)):
-            if not op.isfile(r):
-                raise NameError('File not found (' + r + ')')
-            raw = read_raw_fif(r, preload=True, allow_maxshield='yes')
-            raw.fix_mag_coil_types()
-            _load_meg_bads(raw, prebad_file, disp=False)
-            print('      %s ...' % op.basename(r))
-            t0 = time.time()
-            print('        Running maxwell_filter ... ', end='')
-            # apply maxwell filter
-            raw_sss = maxwell_filter(
-                raw, int_order=p.int_order, ext_order=p.ext_order,
-                calibration=cal_file, cross_talk=ct_file,
-                st_correlation=p.st_correlation, st_duration=st_duration,
-                destination=None, coord_frame='meg')
+                coord_frame='head', regularize=reg, bad_condition='warning')
             print('%i sec' % (time.time() - t0,))
             raw_sss.save(o, overwrite=True, buffer_size_sec=None)
 
@@ -1803,8 +1803,6 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
 
 def _compute_rank(p, subj, run_indices):
     """Compute rank of the data."""
-    if not p.compute_rank:
-        return None
     epochs_fnames, _ = get_epochs_evokeds_fnames(p, subj, p.analyses)
     _, fif_file = epochs_fnames
     epochs = mne.read_epochs(fif_file)
@@ -1870,23 +1868,19 @@ def gen_inverses(p, subjects, run_indices):
             out_flags += ['-meg-eeg']
             meg_bools += [True]
             eeg_bools += [True]
-        # maybe we should only do this if p.cov_rank == 'full'?
-        rank = _compute_rank(p, subj, run_indices[si])
+        if p.cov_rank == 'full' and p.compute_rank:
+            rank = _compute_rank(p, subj, run_indices[si])
+        else:
+            rank = None  # should be safe from our gen_covariances step
         if make_erm_inv:
+            # We now process the empty room with "movement
+            # compensation" so it should get the same rank!
             erm_name = op.join(cov_dir, safe_inserter(p.runs_empty[0], subj) +
                                p.pca_extra + p.inv_tag + '-cov.fif')
             empty_cov = read_cov(erm_name)
-            # The empty-room covariance can have a different spatial
-            # pattern. Before we were doing the below processing.
-            # Really we should process the empty room with "movement
-            # compensation" so it gets close to the same rank!
-            #
-            # if empty_cov.get('method', 'empirical') == 'empirical' or \
-            #         p.cov_rank != 'full':
-            #     kwargs = dict()
-            #     if 'rank' in get_args(regularize):
-            #         kwargs['rank'] = 'full'
-            #     empty_cov = regularize(empty_cov, epochs.info, **kwargs)
+            if p.force_erm_cov_rank_full and p.cov_method == 'empirical':
+                empty_cov = regularize(
+                    empty_cov, epochs.info, rank='full')
         for name in p.inv_names:
             s_name = safe_inserter(name, subj)
             temp_name = s_name + ('-%d' % p.lp_cut) + p.inv_tag
@@ -1906,21 +1900,20 @@ def gen_inverses(p, subjects, run_indices):
                                ('-%d' % p.lp_cut) + p.inv_tag + '-cov.fif')
             cov = read_cov(cov_name)
             if cov.get('method', 'empirical') == 'empirical':
-                cov = regularize(cov, epochs.info)
+                cov = regularize(cov, epochs.info, rank=p.cov_rank)
             for f, m, e in zip(out_flags, meg_bools, eeg_bools):
                 fwd_restricted = pick_types_forward(fwd, meg=m, eeg=e)
                 for l, s, x, d in zip(looses, tags, fixeds, depths):
                     inv_name = op.join(inv_dir, temp_name + f + s + '-inv.fif')
+                    kwargs = dict(loose=l, depth=d, fixed=x, use_cps=True)
                     inv = make_inverse_operator(
-                        epochs.info, fwd_restricted, cov,
-                        loose=l, depth=d, fixed=x, use_cps=True, rank=rank)
+                        epochs.info, fwd_restricted, cov, rank=rank, **kwargs)
                     write_inverse_operator(inv_name, inv)
                     if (not e) and make_erm_inv:
                         inv_name = op.join(inv_dir, temp_name + f +
                                            p.inv_erm_tag + s + '-inv.fif')
                         inv = make_inverse_operator(
-                            epochs.info, fwd_restricted, empty_cov,
-                            loose=l, depth=d, fixed=x)
+                            epochs.info, fwd_restricted, empty_cov, **kwargs)
                         write_inverse_operator(inv_name, inv)
         if p.disp_files:
             print()
@@ -2027,6 +2020,7 @@ def gen_covariances(p, subjects, run_indices):
             os.mkdir(cov_dir)
         has_rank_arg = 'rank' in get_args(compute_covariance)
         kwargs = dict()
+        kwargs_erm = dict()
         if p.cov_rank == 'full':  # backward compat
             if has_rank_arg:
                 kwargs['rank'] = 'full'
@@ -2036,9 +2030,13 @@ def gen_covariances(p, subjects, run_indices):
                     'There is no "rank" argument of compute_covariance, '
                     'you need to update MNE-Python')
             if p.cov_rank is None:
+                assert p.compute_rank  # otherwise this is weird
                 kwargs['rank'] = _compute_rank(p, subj, run_indices[si])
             else:
                 kwargs['rank'] = p.cov_rank
+        kwargs_erm['rank'] = kwargs['rank']
+        if p.force_erm_cov_rank_full and has_rank_arg:
+            kwargs_erm['rank'] = 'full'
 
         # Make empty room cov
         if p.runs_empty:
@@ -2052,7 +2050,7 @@ def gen_covariances(p, subjects, run_indices):
             raw.pick_types(meg=True, eog=True, exclude='bads')
             use_reject, use_flat = _restrict_reject_flat(p.reject, p.flat, raw)
             cov = compute_raw_covariance(raw, reject=use_reject, flat=use_flat,
-                                         **kwargs)
+                                         method=p.cov_method, **kwargs_erm)
             write_cov(empty_cov_name, cov)
 
         # Make evoked covariances
