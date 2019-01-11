@@ -1222,7 +1222,8 @@ def run_sss_locally(p, subjects, run_indices):
                 raw_head_pos[:, 0] -= raw_head_pos[0, 0]
                 raw_head_pos[:, 0] += raw.first_samp / raw.info['sfreq']
                 if raw_annot is not None:
-                    raw_annot.orig_time = mne.annotations._handle_meas_date(raw.info['orig_time'])  # noqa
+                    raw_annot.orig_time = mne.annotations._handle_meas_date(
+                        raw.info['meas_date'])
                 head_pos, annot = raw_head_pos, raw_annot
             else:
                 # estimate head position for movement compensation
