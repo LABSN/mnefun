@@ -20,6 +20,7 @@ from scipy import linalg, io as spio
 from numpy.testing import assert_allclose
 
 import mne
+from mne.defaults import DEFAULTS
 from mne import (
     compute_proj_raw, make_fixed_length_events, Epochs, find_events,
     read_events, write_events, concatenate_events, read_cov,
@@ -30,7 +31,7 @@ from mne import (
     read_source_spaces, write_forward_solution, DipoleFixed,
     read_annotations)
 from mne.externals.h5io import read_hdf5, write_hdf5
-
+from mne.utils import _pl
 try:
     from mne import compute_raw_covariance  # up-to-date mne-python
 except ImportError:  # oldmne-python
@@ -440,6 +441,7 @@ class Params(Frozen):
         self.proj_ave = False
         self.compute_rank = False
         self.cov_rank = 'full'
+        self.force_erm_cov_rank_full = True  # force empty-room inv rank
         self.freeze()
 
     @property
@@ -779,18 +781,37 @@ def calc_twa_hp(p, subj, out_file, ridx):
         except AttributeError:
             raw.annotations = annot
         good = np.ones(len(raw.times))
+        hp_ts = hp[:, 0] - raw.first_samp / raw.info['sfreq']
+        if hp_ts[0] < 0:
+            hp_ts[0] = 0
+            assert hp_ts[1] > 1. / raw.info['sfreq']
+        mask = hp_ts <= raw.times[-1]
+        if not mask.all():
+            warnings.warn(
+                '          Removing %0.1f%% time points > raw.times[-1] (%s)'
+                % ((~mask).sum() / float(len(mask)), raw.times[-1]))
+            hp = hp[mask]
+        del mask, hp_ts
         ts = np.concatenate((hp[:, 0],
                              [(raw.last_samp + 1) / raw.info['sfreq']]))
+        assert (np.diff(ts) > 0).all()
         ts -= raw.first_samp / raw.info['sfreq']
         idx = raw.time_as_index(ts, use_rounding=True)
+        del ts
+        if idx[0] == -1:  # annoying rounding errors
+            idx[0] = 0
+            assert idx[1] > 0
+        assert (idx >= 0).all()
         assert idx[-1] == len(good)
+        assert (np.diff(idx) > 0).all()
         # Mark times bad that are bad according to annotations
         onsets, ends = _annotations_starts_stops(raw, 'bad')
         for onset, end in zip(onsets, ends):
             good[onset:end] = 0
         dt = np.diff(np.cumsum(np.concatenate([[0], good]))[idx])
+        assert (dt >= 0).all()
         dt = dt / raw.info['sfreq']
-        del good, idx, ts
+        del good, idx
         pos += np.dot(dt, hp[:, 4:7])
         these_qs = hp[:, 1:4]
         res = 1 - np.sum(these_qs * these_qs, axis=-1, keepdims=True)
@@ -804,7 +825,11 @@ def calc_twa_hp(p, subj, out_file, ridx):
         # qs.append(these_qs)
         outers = np.einsum('ij,ik->ijk', these_qs, these_qs)
         A += outers.sum(axis=0)
-        norm += dt.sum()
+        dt_sum = dt.sum()
+        assert dt_sum >= 0
+        norm += dt_sum
+    if norm <= 0:
+        raise RuntimeError('No good segments found (norm=%s)' % (norm,))
     A /= norm
     best_q = linalg.eigh(A)[1][:, -1]  # largest eigenvector is the wavg
     # Same as the largest eigenvector from the concatenation of all
@@ -813,6 +838,7 @@ def calc_twa_hp(p, subj, out_file, ridx):
     trans = np.eye(4)
     trans[:3, :3] = quat_to_rot(best_q)
     trans[:3, 3] = pos / norm
+    assert np.linalg.norm(trans[:3, 3]) < 1  # less than 1 meter is sane
     dev_head_t = mne.Transform('meg', 'head', trans)
     info = _empty_info(raw.info['sfreq'])
     info['dev_head_t'] = dev_head_t
@@ -1071,6 +1097,9 @@ def run_sss_positions(fname_in, fname_out, host='kasga', opts='-force',
         opts += ' -hpistep %d' % (round(1000 * t_step_min),)
     if dist_limit is not None:
         opts += ' -hpie %d' % (round(1000 * dist_limit),)
+    else:
+        dist_limit = 0.005
+    gof_limit = 0.98
 
     t0 = time.time()
     print('%sOn %s: copying' % (prefix, host), end='')
@@ -1106,7 +1135,26 @@ def run_sss_positions(fname_in, fname_out, host='kasga', opts='-force',
     # concatenate hp pos file for split raw files if any
     data = []
     for f in fnames_out:
-        data.append(read_head_pos(op.join(pout, f)))
+        this_pos = read_head_pos(op.join(pout, f))
+        # sanitize the stupid thing; sometimes MaxFilter produces a line of all
+        # (or mostly) zeros, presumably because on the first sample it can say
+        # "fit not good enough, use the last one" but the last one is just
+        # whatever is in the malloc()'ed array.
+        # Let's use a heuristic of at least two entries being
+        # zero, or any invalid quat, or an invalid position, and take the
+        # next valid one
+        if len(this_pos > 0) and not _pos_valid(this_pos[0],
+                                                dist_limit, gof_limit):
+            first_valid = np.where((this_pos[1:, 7] >= gof_limit) &
+                                   (this_pos[1:, 8] <= dist_limit))[0][0] + 1
+            print('%sFound %d invalid position%s from MaxFilter, '
+                  'replacing with: %r'
+                  % (prefix, first_valid, _pl(first_valid),
+                     this_pos[first_valid].tolist()))
+            this_pos[:first_valid, 1:7] = this_pos[first_valid, 1:7]
+            this_pos[:first_valid, 7] = gof_limit
+            this_pos[:first_valid, 8] = dist_limit
+        data.append(this_pos)
         os.remove(op.join(pout, f))
     pos_data = np.concatenate(np.array(data))
     print(', writing', end='')
@@ -1152,8 +1200,14 @@ def run_sss_locally(p, subjects, run_indices):
         erm_files_out = get_raw_fnames(p, subj, 'sss', 'only')
         prebad_file = _prebad(p, subj)
 
+        # get the destination head position
+        assert isinstance(p.trans_to, (str, tuple, type(None)))
+        trans_to = _load_trans_to(p, subj, run_indices[si])
         #  process raw files
-        for ii, (r, o) in enumerate(zip(raw_files, raw_files_out)):
+        raw_head_pos = raw_annot = raw_info = None
+        assert len(raw_files) > 0
+        for ii, (r, o) in enumerate(zip(raw_files + erm_files,
+                                        raw_files_out + erm_files_out)):
             if not op.isfile(r):
                 raise NameError('File not found (' + r + ')')
             raw = read_raw_fif(r, preload=True, allow_maxshield='yes')
@@ -1161,16 +1215,28 @@ def run_sss_locally(p, subjects, run_indices):
             _load_meg_bads(raw, prebad_file, disp=ii == 0, prefix=' ' * 6)
             print('      Processing %s ...' % op.basename(r))
 
-            # estimate head position for movement compensation
-            head_pos, annot, _ = _head_pos_annot(p, r, prefix='        ')
+            # For the empty room files, mimic the necessary components
+            if r in erm_files:
+                for key in ('dev_head_t', 'hpi_meas', 'hpi_subsystem', 'dig'):
+                    raw.info[key] = raw_info[key]
+                raw_head_pos[:, 0] -= raw_head_pos[0, 0]
+                raw_head_pos[:, 0] += raw.first_samp / raw.info['sfreq']
+                if raw_annot is not None:
+                    raw_annot.orig_time = mne.annotations._handle_meas_date(
+                        raw.info['meas_date'])
+                head_pos, annot = raw_head_pos, raw_annot
+            else:
+                # estimate head position for movement compensation
+                head_pos, annot, _ = _head_pos_annot(p, r, prefix='        ')
+                if raw_info is None:
+                    raw_head_pos = head_pos.copy()
+                    raw_annot = annot
+                    raw_info = raw.info.copy()
+
             try:
                 raw.set_annotations(annot)
             except AttributeError:
                 raw.annotations = annot
-
-            # get the destination head position
-            assert isinstance(p.trans_to, (str, tuple, type(None)))
-            trans_to = _load_trans_to(p, subj, run_indices[si])
 
             # filter cHPI signals
             if p.filter_chpi:
@@ -1183,30 +1249,12 @@ def run_sss_locally(p, subjects, run_indices):
             t0 = time.time()
             print('        Running maxwell_filter ... ', end='')
             raw_sss = maxwell_filter(
-                raw, origin=p.sss_origin, int_order=p.int_order,
+                raw, head_pos=head_pos,
+                origin=p.sss_origin, int_order=p.int_order,
                 ext_order=p.ext_order, calibration=cal_file,
                 cross_talk=ct_file, st_correlation=p.st_correlation,
                 st_duration=st_duration, destination=trans_to,
-                coord_frame='head', head_pos=head_pos, regularize=reg,
-                bad_condition='warning')
-            print('%i sec' % (time.time() - t0,))
-            raw_sss.save(o, overwrite=True, buffer_size_sec=None)
-        #  process erm files if any
-        for ii, (r, o) in enumerate(zip(erm_files, erm_files_out)):
-            if not op.isfile(r):
-                raise NameError('File not found (' + r + ')')
-            raw = read_raw_fif(r, preload=True, allow_maxshield='yes')
-            raw.fix_mag_coil_types()
-            _load_meg_bads(raw, prebad_file, disp=False)
-            print('      %s ...' % op.basename(r))
-            t0 = time.time()
-            print('        Running maxwell_filter ... ', end='')
-            # apply maxwell filter
-            raw_sss = maxwell_filter(
-                raw, int_order=p.int_order, ext_order=p.ext_order,
-                calibration=cal_file, cross_talk=ct_file,
-                st_correlation=p.st_correlation, st_duration=st_duration,
-                destination=None, coord_frame='meg')
+                coord_frame='head', regularize=reg, bad_condition='warning')
             print('%i sec' % (time.time() - t0,))
             raw_sss.save(o, overwrite=True, buffer_size_sec=None)
 
@@ -1621,7 +1669,7 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
         events[:, 0] += t_adj
         new_sfreq = raw.info['sfreq'] / decim[si]
         if p.disp_files:
-            print('    Epoching data (decim=%s -> sfreq=%s Hz).'
+            print('    Epoching data (decim=%s -> sfreq=%0.1f Hz).'
                   % (decim[si], new_sfreq))
         if new_sfreq not in sfreqs:
             if len(sfreqs) > 0:
@@ -1629,20 +1677,33 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
                               'to previous values %s' % (new_sfreq, sfreqs))
             sfreqs.add(new_sfreq)
         if p.autoreject_thresholds:
+            assert len(p.autoreject_types) > 0
+            assert all(a in ('mag', 'grad', 'eeg', 'ecg', 'eog')
+                       for a in p.autoreject_types)
             from autoreject import get_rejection_threshold
-            print('     Using autreject to compute rejection thresholds')
-            temp_epochs = Epochs(raw, events, event_id=None, tmin=p.tmin,
-                                 tmax=p.tmax, baseline=_get_baseline(p),
-                                 proj=True, reject=None, flat=None,
-                                 preload=True, decim=decim[si])
-            new_dict = get_rejection_threshold(temp_epochs)
+            print('    Computing autoreject thresholds', end='')
+            rtmin = p.reject_tmin if p.reject_tmin is not None else p.tmin
+            rtmax = p.reject_tmax if p.reject_tmax is not None else p.tmax
+            temp_epochs = Epochs(
+                raw, events, event_id=None, tmin=rtmin, tmax=rtmax,
+                baseline=_get_baseline(p), proj=True, reject=None, flat=None,
+                preload=True, decim=decim[si])
+            kwargs = dict()
+            if 'verbose' in get_args(get_rejection_threshold):
+                kwargs['verbose'] = False
+            new_dict = get_rejection_threshold(temp_epochs, **kwargs)
             use_reject = dict()
-            use_reject.update((k, new_dict[k]) for k in p.autoreject_types)
-            use_reject, use_flat = _restrict_reject_flat(use_reject,
-                                                         p.flat, raw)
+            msgs = list()
+            for k in p.autoreject_types:
+                msgs.append('%s=%d %s'
+                            % (k, DEFAULTS['scalings'][k] * new_dict[k],
+                               DEFAULTS['units'][k]))
+                use_reject[k] = new_dict[k]
+            print(': ' + ', '.join(msgs))
         else:
-            use_reject, use_flat = _restrict_reject_flat(p.reject, p.flat, raw)
+            use_reject = p.reject
 
+        use_reject, use_flat = _restrict_reject_flat(use_reject, p.flat, raw)
         epochs = Epochs(raw, events, event_id=old_dict, tmin=p.tmin,
                         tmax=p.tmax, baseline=_get_baseline(p),
                         reject=use_reject, flat=use_flat, proj='delayed',
@@ -1743,15 +1804,10 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
 
 def _compute_rank(p, subj, run_indices):
     """Compute rank of the data."""
-    if not p.compute_rank:
-        return None
-    raw_fname = get_raw_fnames(p, subj, 'pca', True, False, run_indices)[0]
-    raw = read_raw_fif(raw_fname)
-    meg, eeg = 'meg' in raw, 'eeg' in raw
-
     epochs_fnames, _ = get_epochs_evokeds_fnames(p, subj, p.analyses)
     _, fif_file = epochs_fnames
     epochs = mne.read_epochs(fif_file)
+    meg, eeg = 'meg' in epochs, 'eeg' in epochs
     rank = dict()
     if meg:
         eps = epochs.copy().pick_types(meg=meg, eeg=False)
@@ -1794,11 +1850,12 @@ def gen_inverses(p, subjects, run_indices):
             os.mkdir(inv_dir)
         make_erm_inv = len(p.runs_empty) > 0
 
-        # Shouldn't matter which raw file we use
-        raw_fname = get_raw_fnames(p, subj, 'pca', True, False,
-                                   run_indices[si])[0]
-        raw = read_raw_fif(raw_fname)
-        meg, eeg = 'meg' in raw, 'eeg' in raw
+        epochs_fnames, _ = get_epochs_evokeds_fnames(p, subj, p.analyses)
+        _, fif_file = epochs_fnames
+        epochs = mne.read_epochs(fif_file, preload=False)
+        del epochs_fnames, fif_file
+
+        meg, eeg = 'meg' in epochs, 'eeg' in epochs
 
         if meg:
             out_flags += ['-meg']
@@ -1812,20 +1869,19 @@ def gen_inverses(p, subjects, run_indices):
             out_flags += ['-meg-eeg']
             meg_bools += [True]
             eeg_bools += [True]
-        # maybe we should only do this if p.cov_rank == 'full'?
-        rank = _compute_rank(p, subj, run_indices[si])
+        if p.cov_rank == 'full' and p.compute_rank:
+            rank = _compute_rank(p, subj, run_indices[si])
+        else:
+            rank = None  # should be safe from our gen_covariances step
         if make_erm_inv:
+            # We now process the empty room with "movement
+            # compensation" so it should get the same rank!
             erm_name = op.join(cov_dir, safe_inserter(p.runs_empty[0], subj) +
                                p.pca_extra + p.inv_tag + '-cov.fif')
             empty_cov = read_cov(erm_name)
-            if empty_cov.get('method', 'empirical') == 'empirical' or \
-                    p.cov_rank != 'full':
-                kwargs = dict()
-                # The empty-room covariance can have a different spatial
-                # pattern
-                if 'rank' in get_args(regularize):
-                    kwargs['rank'] = 'full'
-                empty_cov = regularize(empty_cov, raw.info, **kwargs)
+            if p.force_erm_cov_rank_full and p.cov_method == 'empirical':
+                empty_cov = regularize(
+                    empty_cov, epochs.info, rank='full')
         for name in p.inv_names:
             s_name = safe_inserter(name, subj)
             temp_name = s_name + ('-%d' % p.lp_cut) + p.inv_tag
@@ -1845,21 +1901,20 @@ def gen_inverses(p, subjects, run_indices):
                                ('-%d' % p.lp_cut) + p.inv_tag + '-cov.fif')
             cov = read_cov(cov_name)
             if cov.get('method', 'empirical') == 'empirical':
-                cov = regularize(cov, raw.info)
+                cov = regularize(cov, epochs.info, rank=p.cov_rank)
             for f, m, e in zip(out_flags, meg_bools, eeg_bools):
                 fwd_restricted = pick_types_forward(fwd, meg=m, eeg=e)
                 for l, s, x, d in zip(looses, tags, fixeds, depths):
                     inv_name = op.join(inv_dir, temp_name + f + s + '-inv.fif')
-                    inv = make_inverse_operator(raw.info, fwd_restricted, cov,
-                                                loose=l, depth=d, fixed=x,
-                                                use_cps=True, rank=rank)
+                    kwargs = dict(loose=l, depth=d, fixed=x, use_cps=True)
+                    inv = make_inverse_operator(
+                        epochs.info, fwd_restricted, cov, rank=rank, **kwargs)
                     write_inverse_operator(inv_name, inv)
                     if (not e) and make_erm_inv:
                         inv_name = op.join(inv_dir, temp_name + f +
                                            p.inv_erm_tag + s + '-inv.fif')
-                        inv = make_inverse_operator(raw.info, fwd_restricted,
-                                                    empty_cov, loose=l,
-                                                    depth=d, fixed=x)
+                        inv = make_inverse_operator(
+                            epochs.info, fwd_restricted, empty_cov, **kwargs)
                         write_inverse_operator(inv_name, inv)
         if p.disp_files:
             print()
@@ -1966,6 +2021,7 @@ def gen_covariances(p, subjects, run_indices):
             os.mkdir(cov_dir)
         has_rank_arg = 'rank' in get_args(compute_covariance)
         kwargs = dict()
+        kwargs_erm = dict()
         if p.cov_rank == 'full':  # backward compat
             if has_rank_arg:
                 kwargs['rank'] = 'full'
@@ -1975,9 +2031,13 @@ def gen_covariances(p, subjects, run_indices):
                     'There is no "rank" argument of compute_covariance, '
                     'you need to update MNE-Python')
             if p.cov_rank is None:
+                assert p.compute_rank  # otherwise this is weird
                 kwargs['rank'] = _compute_rank(p, subj, run_indices[si])
             else:
                 kwargs['rank'] = p.cov_rank
+        kwargs_erm['rank'] = kwargs['rank']
+        if p.force_erm_cov_rank_full and has_rank_arg:
+            kwargs_erm['rank'] = 'full'
 
         # Make empty room cov
         if p.runs_empty:
@@ -1991,7 +2051,7 @@ def gen_covariances(p, subjects, run_indices):
             raw.pick_types(meg=True, eog=True, exclude='bads')
             use_reject, use_flat = _restrict_reject_flat(p.reject, p.flat, raw)
             cov = compute_raw_covariance(raw, reject=use_reject, flat=use_flat,
-                                         **kwargs)
+                                         method=p.cov_method, **kwargs_erm)
             write_cov(empty_cov_name, cov)
 
         # Make evoked covariances
@@ -2537,6 +2597,13 @@ def _prebad(p, subj):
     return prebad_file
 
 
+def _pos_valid(pos, dist_limit, gof_limit):
+    """Check for a reasonable head position."""
+    return np.abs(pos[1:4]).max() <= 1 and \
+        np.linalg.norm(pos[4:7]) <= 10 and \
+        pos[7] >= gof_limit and pos[8] <= dist_limit  # GOF limit
+
+
 def _head_pos_annot(p, raw_fname, prefix='  '):
     """Locate head position estimation file and do annotations."""
     if p.movecomp is None:
@@ -2563,6 +2630,7 @@ def _head_pos_annot(p, raw_fname, prefix='  '):
                           t_step_min=p.coil_t_step_min,
                           dist_limit=p.coil_dist_limit)
     head_pos = read_head_pos(pos_fname)
+    assert head_pos[0, 7] >= 0.98  # otherwise we need to go back and fix!
 
     # do the coil counts
     count_fname = raw_fname[:-4] + '-counts.h5'
