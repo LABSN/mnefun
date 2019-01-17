@@ -83,11 +83,29 @@ def anova_time(X, transform=True, signed_p=True, gg=True):
     return t, p, dof
 
 
-def _ht2_p(mu, sigma, n_ave, use_pinv=False):
+def _ht2_p(mu, sigma, n_ave, mu_other, sigma_other, n_ave_other, use_pinv):
     """Compute p values using Hotelling T2.
 
     This will overwrite sigma!
-    """
+
+    See:
+    - https://en.wikipedia.org/wiki/Hotelling%27s_T-squared_distribution
+    - https://ncss-wpengine.netdna-ssl.com/wp-content/themes/ncss/pdf/Procedures/NCSS/Hotellings_One-Sample_T2.pdf
+    - https://ncss-wpengine.netdna-ssl.com/wp-content/themes/ncss/pdf/Procedures/NCSS/Hotellings_Two-Sample_T2.pdf
+    """  # noqa: E501
+    nones = (mu_other is None, sigma_other is None, n_ave_other is None)
+    assert all(nones) or not any(nones)  # proper input
+    if mu_other is None:
+        # one-sample case
+        T2_scale = n_ave
+        F_dof = max(n_ave - 3, 1)
+    else:
+        # two-sample case, make adjustments
+        T2_scale = (n_ave * n_ave_other) / (n_ave + n_ave_other)
+        F_dof = max(n_ave + n_ave_other - 4, 1)
+        mu = mu - mu_other
+        sigma = (((n_ave - 1) * sigma + (n_ave_other - 1) * sigma_other) /
+                 (n_ave + n_ave_other - 2))
     # Compute the inverses of these covariance matrices:
     sinv = sigma  # rename
     for si, s in enumerate(sinv):
@@ -104,14 +122,14 @@ def _ht2_p(mu, sigma, n_ave, use_pinv=False):
     #
     #     F_{p,n-p} = \frac{n-p}{p*(n-1)} * T ** 2
     #
-    F_dof = max(n_ave - 3, 1)
     F = T2  # rename
-    F *= n_ave * (F_dof / float(3 * max(n_ave - 1, 1)))
+    F *= T2_scale * (F_dof / float(3 * max(F_dof + 2, 1)))
     # return the associated p values
     return 1 - stats.f.cdf(F, 3, F_dof)
 
 
-def hotelling_t2_baseline(stc, n_ave, baseline=(None, 0), check_baseline=True):
+def hotelling_t2_baseline(stc, n_ave, baseline=(None, 0), check_baseline=True,
+                          stc_other=None, n_ave_other=None):
     """Compute p values from a baseline-corrected VectorSourceEstimate."""
     assert isinstance(stc, mne.VectorSourceEstimate)
     assert isinstance(baseline, tuple) and len(baseline) == 2
@@ -130,41 +148,64 @@ def hotelling_t2_baseline(stc, n_ave, baseline=(None, 0), check_baseline=True):
     sigma /= (mask.sum() - 1)
     if check_baseline:
         np.testing.assert_allclose(np.cov(baseline[0]), sigma[0])
+    del baseline
     # Scale by n_ave to get the sample (not mean) covariance
     sigma *= n_ave
     mu = stc.data
-    p_val = _ht2_p(mu, sigma, n_ave, use_pinv=True)
-    print(p_val[:, 0])
-    raise RuntimeError
+    if stc_other is None:
+        mu_other = sigma_other = None
+    else:
+        assert np.allclose(stc.times, stc_other.times)
+        mu_other = stc_other.data
+        baseline = stc_other.data[..., mask]
+        sigma_other = np.einsum('vot,vrt->vor', baseline, baseline)
+        sigma_other /= (mask.sum() - 1)
+        sigma_other *= n_ave_other
+    p_val = _ht2_p(mu, sigma, n_ave,
+                   mu_other, sigma_other, n_ave_other,
+                   use_pinv=True)
     assert p_val.shape == (stc.data.shape[0], stc.data.shape[2])
     stc = mne.SourceEstimate(
         p_val, stc.vertices, stc.tmin, stc.tstep, stc.subject, stc.verbose)
     return stc
 
 
-def hotelling_t2(epochs, inv_op, src, baseline=(None, 0), update_interval=10):
+def hotelling_t2(epochs, inv_op, src, baseline=(None, 0), update_interval=10,
+                 epochs_other=None):
     """Compute p values from a VectorSourceEstimate."""
     assert inv_op.ndim == 3 and inv_op.shape[1] == 3
     data = epochs.get_data()
     tmin, tstep = epochs.times[0], 1. / epochs.info['sfreq']
-    del epochs
     n_ave = len(data)
-    # Following definition 2 from:
-    #
-    #     https://en.wikipedia.org/wiki/Hotelling%27s_T-squared_distribution
-    #
+    if epochs_other is not None:
+        assert np.allclose(epochs.times, epochs_other.times)
+        data_other = epochs_other.get_data()
+        n_ave_other = len(data_other)
+    else:
+        data_other = n_ave_other = None
+    del epochs
     F_p = np.zeros((inv_op.shape[0], data.shape[-1]))
     for ti in range(data.shape[-1]):  # iterate over times
         if update_interval is not None and ti % update_interval == 0:
             print(' %s' % ti, end='')
+        # Compute the means and covariances
         this_data = data[:, :, ti].T
         sens_cov = np.cov(this_data, ddof=1)
-        # Compute the means and covariances
         mu = np.dot(inv_op, this_data.mean(-1))
-        sigma = np.einsum('vos,se,vre->vor', inv_op, sens_cov, inv_op)
-        F_p[:, ti] = _ht2_p(mu, sigma, n_ave, use_pinv=False)
-        print(F_p[:, 0])
-        raise RuntimeError
+        sigma = np.einsum(
+            'vos,se,vre->vor', inv_op, sens_cov, inv_op)
+        if data_other is not None:
+            this_data = data_other[:, :, ti].T
+            sens_cov = np.cov(this_data, ddof=1)
+            mu_other = np.dot(inv_op, this_data.mean(-1))
+            sigma_other = np.einsum(
+                'vos,se,vre->vor', inv_op, sens_cov, inv_op)
+        else:
+            mu_other = sigma_other = None
+        del this_data, sens_cov
+        F_p[:, ti] = _ht2_p(mu, sigma, n_ave,
+                            mu_other, sigma_other, n_ave_other,
+                            use_pinv=False)
     stc = mne.SourceEstimate(
         F_p, [s['vertno'] for s in src], tmin, tstep, src[0]['subject_his_id'])
     return stc
