@@ -69,6 +69,9 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
         # whitening and source localization
         inv_dir = op.join(p.work_dir, subj, p.inverse_dir)
 
+        has_fwd = op.isfile(op.join(p.work_dir, subj, p.forward_dir,
+                                    subj + p.inv_tag + '-fwd.fif'))
+
         with plt.style.context(style):
             ljust = 25
             #
@@ -242,7 +245,8 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
             # Source alignment
             #
             section = 'Source alignment'
-            if p.report_params.get('source_alignment', True) and has_sss:
+            if p.report_params.get('source_alignment', True) and has_sss \
+                    and has_fwd:
                 assert sss_info is not None
                 t0 = time.time()
                 print(('    %s ... ' % section).ljust(ljust), end='')
@@ -316,9 +320,11 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                                            % (analysis, p.lp_cut, p.inv_tag,
                                               p.eq_tag, subj))
                     if not op.isfile(fname_inv):
-                        print('Missing inv: %s' % fname_inv)
+                        print('    Missing inv: %s'
+                              % op.basename(fname_inv), end='')
                     elif not op.isfile(fname_evoked):
-                        print('Missing evoked: %s' % fname_evoked)
+                        print('    Missing evoked: %s'
+                              % op.basename(fname_evoked), end='')
                     else:
                         inv = mne.minimum_norm.read_inverse_operator(fname_inv)
                         this_evoked = mne.read_evokeds(fname_evoked, name)
@@ -338,7 +344,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
             # BEM
             #
             section = 'BEM'
-            if p.report_params.get('bem', True):
+            if p.report_params.get('bem', True) and has_fwd:
                 caption = '%s<br>%s' % (section, struc)
                 bem, src, trans, _ = _get_bem_src_trans(
                     p, raw.info, subj, struc)
@@ -386,9 +392,11 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                                            % (analysis, p.lp_cut, p.inv_tag,
                                               p.eq_tag, subj))
                     if not op.isfile(cov_name):
-                        print('Missing cov: %s' % cov_name)
+                        print('    Missing cov: %s'
+                              % op.basename(cov_name), end='')
                     elif not op.isfile(fname_evoked):
-                        print('Missing evoked: %s' % fname_evoked)
+                        print('    Missing evoked: %s'
+                              % op.basename(fname_evoked), end='')
                     else:
                         noise_cov = mne.read_cov(cov_name)
                         evo = mne.read_evokeds(fname_evoked, name)
@@ -420,7 +428,8 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                                            % (analysis, p.lp_cut, p.inv_tag,
                                               p.eq_tag, subj))
                     if not op.isfile(fname_evoked):
-                        print('Missing evoked: %s' % fname_evoked)
+                        print('    Missing evoked: %s'
+                              % op.basename(fname_evoked), end='')
                     else:
                         this_evoked = mne.read_evokeds(fname_evoked, name)
                         figs = this_evoked.plot_joint(
@@ -458,9 +467,11 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                                            % (analysis, p.lp_cut, p.inv_tag,
                                               p.eq_tag, subj))
                     if not op.isfile(fname_inv):
-                        print('Missing inv: %s' % fname_inv)
+                        print('    Missing inv: %s'
+                              % op.basename(fname_inv), end='')
                     elif not op.isfile(fname_evoked):
-                        print('Missing evoked: %s' % fname_evoked)
+                        print('    Missing evoked: %s'
+                              % op.basename(fname_evoked), end='')
                     else:
                         inv = mne.minimum_norm.read_inverse_operator(fname_inv)
                         this_evoked = mne.read_evokeds(fname_evoked, name)

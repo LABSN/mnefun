@@ -11,7 +11,7 @@ from copy import deepcopy
 import warnings
 from shutil import move, copy2
 import subprocess
-from collections import Counter
+from collections import Counter, defaultdict
 import time
 import sys
 
@@ -173,7 +173,7 @@ class Params(Frozen):
     auto_bad : float | None
         If not None, bad channels will be automatically excluded if
         they disqualify a proportion of events exceeding ``autobad``.
-    ecg_channel : str | None
+    ecg_channel : str | list of str | None
         The channel to use to detect ECG events. None will use ECG063.
         In lieu of an ECG recording, MEG1531 may work.
     eog_channel : str
@@ -2204,6 +2204,9 @@ def do_preprocessing_combined(p, subjects, run_indices):
         Run indices to include.
     """
     drop_logs = list()
+    ecg_channel = p.ecg_channel
+    if not isinstance(ecg_channel, dict):
+        ecg_channel = defaultdict(lambda: ecg_channel)
     for si, subj in enumerate(subjects):
         if p.disp_files:
             print('  Preprocessing subject %g/%g (%s).'
@@ -2284,8 +2287,8 @@ def do_preprocessing_combined(p, subjects, run_indices):
                 with open(bad_file, 'w') as f:
                     f.write('\n'.join(badchs))
         if not op.isfile(bad_file):
-            print('    No bad channel file found, clearing bad channels:\n'
-                  '        %s' % bad_file)
+            print('    Clearing bad channels (no file %s)'
+                  % op.sep.join(bad_file.split(op.sep)[-3:]))
             bad_file = None
 
         proj_nums = p.proj_nums
@@ -2371,15 +2374,14 @@ def do_preprocessing_combined(p, subjects, run_indices):
                        **old_kwargs)
             raw.add_proj(projs)
             raw.apply_proj()
-            pr, ecg_events, drop_log = \
-                compute_proj_ecg(raw, n_grad=proj_nums[0][0],
-                                 n_jobs=p.n_jobs_mkl,
-                                 n_mag=proj_nums[0][1], n_eeg=proj_nums[0][2],
-                                 tmin=ecg_t_lims[0], tmax=ecg_t_lims[1],
-                                 l_freq=None, h_freq=None, no_proj=True,
-                                 qrs_threshold='auto', ch_name=p.ecg_channel,
-                                 reject=p.ssp_ecg_reject, return_drop_log=True,
-                                 average=p.proj_ave)
+            pr, ecg_events, drop_log = compute_proj_ecg(
+                raw, n_grad=proj_nums[0][0], n_jobs=p.n_jobs_mkl,
+                n_mag=proj_nums[0][1], n_eeg=proj_nums[0][2],
+                tmin=ecg_t_lims[0], tmax=ecg_t_lims[1],
+                l_freq=None, h_freq=None, no_proj=True,
+                qrs_threshold='auto', ch_name=ecg_channel[subj],
+                reject=p.ssp_ecg_reject, return_drop_log=True,
+                average=p.proj_ave)
             n_good = sum(len(d) == 0 for d in drop_log)
             if n_good >= 20:
                 write_events(ecg_eve, ecg_events)
@@ -3239,70 +3241,89 @@ def annotate_head_pos(raw, head_pos, rotation_limit=45, translation_limit=0.1,
     # point
     do_rotation = np.isfinite(rotation_limit) and head_pos is not None
     do_translation = np.isfinite(translation_limit) and head_pos is not None
-    do_coils = fit_t is not None and counts is not None
+    do_coils = (fit_t is not None and
+                counts is not None and
+                np.isfinite(coil_bad_count_duration_limit))
     if not (do_rotation or do_translation or do_coils):
         return None
-    head_pos_t = head_pos[:, 0]
+    head_pos_t = head_pos[:, 0].copy()
+    head_pos_t -= raw.first_samp / raw.info['sfreq']
     dt = np.diff(head_pos_t)
+    head_pos_t = np.concatenate([head_pos_t,
+                                 [head_pos_t[-1] + 1. / raw.info['sfreq']]])
 
     annot = mne.Annotations([], [], [])
 
     # Annotate based on bad coil distances
     if do_coils:
-        if np.isfinite(coil_bad_count_duration_limit):
-            changes = np.diff((counts < 3).astype(int))
-            bad_onsets = fit_t[np.where(changes == 1)[0]]
-            bad_offsets = fit_t[np.where(changes == -1)[0]]
-            # Deal with it starting out bad
-            if counts[0] < 3:
-                bad_onsets = np.concatenate([[0.], bad_onsets])
-            if counts[-1] < 3:
-                bad_offsets = np.concatenate([bad_offsets, [raw.times[-1]]])
-            assert len(bad_onsets) == len(bad_offsets)
-            assert (bad_onsets[1:] > bad_offsets[:-1]).all()
-            count = 0
-            dur = 0.
-            for onset, offset in zip(bad_onsets, bad_offsets):
-                if offset - onset > coil_bad_count_duration_limit - 1e-6:
-                    annot.append(onset, offset - onset, 'BAD_HPI_COUNT')
-                    dur += offset - onset
-                    count += 1
-            print('%sOmitting %5.1f%% (%3d segments) '
-                  'due to < 3 good coils for over %s sec'
-                  % (prefix, 100 * dur / raw.times[-1], count,
-                     coil_bad_count_duration_limit))
+        fit_t = np.concatenate([fit_t, fit_t[-1] + [1. / raw.info['sfreq']]])
+        bad_mask = (counts < 3)
+        onsets, offsets = _mask_to_onsets_offsets(bad_mask)
+        onsets = fit_t[onsets]
+        offsets = fit_t[offsets]
+        count = 0
+        dur = 0.
+        for onset, offset in zip(onsets, offsets):
+            if offset - onset > coil_bad_count_duration_limit - 1e-6:
+                annot.append(onset, offset - onset, 'BAD_HPI_COUNT')
+                dur += offset - onset
+                count += 1
+        print('%sOmitting %5.1f%% (%3d segments): '
+              '< 3 good coils for over %s sec'
+              % (prefix, 100 * dur / raw.times[-1], count,
+                 coil_bad_count_duration_limit))
 
     # Annotate based on rotational velocity
+    t_tot = raw.times[-1]
     if do_rotation:
         assert rotation_limit > 0
         # Rotational velocity (radians / sec)
         r = mne.transforms._angle_between_quats(head_pos[:-1, 1:4],
                                                 head_pos[1:, 1:4])
         r /= dt
-        bad_idx = np.where(r >= np.deg2rad(rotation_limit))[0]
-        bad_pct = 100 * dt[bad_idx].sum() / (head_pos[-1, 0] - head_pos[0, 0])
-        print(u'%sOmitting %5.1f%% (%3d segments) due to bad rotational '
-              'velocity (>=%5.1f deg/s), with max %0.2f deg/s'
-              % (prefix, bad_pct, len(bad_idx), rotation_limit,
+        bad_mask = (r >= np.deg2rad(rotation_limit))
+        onsets, offsets = _mask_to_onsets_offsets(bad_mask)
+        onsets, offsets = head_pos_t[onsets], head_pos_t[offsets]
+        bad_pct = 100 * (offsets - onsets).sum() / t_tot
+        print(u'%sOmitting %5.1f%% (%3d segments): '
+              u'ω >= %5.1f°/s (max: %0.1f°/s)'
+              % (prefix, bad_pct, len(onsets), rotation_limit,
                  np.rad2deg(r.max())))
-        for idx in bad_idx:
-            annot.append(head_pos_t[idx], dt[idx], 'BAD_RV')
+        for onset, offset in zip(onsets, offsets):
+            annot.append(onset, offset - onset, 'BAD_RV')
 
     # Annotate based on translational velocity
     if do_translation:
         assert translation_limit > 0
         v = np.linalg.norm(np.diff(head_pos[:, 4:7], axis=0), axis=-1)
         v /= dt
-        bad_idx = np.where(v >= translation_limit)[0]
-        bad_pct = 100 * dt[bad_idx].sum() / (head_pos[-1, 0] - head_pos[0, 0])
-        print(u'%sOmitting %5.1f%% (%3d segments) due to translational '
-              u'velocity (>=%5.1f m/s), with max %0.4f m/s'
-              % (prefix, bad_pct, len(bad_idx), translation_limit, v.max()))
-        for idx in bad_idx:
-            annot.append(head_pos_t[idx], dt[idx], 'BAD_TV')
+        bad_mask = (v >= translation_limit)
+        onsets, offsets = _mask_to_onsets_offsets(bad_mask)
+        onsets, offsets = head_pos_t[onsets], head_pos_t[offsets]
+        bad_pct = 100 * (offsets - onsets).sum() / t_tot
+        print(u'%sOmitting %5.1f%% (%3d segments): '
+              u'v >= %5.4fm/s (max: %5.4fm/s)'
+              % (prefix, bad_pct, len(onsets), translation_limit, v.max()))
+        for onset, offset in zip(onsets, offsets):
+            annot.append(onset, offset - onset, 'BAD_TV')
 
     # Annotate on distance from the sensors
     return annot
+
+
+def _mask_to_onsets_offsets(mask):
+    """Group boolean mask into contiguous segments."""
+    assert mask.dtype == bool and mask.ndim == 1
+    mask = mask.astype(int)
+    diff = np.diff(mask)
+    onsets = np.where(diff > 0)[0] + 1
+    if mask[0]:
+        onsets = np.concatenate([[0], onsets])
+    offsets = np.where(diff < 0)[0] + 1
+    if mask[-1]:
+        offsets = np.concatenate([offsets, [len(mask)]])
+    assert len(onsets) == len(offsets)
+    return onsets, offsets
 
 
 @contextmanager
