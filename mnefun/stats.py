@@ -83,7 +83,53 @@ def anova_time(X, transform=True, signed_p=True, gg=True):
     return t, p, dof
 
 
-def hotelling_t2_baseline(stc, n_ave, baseline=(None, 0), check_baseline=True):
+def _ht2_p(mu, sigma, n_ave, mu_other, sigma_other, n_ave_other, use_pinv):
+    """Compute p values using Hotelling T2.
+
+    This will overwrite sigma!
+
+    See:
+    - https://en.wikipedia.org/wiki/Hotelling%27s_T-squared_distribution
+    - https://ncss-wpengine.netdna-ssl.com/wp-content/themes/ncss/pdf/Procedures/NCSS/Hotellings_One-Sample_T2.pdf
+    - https://ncss-wpengine.netdna-ssl.com/wp-content/themes/ncss/pdf/Procedures/NCSS/Hotellings_Two-Sample_T2.pdf
+    """  # noqa: E501
+    nones = (mu_other is None, sigma_other is None, n_ave_other is None)
+    assert all(nones) or not any(nones)  # proper input
+    if mu_other is None:
+        # one-sample case
+        T2_scale = n_ave
+        F_dof = max(n_ave - 3, 1)
+    else:
+        # two-sample case, make adjustments
+        T2_scale = (n_ave * n_ave_other) / (n_ave + n_ave_other)
+        F_dof = max(n_ave + n_ave_other - 4, 1)
+        mu = mu - mu_other
+        sigma = (((n_ave - 1) * sigma + (n_ave_other - 1) * sigma_other) /
+                 (n_ave + n_ave_other - 2))
+    # Compute the inverses of these covariance matrices:
+    sinv = sigma  # rename
+    for si, s in enumerate(sinv):
+        if use_pinv:
+            sinv[si] = linalg.pinv(s, rcond=1e-6)
+        else:
+            try:
+                sinv[si] = linalg.inv(s)
+            except np.linalg.LinAlgError:
+                sinv[si] = linalg.pinv(s)
+    # Compute the T**2 values:
+    T2 = np.einsum('vo...,von,vn...->v...', mu, sinv, mu)
+    # Then convert T**2 for p (here, 3) variables and n DOF into F:
+    #
+    #     F_{p,n-p} = \frac{n-p}{p*(n-1)} * T ** 2
+    #
+    F = T2  # rename
+    F *= T2_scale * (F_dof / float(3 * max(F_dof + 2, 1)))
+    # return the associated p values
+    return 1 - stats.f.cdf(F, 3, F_dof)
+
+
+def hotelling_t2_baseline(stc, n_ave, baseline=(None, 0), check_baseline=True,
+                          stc_other=None, n_ave_other=None):
     """Compute p values from a baseline-corrected VectorSourceEstimate."""
     assert isinstance(stc, mne.VectorSourceEstimate)
     assert isinstance(baseline, tuple) and len(baseline) == 2
@@ -97,73 +143,69 @@ def hotelling_t2_baseline(stc, n_ave, baseline=(None, 0), check_baseline=True):
     if check_baseline:
         np.testing.assert_allclose(baseline.mean(-1), 0.,
                                    atol=1e-6 * baseline.max())
-    # Following definition 2 from:
-    #
-    #     https://en.wikipedia.org/wiki/Hotelling%27s_T-squared_distribution
-    #
     # Estimate the unbiased sample covariance matrix during the baseline:
     sigma = np.einsum('vot,vrt->vor', baseline, baseline)
     sigma /= (mask.sum() - 1)
     if check_baseline:
         np.testing.assert_allclose(np.cov(baseline[0]), sigma[0])
-    # We need to correct this estimate by scaling by n_ave to get the value
-    # that would have existed in the un-averaged data::
-    #
-    #     sigma *= n_ave
-    #
-    # But this cancels out with the sigma /= n_ave that we are supposed to do!
-    # Now we compute the inverses of these covariance matrices:
-    sinv = np.array([linalg.pinv(s, rcond=1e-6) for s in sigma])
-    # And use these to compute the T**2 values:
-    T2 = np.einsum('vot,von,vnt->vt', stc.data, sinv, stc.data)
-    # Then convert T**2 for p variables and n DOF into F:
-    #
-    #     F_{p,n-p} = \frac{n-p}{p*(n-1)} * T ** 2
-    #
-    p = 3  # p
-    F_dof = max(n_ave - p, 1)
-    F = T2 * (F_dof / float(p * max(n_ave - 1, 1)))
-    # compute associated p values
-    p_val = 1 - stats.f.cdf(F, p, F_dof)
+    del baseline
+    # Scale by n_ave to get the sample (not mean) covariance
+    sigma *= n_ave
+    mu = stc.data
+    if stc_other is None:
+        mu_other = sigma_other = None
+    else:
+        assert np.allclose(stc.times, stc_other.times)
+        mu_other = stc_other.data
+        baseline = stc_other.data[..., mask]
+        sigma_other = np.einsum('vot,vrt->vor', baseline, baseline)
+        sigma_other /= (mask.sum() - 1)
+        sigma_other *= n_ave_other
+    p_val = _ht2_p(mu, sigma, n_ave,
+                   mu_other, sigma_other, n_ave_other,
+                   use_pinv=True)
     assert p_val.shape == (stc.data.shape[0], stc.data.shape[2])
     stc = mne.SourceEstimate(
         p_val, stc.vertices, stc.tmin, stc.tstep, stc.subject, stc.verbose)
     return stc
 
 
-def hotelling_t2(epochs, inv_op, src, baseline=(None, 0), update_interval=10):
+def hotelling_t2(epochs, inv_op, src, baseline=(None, 0), update_interval=10,
+                 epochs_other=None):
     """Compute p values from a VectorSourceEstimate."""
     assert inv_op.ndim == 3 and inv_op.shape[1] == 3
     data = epochs.get_data()
     tmin, tstep = epochs.times[0], 1. / epochs.info['sfreq']
-    del epochs
     n_ave = len(data)
-    # Iterate over times
-    F_dof = max(n_ave - 3, 1)
-    # Following definition 2 from:
-    #
-    #     https://en.wikipedia.org/wiki/Hotelling%27s_T-squared_distribution
-    #
+    if epochs_other is not None:
+        assert np.allclose(epochs.times, epochs_other.times)
+        data_other = epochs_other.get_data()
+        n_ave_other = len(data_other)
+    else:
+        data_other = n_ave_other = None
+    del epochs
     F_p = np.zeros((inv_op.shape[0], data.shape[-1]))
-    for ti in range(data.shape[-1]):
+    for ti in range(data.shape[-1]):  # iterate over times
         if update_interval is not None and ti % update_interval == 0:
             print(' %s' % ti, end='')
+        # Compute the means and covariances
         this_data = data[:, :, ti].T
         sens_cov = np.cov(this_data, ddof=1)
-        # Compute the means
         mu = np.dot(inv_op, this_data.mean(-1))
-        # Compute covariances and then invert them
-        S_inv = np.einsum('vos,se,vre->vor', inv_op, sens_cov, inv_op)
-        for ci, c in enumerate(S_inv):
-            try:
-                S_inv[ci] = linalg.inv(c)
-            except np.linalg.LinAlgError:
-                S_inv[ci] = linalg.pinv(c)
-        # This is really a T**2, but to save mem we convert inplace
-        F = np.einsum('vo,vor,vr->v', mu, S_inv, mu)
-        F *= n_ave
-        F *= F_dof / float(3 * max(n_ave - 1, 1))
-        F_p[:, ti] = 1 - stats.f.cdf(F, 3, F_dof)
+        sigma = np.einsum(
+            'vos,se,vre->vor', inv_op, sens_cov, inv_op)
+        if data_other is not None:
+            this_data = data_other[:, :, ti].T
+            sens_cov = np.cov(this_data, ddof=1)
+            mu_other = np.dot(inv_op, this_data.mean(-1))
+            sigma_other = np.einsum(
+                'vos,se,vre->vor', inv_op, sens_cov, inv_op)
+        else:
+            mu_other = sigma_other = None
+        del this_data, sens_cov
+        F_p[:, ti] = _ht2_p(mu, sigma, n_ave,
+                            mu_other, sigma_other, n_ave_other,
+                            use_pinv=False)
     stc = mne.SourceEstimate(
         F_p, [s['vertno'] for s in src], tmin, tstep, src[0]['subject_his_id'])
     return stc
