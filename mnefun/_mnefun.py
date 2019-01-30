@@ -29,7 +29,7 @@ from mne import (
     make_forward_solution, write_evokeds, make_sphere_model,
     setup_volume_source_space, pick_info, write_source_spaces,
     read_source_spaces, write_forward_solution, DipoleFixed,
-    read_annotations)
+    read_annotations, read_epochs)
 from mne.externals.h5io import read_hdf5, write_hdf5
 from mne.utils import _pl
 try:
@@ -75,7 +75,11 @@ from mne.io.constants import FIFF
 from mne.io.pick import pick_types_forward, pick_types
 from mne.io.meas_info import _empty_info
 from mne.minimum_norm import write_inverse_operator
-from mne.utils import run_subprocess, _time_mask, estimate_rank
+from mne.utils import run_subprocess, _time_mask
+try:
+    from mne.rank import estimate_rank
+except ImportError:
+    from mne.utils import estimate_rank
 from mne.viz import plot_drop_log, tight_layout
 from mne.fixes import _get_args as get_args
 
@@ -1806,7 +1810,7 @@ def _compute_rank(p, subj, run_indices):
     """Compute rank of the data."""
     epochs_fnames, _ = get_epochs_evokeds_fnames(p, subj, p.analyses)
     _, fif_file = epochs_fnames
-    epochs = mne.read_epochs(fif_file)
+    epochs = read_epochs(fif_file)
     meg, eeg = 'meg' in epochs, 'eeg' in epochs
     rank = dict()
     if meg:
@@ -1852,7 +1856,7 @@ def gen_inverses(p, subjects, run_indices):
 
         epochs_fnames, _ = get_epochs_evokeds_fnames(p, subj, p.analyses)
         _, fif_file = epochs_fnames
-        epochs = mne.read_epochs(fif_file, preload=False)
+        epochs = read_epochs(fif_file, preload=False)
         del epochs_fnames, fif_file
 
         meg, eeg = 'meg' in epochs, 'eeg' in epochs
@@ -2038,6 +2042,14 @@ def gen_covariances(p, subjects, run_indices):
         kwargs_erm['rank'] = kwargs['rank']
         if p.force_erm_cov_rank_full and has_rank_arg:
             kwargs_erm['rank'] = 'full'
+        # Use the same thresholds we used for primary Epochs
+        if p.autoreject_thresholds:
+            reject = get_epochs_evokeds_fnames(p, subj, [])[0][1]
+            print(reject)
+            reject = read_epochs(reject, preload=False)
+            raise RuntimeError
+        else:
+            reject = p.reject
 
         # Make empty room cov
         if p.runs_empty:
@@ -2049,7 +2061,8 @@ def gen_covariances(p, subjects, run_indices):
             empty_fif = get_raw_fnames(p, subj, 'pca', 'only', False)[0]
             raw = read_raw_fif(empty_fif, preload=True)
             raw.pick_types(meg=True, eog=True, exclude='bads')
-            use_reject, use_flat = _restrict_reject_flat(p.reject, p.flat, raw)
+            use_reject, use_flat = _restrict_reject_flat(
+                reject, p.flat, raw)
             cov = compute_raw_covariance(raw, reject=use_reject, flat=use_flat,
                                          method=p.cov_method, **kwargs_erm)
             write_cov(empty_cov_name, cov)
@@ -2087,7 +2100,7 @@ def gen_covariances(p, subjects, run_indices):
                       % (new_count, old_count, op.basename(cov_name)))
             events = concatenate_events(events, first_samps,
                                         last_samps)
-            use_reject, use_flat = _restrict_reject_flat(p.reject, p.flat, raw)
+            use_reject, use_flat = _restrict_reject_flat(reject, p.flat, raw)
             epochs = Epochs(raw, events, event_id=None, tmin=p.bmin,
                             tmax=p.bmax, baseline=(None, None), proj=False,
                             reject=use_reject, flat=use_flat, preload=True)
