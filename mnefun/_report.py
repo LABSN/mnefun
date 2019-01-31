@@ -146,6 +146,29 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                 print('    %s skipped' % section)
 
             #
+            # Raw segments
+            #
+            if op.isfile(pca_fnames[0]):
+                raw_pca = mne.concatenate_raws(
+                    [mne.io.read_raw_fif(fname) for fname in pca_fnames])
+            section = 'Raw segments'
+            if p.report_params.get('raw_segments', True) and has_pca:
+                events = np.linspace(raw.times[0], raw.times[-1], 12)[1:-1]
+                events = np.round(events * raw.info['sfreq']).astype(int)
+                events += raw.first_samp
+                events = np.array([events,
+                                   np.zeros_like(events),
+                                   np.ones_like(events)])
+                epochs = mne.Epochs(raw_pca, events, tmin=-0.5, tmax=0.5,
+                                    baseline=(None, None), preload=True)
+                raw_plot = mne.io.RawArray(
+                    epochs.get_data()
+                    .transpose(1, 0, 2).reshape(len(epochs.ch_names), -1))
+                fig = raw_plot.plot(group_by='selection')
+                report.add_figs_to_section(fig, 'Processed', section,
+                                           image_format='svg')
+
+            #
             # PSD
             #
             section = 'PSD'
@@ -164,8 +187,6 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                 figs.append(raw.plot_psd(fmax=fmax, n_fft=n_fft, show=False))
                 captions.append('%s: Raw (zoomed)' % section)
                 if op.isfile(pca_fnames[0]):
-                    raw_pca = mne.concatenate_raws(
-                        [mne.io.read_raw_fif(fname) for fname in pca_fnames])
                     figs.append(raw_pca.plot_psd(fmax=fmax, n_fft=n_fft,
                                                  show=False))
                     captions.append('%s: Processed' % section)

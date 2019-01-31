@@ -440,6 +440,7 @@ class Params(Frozen):
         self.report_params = dict(
             good_hpi_count=True,
             head_movement=True,
+            raw_segments=True,
             psd=True,
             ssp_topomaps=True,
             source_alignment=True,
