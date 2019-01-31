@@ -271,6 +271,10 @@ class Params(Frozen):
         The time limits for EOG calculation.
     ecg_t_lims : tuple
         The time limits for ECG calculation.
+    ecg_filt_kwargs : dict
+        raw.filter kwargs before computing ECG events and epochs.
+    eog_filt_kwargs : dict
+        raw.filter kwargs before computing EOG events and epochs.
 
     Returns
     -------
@@ -453,6 +457,12 @@ class Params(Frozen):
         self.force_erm_cov_rank_full = True  # force empty-room inv rank
         self.eog_t_lims = (-0.25, 0.25)
         self.ecg_t_lims = (-0.08, 0.08)
+        self.ecg_filt_kwargs = dict(
+            l_trans_bandwidth=0.5, h_trans_bandwidth=0.5,
+            phase='zero-double', fir_window='hann')
+        self.eog_filt_kwargs = dict(
+            l_trans_bandwidth=0.5, h_trans_bandwidth=0.5,
+            phase='zero-double', fir_window='hann')
         self.freeze()
 
     @property
@@ -2172,7 +2182,8 @@ def _raw_LRFCP(raw_names, sfreq, l_freq, h_freq, n_jobs, n_jobs_resample,
                filter_length=32768, apply_proj=True, preload=True,
                force_bads=False, l_trans=0.5, h_trans=0.5,
                allow_maxshield=False, phase='zero-double', fir_window='hann',
-               fir_design='firwin2', pick=True):
+               fir_design='firwin2', pick=True,
+               skip_by_annotation=('bad', 'skip')):
     """Helper to load, filter, concatenate, then project raw files"""
     if isinstance(raw_names, str):
         raw_names = [raw_names]
@@ -2238,7 +2249,7 @@ def do_preprocessing_combined(p, subjects, run_indices):
         ecg_channel = defaultdict(lambda: ecg_channel)
     proj_nums = p.proj_nums
     if not isinstance(proj_nums, dict):
-        proj_nums = defaultdict(lambda: proj_nums)
+        proj_nums = defaultdict(lambda: p.proj_nums)
     for si, subj in enumerate(subjects):
         if p.disp_files:
             print('  Preprocessing subject %g/%g (%s).'
@@ -2268,7 +2279,8 @@ def do_preprocessing_combined(p, subjects, run_indices):
                              apply_proj=False, force_bads=False,
                              l_trans=p.hp_trans, h_trans=p.lp_trans,
                              phase=p.phase, fir_window=p.fir_window,
-                             pick=True, **fir_kwargs)
+                             pick=True, skip_by_annotation='edge',
+                             **fir_kwargs)
             events = fixed_len_events(p, raw)
             # do not mark eog channels bad
             meg, eeg = 'meg' in raw, 'eeg' in raw
@@ -2343,7 +2355,6 @@ def do_preprocessing_combined(p, subjects, run_indices):
         pre_list = [r for ri, r in enumerate(raw_names)
                     if ri in p.get_projs_from]
 
-        # Calculate and apply continuous projectors if requested
         projs = list()
         raw_orig = _raw_LRFCP(
             raw_names=pre_list, sfreq=p.proj_sfreq, l_freq=None, h_freq=None,
@@ -2351,7 +2362,8 @@ def do_preprocessing_combined(p, subjects, run_indices):
             projs=projs, bad_file=bad_file, disp_files=p.disp_files,
             method='fir', filter_length=p.filter_length, force_bads=False,
             l_trans=p.hp_trans, h_trans=p.lp_trans, phase=p.phase,
-            fir_window=p.fir_window, pick=True, **fir_kwargs)
+            fir_window=p.fir_window, pick=True, skip_by_annotation='edge',
+            **fir_kwargs)
 
         # Apply any user-supplied extra projectors
         if p.proj_extra is not None:
@@ -2360,7 +2372,9 @@ def do_preprocessing_combined(p, subjects, run_indices):
             extra_proj = op.join(pca_dir, p.proj_extra)
             projs = read_proj(extra_proj)
 
+        #
         # Calculate and apply ERM projectors
+        #
         pnums = np.array(proj_nums[subj], int)
         if pnums.shape != (3, 3):
             raise ValueError('proj_nums must be an array with shape (3, 3), '
@@ -2377,14 +2391,16 @@ def do_preprocessing_combined(p, subjects, run_indices):
                     bad_file=bad_file, disp_files=p.disp_files, method='fir',
                     filter_length=p.filter_length, force_bads=True,
                     l_trans=p.hp_trans, h_trans=p.lp_trans,
-                    phase=p.phase, fir_window=p.fir_window, **fir_kwargs)
+                    phase=p.phase, fir_window=p.fir_window,
+                    skip_by_annotation='edge', **fir_kwargs)
             else:
                 if p.disp_files:
                     print('    Computing continuous projectors using data.')
                 raw = raw_orig.copy()
             raw.filter(None, p.cont_lp, n_jobs=p.n_jobs_fir, method='fir',
                        filter_length=p.filter_length, h_trans_bandwidth=0.5,
-                       fir_window=p.fir_window, phase=p.phase, **fir_kwargs)
+                       fir_window=p.fir_window, phase=p.phase,
+                       skip_by_annotation='edge', **fir_kwargs)
             raw.add_proj(projs)
             raw.apply_proj()
             pr = compute_proj_raw(raw, duration=1, n_grad=pnums[2][0],
@@ -2394,25 +2410,35 @@ def do_preprocessing_combined(p, subjects, run_indices):
             projs.extend(pr)
             del raw
 
+        #
         # Calculate and apply the ECG projectors
+        #
         if any(pnums[0]):
             if p.disp_files:
-                print('    Computing ECG projectors.')
+                print('    Computing ECG projectors...', end='')
             raw = raw_orig.copy()
 
             raw.filter(ecg_f_lims[0], ecg_f_lims[1], n_jobs=p.n_jobs_fir,
                        method='fir', filter_length=p.filter_length,
-                       l_trans_bandwidth=0.5, h_trans_bandwidth=0.5,
-                       phase='zero-double', fir_window='hann',
+                       **p.ecg_filt_kwargs, skip_by_annotation='edge',
                        **old_kwargs)
             raw.add_proj(projs)
             raw.apply_proj()
+            find_kwargs = dict()
+            if 'reject_by_annotation' in get_args(find_ecg_events):
+                find_kwargs['reject_by_annotation'] = True
+            elif len(raw.annotations) > 0:
+                print('    WARNING: ECG event detection will not make use of '
+                      'annotations, please update MNE-Python')
+            # We've already filtered the data above, so don't do it here
             ecg_events = find_ecg_events(
-                raw, 999, ecg_channel[subj], 0., 1, 35, 'auto', '10s',
-                return_ecg=False)[0]
+                raw, 999, ecg_channel[subj], 0., None, None,
+                qrs_threshold='auto', return_ecg=False, **find_kwargs)[0]
             ecg_epochs = Epochs(
                 raw, ecg_events, 999, ecg_t_lims[0], ecg_t_lims[1],
                 baseline=None, reject=p.ssp_ecg_reject, preload=True)
+            print('  obtained %d epochs from %d events.' % (len(ecg_epochs),
+                                                            len(ecg_events)))
             if len(ecg_epochs) >= 20:
                 write_events(ecg_eve, ecg_epochs.events)
                 ecg_epochs.save(ecg_epo)
@@ -2431,23 +2457,28 @@ def do_preprocessing_combined(p, subjects, run_indices):
                                    % (len(ecg_epochs), len(ecg_events)))
             del raw, ecg_epochs, ecg_events
 
+        #
         # Next calculate and apply the EOG projectors
+        #
         if any(pnums[1]):
             if p.disp_files:
-                print('    Computing EOG projectors.')
+                print('    Computing EOG projectors...', end='')
             raw = raw_orig.copy()
             raw.filter(eog_f_lims[0], eog_f_lims[1], n_jobs=p.n_jobs_fir,
                        method='fir', filter_length=p.filter_length,
                        l_trans_bandwidth=0.5, h_trans_bandwidth=0.5,
                        phase='zero-double', fir_window='hann',
-                       **old_kwargs)
+                       skip_by_annotation='edge', **old_kwargs)
             raw.add_proj(projs)
             raw.apply_proj()
-            eog_events = find_eog_events(
-                raw, ch_name=p.eog_channel, reject_by_annotation=True)
+            eog_events = find_eog_events(  # XXX remove copy
+                raw.copy(), ch_name=p.eog_channel, reject_by_annotation=True,
+                l_freq=None, h_freq=None)
             eog_epochs = Epochs(
                 raw, eog_events, 998, eog_t_lims[0], eog_t_lims[1],
                 baseline=None, reject=p.ssp_eog_reject, preload=True)
+            print('  obtained %d epochs from %d events' % (len(eog_epochs),
+                                                           len(eog_events)))
             del eog_events
             if len(eog_epochs) >= 5:
                 write_events(eog_eve, eog_epochs.events)
@@ -2460,19 +2491,30 @@ def do_preprocessing_combined(p, subjects, run_indices):
                 assert len(pr) == np.sum(pnums[0])
                 write_proj(eog_proj, pr)
                 projs.extend(pr)
+                pr_2, eog_events_2 = \
+                    mne.preprocessing.compute_proj_eog(
+                        raw, n_grad=pnums[1][0], n_jobs=p.n_jobs_mkl,
+                        n_mag=pnums[1][1], n_eeg=pnums[1][2],
+                        tmin=eog_t_lims[0], tmax=eog_t_lims[1],
+                        l_freq=None, h_freq=None, no_proj=True,
+                        ch_name=p.eog_channel, reject=p.ssp_eog_reject,
+                        average=p.proj_ave)
+                raise RuntimeError
             else:
-                warnings.warn('Only %d EOG events!' % len(eog_epochs))
+                warnings.warn('Only %d usable EOG events!' % len(eog_epochs))
             del raw, eog_epochs
 
         # save the projectors
         write_proj(all_proj, projs)
 
-        # look at raw_orig for trial DQs now, it will be quick
+        #
+        # Look at raw_orig for trial DQs now, it will be quick
+        #
         raw_orig.filter(p.hp_cut, p.lp_cut, n_jobs=p.n_jobs_fir, method='fir',
                         filter_length=p.filter_length,
                         l_trans_bandwidth=p.hp_trans, phase=p.phase,
                         h_trans_bandwidth=p.lp_trans, fir_window=p.fir_window,
-                        **fir_kwargs)
+                        skip_by_annotation='edge', **fir_kwargs)
         raw_orig.add_proj(projs)
         raw_orig.apply_proj()
         # now let's epoch with 1-sec windows to look for DQs

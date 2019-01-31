@@ -209,24 +209,21 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                 if any(p.proj_nums[0]):  # ECG
                     if 'preproc_ecg-proj.fif' in proj_files:
                         comments.append('ECG')
-                        projs = read_proj(op.join(p.work_dir, subj, p.pca_dir,
-                                                  'preproc_ecg-proj.fif'))
-                        figs.append(plot_projs_topomap(projs, info=sss_info,
-                                                       show=False))
+                        figs.append(_proj_fig(op.join(
+                            p.work_dir, subj, p.pca_dir,
+                            'preproc_ecg-proj.fif'), sss_info))
                 if any(p.proj_nums[1]):  # EOG
                     if 'preproc_blink-proj.fif' in proj_files:
                         comments.append('Blink')
-                        projs = read_proj(op.join(p.work_dir, subj, p.pca_dir,
-                                                  'preproc_blink-proj.fif'))
-                        figs.append(plot_projs_topomap(projs, info=sss_info,
-                                                       show=False))
+                        figs.append(_proj_fig(op.join(
+                            p.work_dir, subj, p.pca_dir,
+                            'preproc_blink-proj.fif'), sss_info))
                 if any(p.proj_nums[2]):  # ERM
                     if 'preproc_blink-cont.fif' in proj_files:
                         comments.append('Continuous')
-                        projs = read_proj(op.join(p.work_dir, subj, p.pca_dir,
-                                                  'preproc_cont-proj.fif'))
-                        figs.append(plot_projs_topomap(projs, info=sss_info,
-                                                       show=False))
+                        figs.append(_proj_fig(op.join(
+                            p.work_dir, subj, p.pca_dir,
+                            'preproc_cont-proj.fif'), sss_info))
                 # adjust sizes
                 for fig in figs:
                     n_rows = np.floor(np.sqrt(len(fig.axes)))
@@ -528,3 +525,39 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
 
         report_fname = get_report_fnames(p, subj)[0]
         report.save(report_fname, open_browser=False, overwrite=True)
+
+
+def _proj_fig(fname, info):
+    import matplotlib.pyplot as plt
+    projs = read_proj(fname)
+    epochs = fname.replace('-proj.fif', '-epo.fif')
+    if op.isfile(epochs):
+        epochs = mne.read_epochs(epochs)
+        evoked = epochs.average()
+        n_row = 2
+    else:
+        n_row = 1
+    fig, axes = plt.subplots(n_row, len(projs),
+                             figsize=(len(projs) * 1.5, n_row * 2))
+    plot_projs_topomap(projs, info=info, show=False, axes=axes[0])
+    for pi, proj in enumerate(projs):
+        axes[0, pi].set(title='%s %s' % (proj['desc'].split('-')[0],
+                                         proj['desc'].split('-')[-1]))
+    if n_row == 2:
+        for pi, proj in enumerate(projs):
+            ax = axes[1, pi]
+            p = proj['data']['data']
+            this_evoked = evoked.copy().pick_channels(
+                proj['data']['col_names'])
+            assert p.shape == (1, len(this_evoked.data))
+            with warnings.catch_warnings(record=True):  # tight_layout
+                this_evoked.plot(
+                    picks=np.arange(len(this_evoked.data)), axes=[ax])
+            ax.texts = []
+            trace = np.dot(p, this_evoked.data)[0]
+            trace *= 0.8 * np.abs(ax.get_ylim()).max() / np.abs(trace).max()
+            ax.plot(this_evoked.times, trace, color='#9467bd')
+            ax.set(title='', ylabel='')
+        axes[1, 0].set(ylabel='N$_{ave}$=%d' % (evoked.nave,))
+    plt.subplots_adjust(wspace=0.1, hspace=0.1)
+    return fig
