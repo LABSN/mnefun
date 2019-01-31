@@ -178,9 +178,10 @@ class Params(Frozen):
     auto_bad : float | None
         If not None, bad channels will be automatically excluded if
         they disqualify a proportion of events exceeding ``autobad``.
-    ecg_channel : str | list of str | None
+    ecg_channel : str | dict | None
         The channel to use to detect ECG events. None will use ECG063.
         In lieu of an ECG recording, MEG1531 may work.
+        Can be a dict that maps subject names to channels.
     eog_channel : str
         The channel to use to detect EOG events. None will use EOG*.
         In lieu of an EOG recording, MEG1411 may work.
@@ -271,6 +272,10 @@ class Params(Frozen):
         The time limits for EOG calculation.
     ecg_t_lims : tuple
         The time limits for ECG calculation.
+    proj_nums : list | dict
+        List of projector counts to use for ECG/EOG/ERM; each list contains
+        three values for grad/mag/eeg channels.
+        Can be a dict that maps subject names to projector counts to use.
 
     Returns
     -------
