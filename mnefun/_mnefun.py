@@ -271,10 +271,6 @@ class Params(Frozen):
         The time limits for EOG calculation.
     ecg_t_lims : tuple
         The time limits for ECG calculation.
-    ecg_filt_kwargs : dict
-        raw.filter kwargs before computing ECG events and epochs.
-    eog_filt_kwargs : dict
-        raw.filter kwargs before computing EOG events and epochs.
 
     Returns
     -------
@@ -457,12 +453,6 @@ class Params(Frozen):
         self.force_erm_cov_rank_full = True  # force empty-room inv rank
         self.eog_t_lims = (-0.25, 0.25)
         self.ecg_t_lims = (-0.08, 0.08)
-        self.ecg_filt_kwargs = dict(
-            l_trans_bandwidth=0.5, h_trans_bandwidth=0.5,
-            phase='zero-double', fir_window='hann')
-        self.eog_filt_kwargs = dict(
-            l_trans_bandwidth=0.5, h_trans_bandwidth=0.5,
-            phase='zero-double', fir_window='hann')
         self.freeze()
 
     @property
@@ -2759,10 +2749,21 @@ def _head_pos_annot(p, raw_fname, prefix='  '):
             prefix='  ' + prefix, coil_bad_count_duration_limit=lims[5])
         if annot is not None:
             annot.save(annot_fname)
+    orig_time = raw.info['meas_date'][0] + raw.info['meas_date'][1] / 1000000.
     try:
         annot = read_annotations(annot_fname)
     except IOError:  # no annotations requested
-        annot = None
+        annot = mne.Annotations([], [], [])
+    if annot.orig_time == 0:
+        annot.orig_time = orig_time
+    # Append custom annotations (probably needs some tweaking due to meas_date)
+    try:
+        custom_annot = read_annotations(raw_fname[:-4] + '-custom-annot.fif')
+    except IOError:
+        custom_annot = mne.Annotations([], [], [])
+    if custom_annot.orig_time == 0:
+        custom_annot.orig_time = orig_time
+    annot += custom_annot
     return head_pos, annot, fit_data
 
 
