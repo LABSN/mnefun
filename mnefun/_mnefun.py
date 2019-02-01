@@ -11,7 +11,7 @@ from copy import deepcopy
 import warnings
 from shutil import move, copy2
 import subprocess
-from collections import Counter, defaultdict
+from collections import Counter
 import time
 import sys
 
@@ -2225,6 +2225,10 @@ def compute_proj_wrap(epochs, average, **kwargs):
         return compute_proj_epochs(epochs, **kwargs)
 
 
+def _handle_dict(entry, subj):
+    return entry[subj] if isinstance(entry, dict) else entry
+
+
 def do_preprocessing_combined(p, subjects, run_indices):
     """Do preprocessing on all raw files together
 
@@ -2240,13 +2244,9 @@ def do_preprocessing_combined(p, subjects, run_indices):
         Run indices to include.
     """
     drop_logs = list()
-    ecg_channel = p.ecg_channel
-    if not isinstance(ecg_channel, dict):
-        ecg_channel = defaultdict(lambda: ecg_channel)
-    proj_nums = p.proj_nums
-    if not isinstance(proj_nums, dict):
-        proj_nums = defaultdict(lambda: p.proj_nums)
     for si, subj in enumerate(subjects):
+        proj_nums = np.array(_handle_dict(p.proj_nums, subj), int)
+        ecg_channel = _handle_dict(p.ecg_channel, subj)
         if p.disp_files:
             print('  Preprocessing subject %g/%g (%s).'
                   % (si + 1, len(subjects), subj))
@@ -2371,11 +2371,10 @@ def do_preprocessing_combined(p, subjects, run_indices):
         #
         # Calculate and apply ERM projectors
         #
-        pnums = np.array(proj_nums[subj], int)
-        if pnums.shape != (3, 3):
-            raise ValueError('proj_nums must be an array with shape (3, 3), '
-                             'got %s' % (projs.shape,))
-        if any(pnums[2]):
+        if proj_nums.shape != (3, 3):
+            raise ValueError('proj_nums for %s must be an array with shape '
+                             '(3, 3), got %s' % (subj, projs.shape))
+        if any(proj_nums[2]):
             if len(empty_names) >= 1:
                 if p.disp_files:
                     print('    Computing continuous projectors using ERM.')
@@ -2399,8 +2398,8 @@ def do_preprocessing_combined(p, subjects, run_indices):
                        skip_by_annotation='edge', **fir_kwargs)
             raw.add_proj(projs)
             raw.apply_proj()
-            pr = compute_proj_raw(raw, duration=1, n_grad=pnums[2][0],
-                                  n_mag=pnums[2][1], n_eeg=pnums[2][2],
+            pr = compute_proj_raw(raw, duration=1, n_grad=proj_nums[2][0],
+                                  n_mag=proj_nums[2][1], n_eeg=proj_nums[2][2],
                                   reject=None, flat=None, n_jobs=p.n_jobs_mkl)
             write_proj(cont_proj, pr)
             projs.extend(pr)
@@ -2409,7 +2408,7 @@ def do_preprocessing_combined(p, subjects, run_indices):
         #
         # Calculate and apply the ECG projectors
         #
-        if any(pnums[0]):
+        if any(proj_nums[0]):
             if p.disp_files:
                 print('    Computing ECG projectors...', end='')
             raw = raw_orig.copy()
@@ -2430,7 +2429,7 @@ def do_preprocessing_combined(p, subjects, run_indices):
             # We've already filtered the data channels above, but this
             # filters the ECG channel
             ecg_events = find_ecg_events(
-                raw, 999, ecg_channel[subj], 0., 5, 35,
+                raw, 999, ecg_channel, 0., 5, 35,
                 qrs_threshold='auto', return_ecg=False, **find_kwargs)[0]
             ecg_epochs = Epochs(
                 raw, ecg_events, 999, ecg_t_lims[0], ecg_t_lims[1],
@@ -2442,10 +2441,10 @@ def do_preprocessing_combined(p, subjects, run_indices):
                 ecg_epochs.save(ecg_epo)
                 desc_prefix = 'ECG-%s-%s' % tuple(ecg_t_lims)
                 pr = compute_proj_wrap(
-                    ecg_epochs, p.proj_ave, n_grad=pnums[0][0],
-                    n_mag=pnums[0][1], n_eeg=pnums[0][2],
+                    ecg_epochs, p.proj_ave, n_grad=proj_nums[0][0],
+                    n_mag=proj_nums[0][1], n_eeg=proj_nums[0][2],
                     desc_prefix=desc_prefix)
-                assert len(pr) == np.sum(pnums[0])
+                assert len(pr) == np.sum(proj_nums[0])
                 write_proj(ecg_proj, pr)
                 projs.extend(pr)
             else:
@@ -2458,7 +2457,7 @@ def do_preprocessing_combined(p, subjects, run_indices):
         #
         # Next calculate and apply the EOG projectors
         #
-        if any(pnums[1]):
+        if any(proj_nums[1]):
             if p.disp_files:
                 print('    Computing EOG projectors...', end='')
             raw = raw_orig.copy()
@@ -2482,21 +2481,12 @@ def do_preprocessing_combined(p, subjects, run_indices):
                 eog_epochs.save(eog_epo)
                 desc_prefix = 'EOG-%s-%s' % tuple(eog_t_lims)
                 pr = compute_proj_wrap(
-                    eog_epochs, p.proj_ave, n_grad=pnums[1][0],
-                    n_mag=pnums[1][1], n_eeg=pnums[1][2],
+                    eog_epochs, p.proj_ave, n_grad=proj_nums[1][0],
+                    n_mag=proj_nums[1][1], n_eeg=proj_nums[1][2],
                     desc_prefix=desc_prefix)
-                assert len(pr) == np.sum(pnums[0])
+                assert len(pr) == np.sum(proj_nums[1])
                 write_proj(eog_proj, pr)
                 projs.extend(pr)
-                pr_2, eog_events_2 = \
-                    mne.preprocessing.compute_proj_eog(
-                        raw, n_grad=pnums[1][0], n_jobs=p.n_jobs_mkl,
-                        n_mag=pnums[1][1], n_eeg=pnums[1][2],
-                        tmin=eog_t_lims[0], tmax=eog_t_lims[1],
-                        l_freq=None, h_freq=None, no_proj=True,
-                        ch_name=p.eog_channel, reject=p.ssp_eog_reject,
-                        average=p.proj_ave)
-                raise RuntimeError
             else:
                 warnings.warn('Only %d usable EOG events!' % len(eog_epochs))
             del raw, eog_epochs
@@ -2706,7 +2696,8 @@ def _head_pos_annot(p, raw_fname, prefix='  '):
         # head_pos = _calculate_chpi_positions(
         #     raw, t_window=t_window, dist_limit=dist_limit)
         # write_head_positions(pos_fname, head_pos)
-        print('%sEstimating position file %s' % (prefix, pos_fname,))
+        print('%sEstimating position file %s'
+              % (prefix, op.basename(pos_fname)))
         run_sss_positions(raw_fname, pos_fname,
                           host=p.sws_ssh, port=p.sws_port, prefix=prefix,
                           work_dir=p.sws_dir, t_window=t_window,
@@ -2759,17 +2750,18 @@ def _head_pos_annot(p, raw_fname, prefix='  '):
     orig_time = raw.info['meas_date'][0] + raw.info['meas_date'][1] / 1000000.
     try:
         annot = read_annotations(annot_fname)
-    except IOError:  # no annotations requested
-        annot = mne.Annotations([], [], [])
-    if annot.orig_time == 0:
+        assert annot.orig_time is None  # relative to start of raw data
+        annot.onset += raw.first_samp / raw.info['sfreq']
         annot.orig_time = orig_time
+    except IOError:  # no annotations requested
+        annot = mne.Annotations([], [], [], orig_time=raw.info['meas_date'])
     # Append custom annotations (probably needs some tweaking due to meas_date)
     try:
         custom_annot = read_annotations(raw_fname[:-4] + '-custom-annot.fif')
     except IOError:
-        custom_annot = mne.Annotations([], [], [])
-    if custom_annot.orig_time == 0:
-        custom_annot.orig_time = orig_time
+        custom_annot = mne.Annotations(
+            [], [], [], orig_time=raw.info['meas_date'])
+    assert custom_annot.orig_time == orig_time
     annot += custom_annot
     return head_pos, annot, fit_data
 
@@ -3357,7 +3349,7 @@ def annotate_head_pos(raw, head_pos, rotation_limit=45, translation_limit=0.1,
     head_pos_t = np.concatenate([head_pos_t,
                                  [head_pos_t[-1] + 1. / raw.info['sfreq']]])
 
-    annot = mne.Annotations([], [], [])
+    annot = mne.Annotations([], [], [], orig_time=None)  # rel to data start
 
     # Annotate based on bad coil distances
     if do_coils:

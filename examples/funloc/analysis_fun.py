@@ -85,7 +85,7 @@ params.acq_dir = ['/sinuhe_data01/eric_non_space',
 
 # Set parameters for remotely connecting to SSS workstation ('sws')
 params.sws_ssh = 'kasga'
-params.sws_dir = '/data06/larsoner'
+params.sws_dir = '/data06/larsoner/sss_work'
 
 # Set the niprov handler to deal with events:
 params.on_process = handler
@@ -98,10 +98,14 @@ params.runs_empty = ['%s_erm']  # Define empty room runs
 params.compute_rank = True  # compute rank of the noise covariance matrix
 params.cov_rank = None  # preserve cov rank when using advanced estimators
 
-# Define number of SSP projectors. Columns correspond to Grad/Mag/EEG chans
-params.proj_nums = [[1, 1, 0],  # ECG
-                    [1, 1, 2],  # EOG
-                    [0, 0, 0]]  # Continuous (from ERM)
+# Define number of SSP projectors.
+# Three lists, one for ECG/EOG/continuous, each list with entries for
+# Grad/Mag/EEG. Can also be a per-subject dict (or defaultdict), like:
+# Can also be a dict (including defaultdict). So let's set some defaults:
+params.proj_nums = dict(
+    subj_01=[[3, 3, 0], [3, 3, 2], [0, 0, 0]],
+    subj_02=[[3, 3, 0], [3, 3, 2], [0, 0, 0]],
+    )
 params.proj_ave = True  # better projections by averaging ECG/EOG epochs
 
 # Set to True to use Autoreject module to set global epoch rejection thresholds

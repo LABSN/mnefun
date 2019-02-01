@@ -162,6 +162,9 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                 epochs = mne.Epochs(raw_pca, events, tmin=-0.5, tmax=0.5,
                                     baseline=(None, None), preload=True,
                                     reject_by_annotation=False)
+                event_times = ((epochs.events[:, 0] - raw.first_samp) /
+                               raw.info['sfreq'])
+                event_times = ['%0.1f' % e for e in event_times]
                 raw_plot = mne.io.RawArray(
                     epochs.get_data()
                     .transpose(1, 0, 2).reshape(len(epochs.ch_names), -1),
@@ -175,13 +178,14 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                 fig = raw_plot.plot(group_by='selection', butterfly=True,
                                     events=new_events)
                 fig.axes[0].lines[-1].set_zorder(10)  # events
-                fig.axes[0].set(xticks=np.arange(0, 10) + 0.5)
-                fig.axes[0].set(xticklabels=np.arange(1, 11))
-                fig.axes[0].set(xlabel='Segment')
+                fig.axes[0].set(xticks=np.arange(0, len(event_times)) + 0.5)
+                fig.axes[0].set(xticklabels=event_times)
+                fig.axes[0].set(xlabel='Center of 1-second segments')
                 fig.axes[0].grid(False)
                 for _ in range(len(fig.axes) - 1):
                     fig.delaxes(fig.axes[-1])
-                fig.set(figheight=8, figwidth=12)
+                fig.set(figheight=(fig.axes[0].get_yticks() != 0).sum(),
+                        figwidth=12)
                 fig.subplots_adjust(0.0, 0.0, 1, 1, 0, 0)
                 report.add_figs_to_section(fig, 'Processed', section,
                                            image_format='png')  # svd too slow
@@ -231,8 +235,9 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
             # SSP
             #
             section = 'SSP topomaps'
+
             if p.report_params.get('ssp_topomaps', True) and has_pca and \
-                    np.sum(p.proj_nums) > 0:
+                    np.sum(_get_proj_nums(p, subj)) > 0:
                 assert sss_info is not None
                 t0 = time.time()
                 print(('    %s ... ' % section).ljust(ljust), end='')
