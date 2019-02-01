@@ -27,7 +27,8 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
     import matplotlib.pyplot as plt
     from ._mnefun import (_load_trans_to, plot_good_coils, _head_pos_annot,
                           _get_bem_src_trans, safe_inserter, _prebad,
-                          _load_meg_bads, mlab_offscreen, _fix_raw_eog_cals)
+                          _load_meg_bads, mlab_offscreen, _fix_raw_eog_cals,
+                          _handle_dict)
     if run_indices is None:
         run_indices = [None] * len(subjects)
     style = {'axes.spines.right': 'off', 'axes.spines.top': 'off',
@@ -236,8 +237,9 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
             #
             section = 'SSP topomaps'
 
+            proj_nums = _handle_dict(p.proj_nums, subj)
             if p.report_params.get('ssp_topomaps', True) and has_pca and \
-                    np.sum(_get_proj_nums(p, subj)) > 0:
+                    np.sum(proj_nums) > 0:
                 assert sss_info is not None
                 t0 = time.time()
                 print(('    %s ... ' % section).ljust(ljust), end='')
@@ -250,19 +252,19 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                                               p.proj_extra))
                     figs.append(plot_projs_topomap(projs, info=sss_info,
                                                    show=False))
-                if any(p.proj_nums[0]):  # ECG
+                if any(proj_nums[0]):  # ECG
                     if 'preproc_ecg-proj.fif' in proj_files:
                         comments.append('ECG')
                         figs.append(_proj_fig(op.join(
                             p.work_dir, subj, p.pca_dir,
                             'preproc_ecg-proj.fif'), sss_info))
-                if any(p.proj_nums[1]):  # EOG
+                if any(proj_nums[1]):  # EOG
                     if 'preproc_blink-proj.fif' in proj_files:
                         comments.append('Blink')
                         figs.append(_proj_fig(op.join(
                             p.work_dir, subj, p.pca_dir,
                             'preproc_blink-proj.fif'), sss_info))
-                if any(p.proj_nums[2]):  # ERM
+                if any(proj_nums[2]):  # ERM
                     if 'preproc_blink-cont.fif' in proj_files:
                         comments.append('Continuous')
                         figs.append(_proj_fig(op.join(
