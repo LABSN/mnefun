@@ -2416,8 +2416,9 @@ def do_preprocessing_combined(p, subjects, run_indices):
 
             raw.filter(ecg_f_lims[0], ecg_f_lims[1], n_jobs=p.n_jobs_fir,
                        method='fir', filter_length=p.filter_length,
-                       **p.ecg_filt_kwargs, skip_by_annotation='edge',
-                       **old_kwargs)
+                       l_trans_bandwidth=0.5, h_trans_bandwidth=0.5,
+                       phase='zero-double', fir_window='hann',
+                       skip_by_annotation='edge', **old_kwargs)
             raw.add_proj(projs)
             raw.apply_proj()
             find_kwargs = dict()
@@ -2426,9 +2427,10 @@ def do_preprocessing_combined(p, subjects, run_indices):
             elif len(raw.annotations) > 0:
                 print('    WARNING: ECG event detection will not make use of '
                       'annotations, please update MNE-Python')
-            # We've already filtered the data above, so don't do it here
+            # We've already filtered the data channels above, but this
+            # filters the ECG channel
             ecg_events = find_ecg_events(
-                raw, 999, ecg_channel[subj], 0., None, None,
+                raw, 999, ecg_channel[subj], 0., 5, 35,
                 qrs_threshold='auto', return_ecg=False, **find_kwargs)[0]
             ecg_epochs = Epochs(
                 raw, ecg_events, 999, ecg_t_lims[0], ecg_t_lims[1],
@@ -2467,9 +2469,8 @@ def do_preprocessing_combined(p, subjects, run_indices):
                        skip_by_annotation='edge', **old_kwargs)
             raw.add_proj(projs)
             raw.apply_proj()
-            eog_events = find_eog_events(  # XXX remove copy
-                raw.copy(), ch_name=p.eog_channel, reject_by_annotation=True,
-                l_freq=None, h_freq=None)
+            eog_events = find_eog_events(
+                raw, ch_name=p.eog_channel, reject_by_annotation=True)
             eog_epochs = Epochs(
                 raw, eog_events, 998, eog_t_lims[0], eog_t_lims[1],
                 baseline=None, reject=p.ssp_eog_reject, preload=True)

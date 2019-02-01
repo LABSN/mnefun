@@ -158,15 +158,33 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                 events += raw.first_samp
                 events = np.array([events,
                                    np.zeros_like(events),
-                                   np.ones_like(events)])
+                                   np.ones_like(events)]).T
                 epochs = mne.Epochs(raw_pca, events, tmin=-0.5, tmax=0.5,
-                                    baseline=(None, None), preload=True)
+                                    baseline=(None, None), preload=True,
+                                    reject_by_annotation=False)
                 raw_plot = mne.io.RawArray(
                     epochs.get_data()
-                    .transpose(1, 0, 2).reshape(len(epochs.ch_names), -1))
-                fig = raw_plot.plot(group_by='selection')
+                    .transpose(1, 0, 2).reshape(len(epochs.ch_names), -1),
+                    epochs.info)
+                new_events = np.linspace(
+                    0, int(round(10 * raw.info['sfreq'])) - 1, 11).astype(int)
+                new_events += raw_plot.first_samp
+                new_events = np.array([new_events,
+                                       np.zeros_like(new_events),
+                                       np.ones_like(new_events)]).T
+                fig = raw_plot.plot(group_by='selection', butterfly=True,
+                                    events=new_events)
+                fig.axes[0].lines[-1].set_zorder(10)  # events
+                fig.axes[0].set(xticks=np.arange(0, 10) + 0.5)
+                fig.axes[0].set(xticklabels=np.arange(1, 11))
+                fig.axes[0].set(xlabel='Segment')
+                fig.axes[0].grid(False)
+                for _ in range(len(fig.axes) - 1):
+                    fig.delaxes(fig.axes[-1])
+                fig.set(figheight=8, figwidth=12)
+                fig.subplots_adjust(0.0, 0.0, 1, 1, 0, 0)
                 report.add_figs_to_section(fig, 'Processed', section,
-                                           image_format='svg')
+                                           image_format='png')  # svd too slow
 
             #
             # PSD
