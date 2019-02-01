@@ -459,6 +459,8 @@ class Params(Frozen):
         self.force_erm_cov_rank_full = True  # force empty-room inv rank
         self.eog_t_lims = (-0.25, 0.25)
         self.ecg_t_lims = (-0.08, 0.08)
+        self.eog_f_lims = (0, 2)
+        self.ecg_f_lims = (5, 35)
         self.freeze()
 
     @property
@@ -2333,8 +2335,8 @@ def do_preprocessing_combined(p, subjects, run_indices):
 
         eog_t_lims = p.eog_t_lims
         ecg_t_lims = p.ecg_t_lims
-        eog_f_lims = [0, 2]
-        ecg_f_lims = [5, 35]
+        eog_f_lims = p.eog_f_lims
+        ecg_f_lims = p.ecg_f_lims
 
         ecg_eve = op.join(pca_dir, 'preproc_ecg-eve.fif')
         ecg_epo = op.join(pca_dir, 'preproc_ecg-epo.fif')
@@ -2429,7 +2431,7 @@ def do_preprocessing_combined(p, subjects, run_indices):
             # We've already filtered the data channels above, but this
             # filters the ECG channel
             ecg_events = find_ecg_events(
-                raw, 999, ecg_channel, 0., 5, 35,
+                raw, 999, ecg_channel, 0., ecg_f_lims[0], ecg_f_lims[1],
                 qrs_threshold='auto', return_ecg=False, **find_kwargs)[0]
             ecg_epochs = Epochs(
                 raw, ecg_events, 999, ecg_t_lims[0], ecg_t_lims[1],

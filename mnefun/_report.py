@@ -257,19 +257,22 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                         comments.append('ECG')
                         figs.append(_proj_fig(op.join(
                             p.work_dir, subj, p.pca_dir,
-                            'preproc_ecg-proj.fif'), sss_info))
+                            'preproc_ecg-proj.fif'), sss_info,
+                            proj_nums[0]))
                 if any(proj_nums[1]):  # EOG
                     if 'preproc_blink-proj.fif' in proj_files:
                         comments.append('Blink')
                         figs.append(_proj_fig(op.join(
                             p.work_dir, subj, p.pca_dir,
-                            'preproc_blink-proj.fif'), sss_info))
+                            'preproc_blink-proj.fif'), sss_info,
+                            proj_nums[1]))
                 if any(proj_nums[2]):  # ERM
                     if 'preproc_blink-cont.fif' in proj_files:
                         comments.append('Continuous')
                         figs.append(_proj_fig(op.join(
                             p.work_dir, subj, p.pca_dir,
-                            'preproc_cont-proj.fif'), sss_info))
+                            'preproc_cont-proj.fif'), sss_info,
+                            proj_nums[2]))
                 # adjust sizes
                 for fig in figs:
                     n_rows = np.floor(np.sqrt(len(fig.axes)))
@@ -573,37 +576,69 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
         report.save(report_fname, open_browser=False, overwrite=True)
 
 
-def _proj_fig(fname, info):
+def _proj_fig(fname, info, proj_nums):
     import matplotlib.pyplot as plt
+    proj_nums = np.array(proj_nums, int)
+    assert proj_nums.shape == (3,)
     projs = read_proj(fname)
     epochs = fname.replace('-proj.fif', '-epo.fif')
+    assert len(projs) == proj_nums.sum()
+    n_col = proj_nums.max()
+    rs_topo = 3
     if op.isfile(epochs):
         epochs = mne.read_epochs(epochs)
         evoked = epochs.average()
-        n_row = 2
+        rs_trace = 2
     else:
-        n_row = 1
-    fig, axes = plt.subplots(n_row, len(projs),
-                             figsize=(len(projs) * 1.5, n_row * 2))
-    plot_projs_topomap(projs, info=info, show=False, axes=axes[0])
-    for pi, proj in enumerate(projs):
-        axes[0, pi].set(title='%s %s' % (proj['desc'].split('-')[0],
-                                         proj['desc'].split('-')[-1]))
-    if n_row == 2:
-        for pi, proj in enumerate(projs):
-            ax = axes[1, pi]
-            p = proj['data']['data']
-            this_evoked = evoked.copy().pick_channels(
-                proj['data']['col_names'])
-            assert p.shape == (1, len(this_evoked.data))
-            with warnings.catch_warnings(record=True):  # tight_layout
-                this_evoked.plot(
-                    picks=np.arange(len(this_evoked.data)), axes=[ax])
-            ax.texts = []
-            trace = np.dot(p, this_evoked.data)[0]
-            trace *= 0.8 * np.abs(ax.get_ylim()).max() / np.abs(trace).max()
-            ax.plot(this_evoked.times, trace, color='#9467bd')
-            ax.set(title='', ylabel='')
-        axes[1, 0].set(ylabel='N$_{ave}$=%d' % (evoked.nave,))
-    plt.subplots_adjust(wspace=0.1, hspace=0.1)
+        rs_trace = 0
+    n_row = proj_nums.astype(bool).sum() * (rs_topo + rs_trace)
+    shape = (n_row, n_col)
+    fig = plt.figure(figsize=(n_col * 2, n_row * 0.75))
+    used = np.zeros(len(projs), bool)
+    ri = 0
+    for count, ch_type in zip(proj_nums, ('grad', 'mag', 'eeg')):
+        if count == 0:
+            continue
+        if ch_type == 'eeg':
+            meg, eeg = False, True
+        else:
+            meg, eeg = ch_type, False
+        ch_names = [info['ch_names'][pick]
+                    for pick in mne.pick_types(info, meg=meg, eeg=eeg)]
+        idx = np.where([np.in1d(proj['data']['col_names'], ch_names).all()
+                        for proj in projs])[0]
+        assert len(idx) == count
+        assert not used[idx].any()
+        used[idx] = True
+        these_projs = [projs[ii] for ii in idx]
+        topo_axes = [plt.subplot2grid(
+            shape, (ri * (rs_topo + rs_trace), ci),
+            rowspan=rs_topo) for ci in range(count)]
+        # topomaps
+        with warnings.catch_warnings(record=True):
+            plot_projs_topomap(these_projs, info=info, show=False,
+                               axes=topo_axes)
+        plt.setp(topo_axes, title='', xlabel='')
+        topo_axes[0].set(ylabel=ch_type)
+        if rs_trace:
+            trace_axes = [plt.subplot2grid(
+                shape, (ri * (rs_topo + rs_trace) + rs_topo, ci),
+                rowspan=rs_trace) for ci in range(count)]
+            for proj, ax in zip(these_projs, trace_axes):
+                p = proj['data']['data']
+                this_evoked = evoked.copy().pick_channels(
+                    proj['data']['col_names'])
+                assert p.shape == (1, len(this_evoked.data))
+                with warnings.catch_warnings(record=True):  # tight_layout
+                    this_evoked.plot(
+                        picks=np.arange(len(this_evoked.data)), axes=[ax])
+                ax.texts = []
+                trace = np.dot(p, this_evoked.data)[0]
+                trace *= 0.8 * (np.abs(ax.get_ylim()).max() /
+                                np.abs(trace).max())
+                ax.plot(this_evoked.times, trace, color='#9467bd')
+                ax.set(title='', ylabel='', xlabel='')
+        ri += 1
+    assert used.all()
+    fig.subplots_adjust(0.1, 0.1, 0.95, 1, 0.3, 0.3)
     return fig
