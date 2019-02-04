@@ -269,9 +269,13 @@ class Params(Frozen):
         Default is False. Set to True to compute rank of the noise covariance
         matrix during inverse kernel computation.
     eog_t_lims : tuple
-        The time limits for EOG calculation.
+        The time limits for EOG calculation. Default (-0.25, 0.25).
     ecg_t_lims : tuple
-        The time limits for ECG calculation.
+        The time limits for ECG calculation. Default(-0.08, 0.08).
+    eog_f_lims : tuple
+        Band-pass limits for EOG detection and calculation. Default (0, 2).
+    ecg_f_lims : tuple
+        Band-pass limits for ECG detection and calculation. Default (5, 35).
     proj_nums : list | dict
         List of projector counts to use for ECG/EOG/ERM; each list contains
         three values for grad/mag/eeg channels.

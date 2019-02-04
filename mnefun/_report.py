@@ -189,7 +189,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                         figwidth=12)
                 fig.subplots_adjust(0.0, 0.0, 1, 1, 0, 0)
                 report.add_figs_to_section(fig, 'Processed', section,
-                                           image_format='png')  # svd too slow
+                                           image_format='png')  # svg too slow
 
             #
             # PSD
