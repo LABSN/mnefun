@@ -28,7 +28,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
     from ._mnefun import (_load_trans_to, plot_good_coils, _head_pos_annot,
                           _get_bem_src_trans, safe_inserter, _prebad,
                           _load_meg_bads, mlab_offscreen, _fix_raw_eog_cals,
-                          _handle_dict)
+                          _handle_dict, _get_t_window, plot_chpi_snr_raw)
     if run_indices is None:
         run_indices = [None] * len(subjects)
     style = {'axes.spines.right': 'off', 'axes.spines.top': 'off',
@@ -98,6 +98,31 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                 print('    %s skipped' % section)
 
             #
+            # cHPI SNR
+            #
+            section = 'cHPI SNR'
+            if p.report_params.get('chpi_snr', True) and p.movecomp:
+                t0 = time.time()
+                print(('    %s ... ' % section).ljust(ljust), end='')
+                figs = list()
+                captions = list()
+                for fname in fnames:
+                    raw = mne.io.read_raw_fif(fname, allow_maxshield='yes')
+                    t_window = _get_t_window(p, raw)
+                    fig = plot_chpi_snr_raw(raw, t_window, show=False,
+                                            verbose=False)
+                    fig.set_size_inches(10, 5)
+                    fig.subplots_adjust(0.1, 0.1, 0.8, 0.95,
+                                        wspace=0, hspace=0.5)
+                    figs.append(fig)
+                    captions.append('%s: %s' % (section, op.split(fname)[-1]))
+                report.add_figs_to_section(figs, captions, section,
+                                           image_format='png')  # svd too slow
+                print('%5.1f sec' % ((time.time() - t0),))
+            else:
+                print('    %s skipped' % section)
+
+            #
             # Head movement
             #
             section = 'Head movement'
@@ -154,22 +179,18 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                     [mne.io.read_raw_fif(fname) for fname in pca_fnames])
             section = 'Raw segments'
             if p.report_params.get('raw_segments', True) and has_pca:
-                events = np.linspace(raw.times[0], raw.times[-1], 12)[1:-1]
-                events = np.round(events * raw.info['sfreq']).astype(int)
-                events += raw.first_samp
-                events = np.array([events,
-                                   np.zeros_like(events),
-                                   np.ones_like(events)]).T
-                epochs = mne.Epochs(raw_pca, events, tmin=-0.5, tmax=0.5,
-                                    baseline=(None, None), preload=True,
-                                    reject_by_annotation=False)
-                event_times = ((epochs.events[:, 0] - raw.first_samp) /
-                               raw.info['sfreq'])
-                event_times = ['%0.1f' % e for e in event_times]
-                raw_plot = mne.io.RawArray(
-                    epochs.get_data()
-                    .transpose(1, 0, 2).reshape(len(epochs.ch_names), -1),
-                    epochs.info)
+                times = np.linspace(raw.times[0], raw.times[-1], 12)[1:-1]
+                raw_plot = list()
+                for t in times:
+                    this_raw = raw_pca.copy().crop(t - 0.5, t + 0.5)
+                    this_raw.load_data()
+                    this_raw._data[:] -= np.mean(this_raw._data, axis=-1,
+                                                 keepdims=True)
+                    raw_plot.append(this_raw)
+                raw_plot = mne.concatenate_raws(raw_plot)
+                for key in ('BAD boundary', 'EDGE boundary'):
+                    raw_plot.annotations.delete(
+                        np.where(raw_plot.annotations.description == key)[0])
                 new_events = np.linspace(
                     0, int(round(10 * raw.info['sfreq'])) - 1, 11).astype(int)
                 new_events += raw_plot.first_samp
@@ -179,8 +200,9 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                 fig = raw_plot.plot(group_by='selection', butterfly=True,
                                     events=new_events)
                 fig.axes[0].lines[-1].set_zorder(10)  # events
-                fig.axes[0].set(xticks=np.arange(0, len(event_times)) + 0.5)
-                fig.axes[0].set(xticklabels=event_times)
+                fig.axes[0].set(xticks=np.arange(0, len(times)) + 0.5)
+                xticklabels = ['%0.1f' % t for t in times]
+                fig.axes[0].set(xticklabels=xticklabels)
                 fig.axes[0].set(xlabel='Center of 1-second segments')
                 fig.axes[0].grid(False)
                 for _ in range(len(fig.axes) - 1):
@@ -273,12 +295,6 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                             p.work_dir, subj, p.pca_dir,
                             'preproc_cont-proj.fif'), sss_info,
                             proj_nums[2]))
-                # adjust sizes
-                for fig in figs:
-                    n_rows = np.floor(np.sqrt(len(fig.axes)))
-                    n_cols = np.ceil(len(fig.axes) / float(n_rows))
-                    fig.set_size_inches(2 * n_cols, 2 * n_rows)
-                    fig.tight_layout()
                 captions = [section] + [None] * (len(comments) - 1)
                 report.add_figs_to_section(
                      figs, captions, section, image_format='svg',

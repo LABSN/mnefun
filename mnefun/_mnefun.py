@@ -442,6 +442,7 @@ class Params(Frozen):
         self.subjects_dir = None
         self.src_pos = 7.
         self.report_params = dict(
+            chpi_snr=True,
             good_hpi_count=True,
             head_movement=True,
             raw_segments=True,
@@ -2683,12 +2684,8 @@ def _pos_valid(pos, dist_limit, gof_limit):
         pos[7] >= gof_limit and pos[8] <= dist_limit  # GOF limit
 
 
-def _head_pos_annot(p, raw_fname, prefix='  '):
-    """Locate head position estimation file and do annotations."""
-    if p.movecomp is None:
-        return None, None, None
+def _get_t_window(p, raw):
     t_window = p.coil_t_window
-    raw = mne.io.read_raw_fif(raw_fname, allow_maxshield='yes')
     if t_window == 'auto':
         hpi_freqs, _, _ = _get_hpi_info(raw.info)
         # Use the longer of 5 cycles and the difference in HPI freqs.
@@ -2696,6 +2693,16 @@ def _head_pos_annot(p, raw_fname, prefix='  '):
         # 60 ms for 83 Hz lowest freq.
         t_window = max(5. / min(hpi_freqs), 1. / np.diff(hpi_freqs).min())
         t_window = round(1000 * t_window) / 1000.  # round to ms
+    t_window = float(t_window)
+    return t_window
+
+
+def _head_pos_annot(p, raw_fname, prefix='  '):
+    """Locate head position estimation file and do annotations."""
+    if p.movecomp is None:
+        return None, None, None
+    raw = mne.io.read_raw_fif(raw_fname, allow_maxshield='yes')
+    t_window = _get_t_window(p, raw)
     pos_fname = raw_fname[:-4] + '.pos'
     if not op.isfile(pos_fname):
         # XXX Someday we can do:
@@ -2978,7 +2985,8 @@ def plot_reconstruction(evoked, origin=(0., 0., 0.04)):
     return fig
 
 
-def plot_chpi_snr_raw(raw, win_length, n_harmonics=None, show=True):
+def plot_chpi_snr_raw(raw, win_length, n_harmonics=None, show=True,
+                      verbose=True):
     """Compute and plot cHPI SNR from raw data
 
     Parameters
@@ -3035,12 +3043,13 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics=None, show=True):
     buflen = int(win_length * sfreq)
     if buflen <= 0:
         raise ValueError('Window length should be >0')
-    (cfreqs, _, _, _, _) = _get_hpi_info(raw.info)
-    print('Nominal cHPI frequencies: %s Hz' % cfreqs)
-    print('Sampling frequency: %s Hz' % sfreq)
-    print('Using line freqs: %s Hz' % linefreqs)
-    print('Using buffers of %s samples = %s seconds\n'
-          % (buflen, buflen/sfreq))
+    cfreqs = _get_hpi_info(raw.info)[0]
+    if verbose:
+        print('Nominal cHPI frequencies: %s Hz' % cfreqs)
+        print('Sampling frequency: %s Hz' % sfreq)
+        print('Using line freqs: %s Hz' % linefreqs)
+        print('Using buffers of %s samples = %s seconds\n'
+              % (buflen, buflen/sfreq))
 
     pick_meg = pick_types(raw.info, meg=True, exclude=[])
     pick_mag = pick_types(raw.info, meg='mag', exclude=[])
@@ -3069,7 +3078,8 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics=None, show=True):
     snr_avg_mag = np.zeros([len(cfreqs), len(bufs)])
     resid_vars = np.zeros([nchan, len(bufs)])
     for ind, buf0 in enumerate(bufs):
-        print('Buffer %s/%s' % (ind+1, len(bufs)))
+        if verbose:
+            print('Buffer %s/%s' % (ind+1, len(bufs)))
         megbuf = raw[pick_meg, buf0:buf0+buflen][0].T
         coeffs = np.dot(inv_model, megbuf)
         coeffs_hpi = coeffs[2+2*len(linefreqs):]
