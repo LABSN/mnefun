@@ -2411,7 +2411,8 @@ def do_preprocessing_combined(p, subjects, run_indices):
             raw.apply_proj()
             pr = compute_proj_raw(raw, duration=1, n_grad=proj_nums[2][0],
                                   n_mag=proj_nums[2][1], n_eeg=proj_nums[2][2],
-                                  reject=None, flat=None, n_jobs=p.n_jobs_mkl)
+                                  reject=p.reject, flat=p.flat,
+                                  n_jobs=p.n_jobs_mkl)
             write_proj(cont_proj, pr)
             projs.extend(pr)
             del raw
@@ -2442,9 +2443,11 @@ def do_preprocessing_combined(p, subjects, run_indices):
             ecg_events = find_ecg_events(
                 raw, 999, ecg_channel, 0., ecg_f_lims[0], ecg_f_lims[1],
                 qrs_threshold='auto', return_ecg=False, **find_kwargs)[0]
+            use_reject, use_flat = _restrict_reject_flat(
+                p.ssp_ecg_reject, p.flat, raw)
             ecg_epochs = Epochs(
                 raw, ecg_events, 999, ecg_t_lims[0], ecg_t_lims[1],
-                baseline=None, reject=p.ssp_ecg_reject, preload=True)
+                baseline=None, reject=use_reject, flat=use_flat, preload=True)
             print('  obtained %d epochs from %d events.' % (len(ecg_epochs),
                                                             len(ecg_events)))
             if len(ecg_epochs) >= 20:
@@ -2481,9 +2484,11 @@ def do_preprocessing_combined(p, subjects, run_indices):
             raw.apply_proj()
             eog_events = find_eog_events(
                 raw, ch_name=p.eog_channel, reject_by_annotation=True)
+            use_reject, use_flat = _restrict_reject_flat(
+                p.ssp_eog_reject, p.flat, raw)
             eog_epochs = Epochs(
                 raw, eog_events, 998, eog_t_lims[0], eog_t_lims[1],
-                baseline=None, reject=p.ssp_eog_reject, preload=True)
+                baseline=None, reject=use_reject, flat=use_flat, preload=True)
             print('  obtained %d epochs from %d events' % (len(eog_epochs),
                                                            len(eog_events)))
             del eog_events
