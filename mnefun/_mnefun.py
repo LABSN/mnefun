@@ -2085,6 +2085,10 @@ def gen_covariances(p, subjects, run_indices):
             raw.pick_types(meg=True, eog=True, exclude='bads')
             use_reject, use_flat = _restrict_reject_flat(
                 reject, p.flat, raw)
+            if 'eeg' in use_reject:
+                del use_reject['eeg']
+            if 'eeg' in use_flat:
+                del use_flat['eeg']
             cov = compute_raw_covariance(raw, reject=use_reject, flat=use_flat,
                                          method=p.cov_method, **kwargs_erm)
             write_cov(empty_cov_name, cov)
