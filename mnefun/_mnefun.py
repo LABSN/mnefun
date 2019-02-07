@@ -1580,6 +1580,10 @@ def combine_medial_labels(labels, subject='fsaverage', surf='white',
 
 def _restrict_reject_flat(reject, flat, raw):
     """Restrict a reject and flat dict based on channel presence"""
+    reject = {} if reject is None else reject
+    flat = {} if flat is None else flat
+    assert isinstance(reject, dict())
+    assert isinstance(flat, dict())
     use_reject, use_flat = dict(), dict()
     for in_, out in zip([reject, flat], [use_reject, use_flat]):
         use_keys = [key for key in in_.keys() if key in raw]
