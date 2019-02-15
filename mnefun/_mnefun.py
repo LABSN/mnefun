@@ -29,14 +29,15 @@ from mne import (
     make_forward_solution, write_evokeds, make_sphere_model,
     setup_volume_source_space, pick_info, write_source_spaces,
     read_source_spaces, write_forward_solution, DipoleFixed,
-    read_annotations)
+    read_annotations, read_epochs)
 from mne.externals.h5io import read_hdf5, write_hdf5
 from mne.utils import _pl
 try:
     from mne import compute_raw_covariance  # up-to-date mne-python
 except ImportError:  # oldmne-python
     from mne import compute_raw_data_covariance as compute_raw_covariance
-from mne.preprocessing.ssp import compute_proj_ecg, compute_proj_eog
+from mne.proj import compute_proj_epochs, compute_proj_evoked
+from mne.preprocessing import find_ecg_events, find_eog_events
 from mne.preprocessing.maxfilter import fit_sphere_to_headshape
 from mne.preprocessing.maxwell import (maxwell_filter,
                                        _trans_sss_basis,
@@ -75,7 +76,11 @@ from mne.io.constants import FIFF
 from mne.io.pick import pick_types_forward, pick_types
 from mne.io.meas_info import _empty_info
 from mne.minimum_norm import write_inverse_operator
-from mne.utils import run_subprocess, _time_mask, estimate_rank
+from mne.utils import run_subprocess, _time_mask
+try:
+    from mne.rank import estimate_rank
+except ImportError:
+    from mne.utils import estimate_rank
 from mne.viz import plot_drop_log, tight_layout
 from mne.fixes import _get_args as get_args
 
@@ -173,9 +178,10 @@ class Params(Frozen):
     auto_bad : float | None
         If not None, bad channels will be automatically excluded if
         they disqualify a proportion of events exceeding ``autobad``.
-    ecg_channel : str | None
+    ecg_channel : str | dict | None
         The channel to use to detect ECG events. None will use ECG063.
         In lieu of an ECG recording, MEG1531 may work.
+        Can be a dict that maps subject names to channels.
     eog_channel : str
         The channel to use to detect EOG events. None will use EOG*.
         In lieu of an EOG recording, MEG1411 may work.
@@ -262,6 +268,18 @@ class Params(Frozen):
     compute_rank : bool
         Default is False. Set to True to compute rank of the noise covariance
         matrix during inverse kernel computation.
+    eog_t_lims : tuple
+        The time limits for EOG calculation. Default (-0.25, 0.25).
+    ecg_t_lims : tuple
+        The time limits for ECG calculation. Default(-0.08, 0.08).
+    eog_f_lims : tuple
+        Band-pass limits for EOG detection and calculation. Default (0, 2).
+    ecg_f_lims : tuple
+        Band-pass limits for ECG detection and calculation. Default (5, 35).
+    proj_nums : list | dict
+        List of projector counts to use for ECG/EOG/ERM; each list contains
+        three values for grad/mag/eeg channels.
+        Can be a dict that maps subject names to projector counts to use.
 
     Returns
     -------
@@ -424,8 +442,10 @@ class Params(Frozen):
         self.subjects_dir = None
         self.src_pos = 7.
         self.report_params = dict(
+            chpi_snr=True,
             good_hpi_count=True,
             head_movement=True,
+            raw_segments=True,
             psd=True,
             ssp_topomaps=True,
             source_alignment=True,
@@ -442,6 +462,10 @@ class Params(Frozen):
         self.compute_rank = False
         self.cov_rank = 'full'
         self.force_erm_cov_rank_full = True  # force empty-room inv rank
+        self.eog_t_lims = (-0.25, 0.25)
+        self.ecg_t_lims = (-0.08, 0.08)
+        self.eog_f_lims = (0, 2)
+        self.ecg_f_lims = (5, 35)
         self.freeze()
 
     @property
@@ -1556,6 +1580,10 @@ def combine_medial_labels(labels, subject='fsaverage', surf='white',
 
 def _restrict_reject_flat(reject, flat, raw):
     """Restrict a reject and flat dict based on channel presence"""
+    reject = {} if reject is None else reject
+    flat = {} if flat is None else flat
+    assert isinstance(reject, dict)
+    assert isinstance(flat, dict)
     use_reject, use_flat = dict(), dict()
     for in_, out in zip([reject, flat], [use_reject, use_flat]):
         use_keys = [key for key in in_.keys() if key in raw]
@@ -1676,6 +1704,9 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
                 warnings.warn('resulting new sampling frequency %s not equal '
                               'to previous values %s' % (new_sfreq, sfreqs))
             sfreqs.add(new_sfreq)
+        epochs_fnames, evoked_fnames = get_epochs_evokeds_fnames(p, subj,
+                                                                 analyses)
+        mat_file, fif_file = epochs_fnames
         if p.autoreject_thresholds:
             assert len(p.autoreject_types) > 0
             assert all(a in ('mag', 'grad', 'eeg', 'ecg', 'eog')
@@ -1700,6 +1731,9 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
                                DEFAULTS['units'][k]))
                 use_reject[k] = new_dict[k]
             print(': ' + ', '.join(msgs))
+            hdf5_file = fif_file.replace('-epo.fif', '-reject.h5')
+            assert hdf5_file.endswith('.h5')
+            write_hdf5(hdf5_file, use_reject, overwrite=True)
         else:
             use_reject = p.reject
 
@@ -1717,9 +1751,6 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
         ch_namess.append(epochs.ch_names)
         # only kept trials that were not dropped
         sfreq = epochs.info['sfreq']
-        epochs_fnames, evoked_fnames = get_epochs_evokeds_fnames(p, subj,
-                                                                 analyses)
-        mat_file, fif_file = epochs_fnames
         # now deal with conditions to save evoked
         if p.disp_files:
             print('    Matching trial counts and saving data to disk.')
@@ -1806,7 +1837,7 @@ def _compute_rank(p, subj, run_indices):
     """Compute rank of the data."""
     epochs_fnames, _ = get_epochs_evokeds_fnames(p, subj, p.analyses)
     _, fif_file = epochs_fnames
-    epochs = mne.read_epochs(fif_file)
+    epochs = read_epochs(fif_file)
     meg, eeg = 'meg' in epochs, 'eeg' in epochs
     rank = dict()
     if meg:
@@ -1852,7 +1883,7 @@ def gen_inverses(p, subjects, run_indices):
 
         epochs_fnames, _ = get_epochs_evokeds_fnames(p, subj, p.analyses)
         _, fif_file = epochs_fnames
-        epochs = mne.read_epochs(fif_file, preload=False)
+        epochs = read_epochs(fif_file, preload=False)
         del epochs_fnames, fif_file
 
         meg, eeg = 'meg' in epochs, 'eeg' in epochs
@@ -2038,6 +2069,13 @@ def gen_covariances(p, subjects, run_indices):
         kwargs_erm['rank'] = kwargs['rank']
         if p.force_erm_cov_rank_full and has_rank_arg:
             kwargs_erm['rank'] = 'full'
+        # Use the same thresholds we used for primary Epochs
+        if p.autoreject_thresholds:
+            reject = get_epochs_evokeds_fnames(p, subj, [])[0][1]
+            reject = reject.replace('-epo.fif', '-reject.h5')
+            reject = read_hdf5(reject)
+        else:
+            reject = p.reject
 
         # Make empty room cov
         if p.runs_empty:
@@ -2049,7 +2087,12 @@ def gen_covariances(p, subjects, run_indices):
             empty_fif = get_raw_fnames(p, subj, 'pca', 'only', False)[0]
             raw = read_raw_fif(empty_fif, preload=True)
             raw.pick_types(meg=True, eog=True, exclude='bads')
-            use_reject, use_flat = _restrict_reject_flat(p.reject, p.flat, raw)
+            use_reject, use_flat = _restrict_reject_flat(
+                reject, p.flat, raw)
+            if 'eeg' in use_reject:
+                del use_reject['eeg']
+            if 'eeg' in use_flat:
+                del use_flat['eeg']
             cov = compute_raw_covariance(raw, reject=use_reject, flat=use_flat,
                                          method=p.cov_method, **kwargs_erm)
             write_cov(empty_cov_name, cov)
@@ -2087,7 +2130,7 @@ def gen_covariances(p, subjects, run_indices):
                       % (new_count, old_count, op.basename(cov_name)))
             events = concatenate_events(events, first_samps,
                                         last_samps)
-            use_reject, use_flat = _restrict_reject_flat(p.reject, p.flat, raw)
+            use_reject, use_flat = _restrict_reject_flat(reject, p.flat, raw)
             epochs = Epochs(raw, events, event_id=None, tmin=p.bmin,
                             tmax=p.bmax, baseline=(None, None), proj=False,
                             reject=use_reject, flat=use_flat, preload=True)
@@ -2150,7 +2193,8 @@ def _raw_LRFCP(raw_names, sfreq, l_freq, h_freq, n_jobs, n_jobs_resample,
                filter_length=32768, apply_proj=True, preload=True,
                force_bads=False, l_trans=0.5, h_trans=0.5,
                allow_maxshield=False, phase='zero-double', fir_window='hann',
-               fir_design='firwin2', pick=True):
+               fir_design='firwin2', pick=True,
+               skip_by_annotation=('bad', 'skip')):
     """Helper to load, filter, concatenate, then project raw files"""
     if isinstance(raw_names, str):
         raw_names = [raw_names]
@@ -2189,6 +2233,17 @@ def _raw_LRFCP(raw_names, sfreq, l_freq, h_freq, n_jobs, n_jobs_resample,
     return raw
 
 
+def compute_proj_wrap(epochs, average, **kwargs):
+    if average:
+        return compute_proj_evoked(epochs.average(), **kwargs)
+    else:
+        return compute_proj_epochs(epochs, **kwargs)
+
+
+def _handle_dict(entry, subj):
+    return entry[subj] if isinstance(entry, dict) else entry
+
+
 def do_preprocessing_combined(p, subjects, run_indices):
     """Do preprocessing on all raw files together
 
@@ -2205,6 +2260,8 @@ def do_preprocessing_combined(p, subjects, run_indices):
     """
     drop_logs = list()
     for si, subj in enumerate(subjects):
+        proj_nums = np.array(_handle_dict(p.proj_nums, subj), int)
+        ecg_channel = _handle_dict(p.ecg_channel, subj)
         if p.disp_files:
             print('  Preprocessing subject %g/%g (%s).'
                   % (si + 1, len(subjects), subj))
@@ -2233,7 +2290,8 @@ def do_preprocessing_combined(p, subjects, run_indices):
                              apply_proj=False, force_bads=False,
                              l_trans=p.hp_trans, h_trans=p.lp_trans,
                              phase=p.phase, fir_window=p.fir_window,
-                             pick=True, **fir_kwargs)
+                             pick=True, skip_by_annotation='edge',
+                             **fir_kwargs)
             events = fixed_len_events(p, raw)
             # do not mark eog channels bad
             meg, eeg = 'meg' in raw, 'eeg' in raw
@@ -2284,19 +2342,20 @@ def do_preprocessing_combined(p, subjects, run_indices):
                 with open(bad_file, 'w') as f:
                     f.write('\n'.join(badchs))
         if not op.isfile(bad_file):
-            print('    No bad channel file found, clearing bad channels:\n'
-                  '        %s' % bad_file)
+            print('    Clearing bad channels (no file %s)'
+                  % op.sep.join(bad_file.split(op.sep)[-3:]))
             bad_file = None
 
-        proj_nums = p.proj_nums
-        eog_t_lims = [-0.25, 0.25]
-        ecg_t_lims = [-0.08, 0.08]
-        eog_f_lims = [0, 2]
-        ecg_f_lims = [5, 35]
+        eog_t_lims = p.eog_t_lims
+        ecg_t_lims = p.ecg_t_lims
+        eog_f_lims = p.eog_f_lims
+        ecg_f_lims = p.ecg_f_lims
 
         ecg_eve = op.join(pca_dir, 'preproc_ecg-eve.fif')
+        ecg_epo = op.join(pca_dir, 'preproc_ecg-epo.fif')
         ecg_proj = op.join(pca_dir, 'preproc_ecg-proj.fif')
         eog_eve = op.join(pca_dir, 'preproc_blink-eve.fif')
+        eog_epo = op.join(pca_dir, 'preproc_blink-epo.fif')
         eog_proj = op.join(pca_dir, 'preproc_blink-proj.fif')
         cont_proj = op.join(pca_dir, 'preproc_cont-proj.fif')
         all_proj = op.join(pca_dir, 'preproc_all-proj.fif')
@@ -2307,7 +2366,6 @@ def do_preprocessing_combined(p, subjects, run_indices):
         pre_list = [r for ri, r in enumerate(raw_names)
                     if ri in p.get_projs_from]
 
-        # Calculate and apply continuous projectors if requested
         projs = list()
         raw_orig = _raw_LRFCP(
             raw_names=pre_list, sfreq=p.proj_sfreq, l_freq=None, h_freq=None,
@@ -2315,7 +2373,8 @@ def do_preprocessing_combined(p, subjects, run_indices):
             projs=projs, bad_file=bad_file, disp_files=p.disp_files,
             method='fir', filter_length=p.filter_length, force_bads=False,
             l_trans=p.hp_trans, h_trans=p.lp_trans, phase=p.phase,
-            fir_window=p.fir_window, pick=True, **fir_kwargs)
+            fir_window=p.fir_window, pick=True, skip_by_annotation='edge',
+            **fir_kwargs)
 
         # Apply any user-supplied extra projectors
         if p.proj_extra is not None:
@@ -2324,11 +2383,12 @@ def do_preprocessing_combined(p, subjects, run_indices):
             extra_proj = op.join(pca_dir, p.proj_extra)
             projs = read_proj(extra_proj)
 
+        #
         # Calculate and apply ERM projectors
-        proj_nums = np.array(proj_nums, int)
+        #
         if proj_nums.shape != (3, 3):
-            raise ValueError('proj_nums must be an array with shape (3, 3), '
-                             'got %s' % (projs.shape,))
+            raise ValueError('proj_nums for %s must be an array with shape '
+                             '(3, 3), got %s' % (subj, projs.shape))
         if any(proj_nums[2]):
             if len(empty_names) >= 1:
                 if p.disp_files:
@@ -2341,94 +2401,127 @@ def do_preprocessing_combined(p, subjects, run_indices):
                     bad_file=bad_file, disp_files=p.disp_files, method='fir',
                     filter_length=p.filter_length, force_bads=True,
                     l_trans=p.hp_trans, h_trans=p.lp_trans,
-                    phase=p.phase, fir_window=p.fir_window, **fir_kwargs)
+                    phase=p.phase, fir_window=p.fir_window,
+                    skip_by_annotation='edge', **fir_kwargs)
             else:
                 if p.disp_files:
                     print('    Computing continuous projectors using data.')
                 raw = raw_orig.copy()
             raw.filter(None, p.cont_lp, n_jobs=p.n_jobs_fir, method='fir',
                        filter_length=p.filter_length, h_trans_bandwidth=0.5,
-                       fir_window=p.fir_window, phase=p.phase, **fir_kwargs)
+                       fir_window=p.fir_window, phase=p.phase,
+                       skip_by_annotation='edge', **fir_kwargs)
             raw.add_proj(projs)
             raw.apply_proj()
             pr = compute_proj_raw(raw, duration=1, n_grad=proj_nums[2][0],
                                   n_mag=proj_nums[2][1], n_eeg=proj_nums[2][2],
-                                  reject=None, flat=None, n_jobs=p.n_jobs_mkl)
+                                  reject=p.reject, flat=p.flat,
+                                  n_jobs=p.n_jobs_mkl)
             write_proj(cont_proj, pr)
             projs.extend(pr)
             del raw
 
+        #
         # Calculate and apply the ECG projectors
+        #
         if any(proj_nums[0]):
             if p.disp_files:
-                print('    Computing ECG projectors.')
+                print('    Computing ECG projectors...', end='')
             raw = raw_orig.copy()
 
             raw.filter(ecg_f_lims[0], ecg_f_lims[1], n_jobs=p.n_jobs_fir,
                        method='fir', filter_length=p.filter_length,
                        l_trans_bandwidth=0.5, h_trans_bandwidth=0.5,
                        phase='zero-double', fir_window='hann',
-                       **old_kwargs)
+                       skip_by_annotation='edge', **old_kwargs)
             raw.add_proj(projs)
             raw.apply_proj()
-            pr, ecg_events, drop_log = \
-                compute_proj_ecg(raw, n_grad=proj_nums[0][0],
-                                 n_jobs=p.n_jobs_mkl,
-                                 n_mag=proj_nums[0][1], n_eeg=proj_nums[0][2],
-                                 tmin=ecg_t_lims[0], tmax=ecg_t_lims[1],
-                                 l_freq=None, h_freq=None, no_proj=True,
-                                 qrs_threshold='auto', ch_name=p.ecg_channel,
-                                 reject=p.ssp_ecg_reject, return_drop_log=True,
-                                 average=p.proj_ave)
-            n_good = sum(len(d) == 0 for d in drop_log)
-            if n_good >= 20:
-                write_events(ecg_eve, ecg_events)
+            find_kwargs = dict()
+            if 'reject_by_annotation' in get_args(find_ecg_events):
+                find_kwargs['reject_by_annotation'] = True
+            elif len(raw.annotations) > 0:
+                print('    WARNING: ECG event detection will not make use of '
+                      'annotations, please update MNE-Python')
+            # We've already filtered the data channels above, but this
+            # filters the ECG channel
+            ecg_events = find_ecg_events(
+                raw, 999, ecg_channel, 0., ecg_f_lims[0], ecg_f_lims[1],
+                qrs_threshold='auto', return_ecg=False, **find_kwargs)[0]
+            use_reject, use_flat = _restrict_reject_flat(
+                p.ssp_ecg_reject, p.flat, raw)
+            ecg_epochs = Epochs(
+                raw, ecg_events, 999, ecg_t_lims[0], ecg_t_lims[1],
+                baseline=None, reject=use_reject, flat=use_flat, preload=True)
+            print('  obtained %d epochs from %d events.' % (len(ecg_epochs),
+                                                            len(ecg_events)))
+            if len(ecg_epochs) >= 20:
+                write_events(ecg_eve, ecg_epochs.events)
+                ecg_epochs.save(ecg_epo)
+                desc_prefix = 'ECG-%s-%s' % tuple(ecg_t_lims)
+                pr = compute_proj_wrap(
+                    ecg_epochs, p.proj_ave, n_grad=proj_nums[0][0],
+                    n_mag=proj_nums[0][1], n_eeg=proj_nums[0][2],
+                    desc_prefix=desc_prefix)
+                assert len(pr) == np.sum(proj_nums[0])
                 write_proj(ecg_proj, pr)
                 projs.extend(pr)
             else:
-                plot_drop_log(drop_log)
-                raw.plot(events=ecg_events)
+                plot_drop_log(ecg_epochs.drop_log)
+                raw.plot(events=ecg_epochs.events)
                 raise RuntimeError('Only %d/%d good ECG epochs found'
-                                   % (n_good, len(ecg_events)))
-            del raw
+                                   % (len(ecg_epochs), len(ecg_events)))
+            del raw, ecg_epochs, ecg_events
 
+        #
         # Next calculate and apply the EOG projectors
+        #
         if any(proj_nums[1]):
             if p.disp_files:
-                print('    Computing EOG projectors.')
+                print('    Computing EOG projectors...', end='')
             raw = raw_orig.copy()
             raw.filter(eog_f_lims[0], eog_f_lims[1], n_jobs=p.n_jobs_fir,
                        method='fir', filter_length=p.filter_length,
                        l_trans_bandwidth=0.5, h_trans_bandwidth=0.5,
                        phase='zero-double', fir_window='hann',
-                       **old_kwargs)
+                       skip_by_annotation='edge', **old_kwargs)
             raw.add_proj(projs)
             raw.apply_proj()
-            pr, eog_events = \
-                compute_proj_eog(raw, n_grad=proj_nums[1][0],
-                                 n_jobs=p.n_jobs_mkl,
-                                 n_mag=proj_nums[1][1], n_eeg=proj_nums[1][2],
-                                 tmin=eog_t_lims[0], tmax=eog_t_lims[1],
-                                 l_freq=None, h_freq=None, no_proj=True,
-                                 ch_name=p.eog_channel,
-                                 reject=p.ssp_eog_reject, average=p.proj_ave)
-            if eog_events.shape[0] >= 5:
-                write_events(eog_eve, eog_events)
+            eog_events = find_eog_events(
+                raw, ch_name=p.eog_channel, reject_by_annotation=True)
+            use_reject, use_flat = _restrict_reject_flat(
+                p.ssp_eog_reject, p.flat, raw)
+            eog_epochs = Epochs(
+                raw, eog_events, 998, eog_t_lims[0], eog_t_lims[1],
+                baseline=None, reject=use_reject, flat=use_flat, preload=True)
+            print('  obtained %d epochs from %d events' % (len(eog_epochs),
+                                                           len(eog_events)))
+            del eog_events
+            if len(eog_epochs) >= 5:
+                write_events(eog_eve, eog_epochs.events)
+                eog_epochs.save(eog_epo)
+                desc_prefix = 'EOG-%s-%s' % tuple(eog_t_lims)
+                pr = compute_proj_wrap(
+                    eog_epochs, p.proj_ave, n_grad=proj_nums[1][0],
+                    n_mag=proj_nums[1][1], n_eeg=proj_nums[1][2],
+                    desc_prefix=desc_prefix)
+                assert len(pr) == np.sum(proj_nums[1])
                 write_proj(eog_proj, pr)
                 projs.extend(pr)
             else:
-                warnings.warn('Only %d EOG events!' % eog_events.shape[0])
-            del raw
+                warnings.warn('Only %d usable EOG events!' % len(eog_epochs))
+            del raw, eog_epochs
 
         # save the projectors
         write_proj(all_proj, projs)
 
-        # look at raw_orig for trial DQs now, it will be quick
+        #
+        # Look at raw_orig for trial DQs now, it will be quick
+        #
         raw_orig.filter(p.hp_cut, p.lp_cut, n_jobs=p.n_jobs_fir, method='fir',
                         filter_length=p.filter_length,
                         l_trans_bandwidth=p.hp_trans, phase=p.phase,
                         h_trans_bandwidth=p.lp_trans, fir_window=p.fir_window,
-                        **fir_kwargs)
+                        skip_by_annotation='edge', **fir_kwargs)
         raw_orig.add_proj(projs)
         raw_orig.apply_proj()
         # now let's epoch with 1-sec windows to look for DQs
@@ -2604,12 +2697,8 @@ def _pos_valid(pos, dist_limit, gof_limit):
         pos[7] >= gof_limit and pos[8] <= dist_limit  # GOF limit
 
 
-def _head_pos_annot(p, raw_fname, prefix='  '):
-    """Locate head position estimation file and do annotations."""
-    if p.movecomp is None:
-        return None, None, None
+def _get_t_window(p, raw):
     t_window = p.coil_t_window
-    raw = mne.io.read_raw_fif(raw_fname, allow_maxshield='yes')
     if t_window == 'auto':
         hpi_freqs, _, _ = _get_hpi_info(raw.info)
         # Use the longer of 5 cycles and the difference in HPI freqs.
@@ -2617,13 +2706,24 @@ def _head_pos_annot(p, raw_fname, prefix='  '):
         # 60 ms for 83 Hz lowest freq.
         t_window = max(5. / min(hpi_freqs), 1. / np.diff(hpi_freqs).min())
         t_window = round(1000 * t_window) / 1000.  # round to ms
+    t_window = float(t_window)
+    return t_window
+
+
+def _head_pos_annot(p, raw_fname, prefix='  '):
+    """Locate head position estimation file and do annotations."""
+    if p.movecomp is None:
+        return None, None, None
+    raw = mne.io.read_raw_fif(raw_fname, allow_maxshield='yes')
+    t_window = _get_t_window(p, raw)
     pos_fname = raw_fname[:-4] + '.pos'
     if not op.isfile(pos_fname):
         # XXX Someday we can do:
         # head_pos = _calculate_chpi_positions(
         #     raw, t_window=t_window, dist_limit=dist_limit)
         # write_head_positions(pos_fname, head_pos)
-        print('%sEstimating position file %s' % (prefix, pos_fname,))
+        print('%sEstimating position file %s'
+              % (prefix, op.basename(pos_fname)))
         run_sss_positions(raw_fname, pos_fname,
                           host=p.sws_ssh, port=p.sws_port, prefix=prefix,
                           work_dir=p.sws_dir, t_window=t_window,
@@ -2673,10 +2773,22 @@ def _head_pos_annot(p, raw_fname, prefix='  '):
             prefix='  ' + prefix, coil_bad_count_duration_limit=lims[5])
         if annot is not None:
             annot.save(annot_fname)
+    orig_time = raw.info['meas_date'][0] + raw.info['meas_date'][1] / 1000000.
     try:
         annot = read_annotations(annot_fname)
+        assert annot.orig_time is None  # relative to start of raw data
+        annot.onset += raw.first_samp / raw.info['sfreq']
+        annot.orig_time = orig_time
     except IOError:  # no annotations requested
-        annot = None
+        annot = mne.Annotations([], [], [], orig_time=raw.info['meas_date'])
+    # Append custom annotations (probably needs some tweaking due to meas_date)
+    try:
+        custom_annot = read_annotations(raw_fname[:-4] + '-custom-annot.fif')
+    except IOError:
+        custom_annot = mne.Annotations(
+            [], [], [], orig_time=raw.info['meas_date'])
+    assert custom_annot.orig_time == orig_time
+    annot += custom_annot
     return head_pos, annot, fit_data
 
 
@@ -2762,27 +2874,40 @@ def clean_brain(brain_img):
     return np.concatenate((brain_img, alpha[..., np.newaxis]), -1)
 
 
-def plot_colorbar(pos_lims, ticks=None, ticklabels=None, figsize=(1, 2),
+def plot_colorbar(lims, ticks=None, ticklabels=None, figsize=(1, 2),
                   labelsize='small', ticklabelsize='x-small', ax=None,
                   label='', tickrotation=0., orientation='vertical',
-                  end_labels=None):
+                  end_labels=None, colormap='mne', transparent=False,
+                  diverging=None):
     import matplotlib.pyplot as plt
     from matplotlib.colorbar import ColorbarBase
     from matplotlib.colors import Normalize
     with plt.rc_context({'axes.labelsize': labelsize,
                          'xtick.labelsize': ticklabelsize,
                          'ytick.labelsize': ticklabelsize}):
-        cmap = mne.viz.utils.mne_analyze_colormap(
-            limits=pos_lims, format='matplotlib')
+        if diverging is None:
+            diverging = (colormap == 'mne')  # simple heuristic here
+        if diverging:
+            use_lims = dict(kind='value', pos_lims=lims)
+        else:
+            use_lims = dict(kind='value', lims=lims)
+        cmap, scale_pts, diverging, _ = mne.viz._3d._limits_to_control_points(
+            use_lims, 0, colormap, transparent,
+            linearize=True)
+        vmin, vmax = scale_pts[0], scale_pts[-1]
+        if ticks is None:
+            if diverging:
+                ticks = [-lims[2], -lims[1], -lims[0], 0.,
+                         lims[0], lims[1], lims[2]]
+            else:
+                ticks = [lims[0], np.mean(lims), lims[1]]
+        del colormap, lims, use_lims
         adjust = (ax is None)
         if ax is None:
             fig, ax = plt.subplots(1, figsize=figsize)
         else:
             fig = ax.figure
-        norm = Normalize(vmin=-pos_lims[2], vmax=pos_lims[2])
-        if ticks is None:
-            ticks = [-pos_lims[2], -pos_lims[1], -pos_lims[0], 0.,
-                     pos_lims[0], pos_lims[1], pos_lims[2]]
+        norm = Normalize(vmin=vmin, vmax=vmax)
         if ticklabels is None:
             ticklabels = ticks
         assert len(ticks) == len(ticklabels)
@@ -2873,7 +2998,8 @@ def plot_reconstruction(evoked, origin=(0., 0., 0.04)):
     return fig
 
 
-def plot_chpi_snr_raw(raw, win_length, n_harmonics=None, show=True):
+def plot_chpi_snr_raw(raw, win_length, n_harmonics=None, show=True,
+                      verbose=True):
     """Compute and plot cHPI SNR from raw data
 
     Parameters
@@ -2930,12 +3056,13 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics=None, show=True):
     buflen = int(win_length * sfreq)
     if buflen <= 0:
         raise ValueError('Window length should be >0')
-    (cfreqs, _, _, _, _) = _get_hpi_info(raw.info)
-    print('Nominal cHPI frequencies: %s Hz' % cfreqs)
-    print('Sampling frequency: %s Hz' % sfreq)
-    print('Using line freqs: %s Hz' % linefreqs)
-    print('Using buffers of %s samples = %s seconds\n'
-          % (buflen, buflen/sfreq))
+    cfreqs = _get_hpi_info(raw.info)[0]
+    if verbose:
+        print('Nominal cHPI frequencies: %s Hz' % cfreqs)
+        print('Sampling frequency: %s Hz' % sfreq)
+        print('Using line freqs: %s Hz' % linefreqs)
+        print('Using buffers of %s samples = %s seconds\n'
+              % (buflen, buflen/sfreq))
 
     pick_meg = pick_types(raw.info, meg=True, exclude=[])
     pick_mag = pick_types(raw.info, meg='mag', exclude=[])
@@ -2964,7 +3091,8 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics=None, show=True):
     snr_avg_mag = np.zeros([len(cfreqs), len(bufs)])
     resid_vars = np.zeros([nchan, len(bufs)])
     for ind, buf0 in enumerate(bufs):
-        print('Buffer %s/%s' % (ind+1, len(bufs)))
+        if verbose:
+            print('Buffer %s/%s' % (ind+1, len(bufs)))
         megbuf = raw[pick_meg, buf0:buf0+buflen][0].T
         coeffs = np.dot(inv_model, megbuf)
         coeffs_hpi = coeffs[2+2*len(linefreqs):]
@@ -3239,70 +3367,89 @@ def annotate_head_pos(raw, head_pos, rotation_limit=45, translation_limit=0.1,
     # point
     do_rotation = np.isfinite(rotation_limit) and head_pos is not None
     do_translation = np.isfinite(translation_limit) and head_pos is not None
-    do_coils = fit_t is not None and counts is not None
+    do_coils = (fit_t is not None and
+                counts is not None and
+                np.isfinite(coil_bad_count_duration_limit))
     if not (do_rotation or do_translation or do_coils):
         return None
-    head_pos_t = head_pos[:, 0]
+    head_pos_t = head_pos[:, 0].copy()
+    head_pos_t -= raw.first_samp / raw.info['sfreq']
     dt = np.diff(head_pos_t)
+    head_pos_t = np.concatenate([head_pos_t,
+                                 [head_pos_t[-1] + 1. / raw.info['sfreq']]])
 
-    annot = mne.Annotations([], [], [])
+    annot = mne.Annotations([], [], [], orig_time=None)  # rel to data start
 
     # Annotate based on bad coil distances
     if do_coils:
-        if np.isfinite(coil_bad_count_duration_limit):
-            changes = np.diff((counts < 3).astype(int))
-            bad_onsets = fit_t[np.where(changes == 1)[0]]
-            bad_offsets = fit_t[np.where(changes == -1)[0]]
-            # Deal with it starting out bad
-            if counts[0] < 3:
-                bad_onsets = np.concatenate([[0.], bad_onsets])
-            if counts[-1] < 3:
-                bad_offsets = np.concatenate([bad_offsets, [raw.times[-1]]])
-            assert len(bad_onsets) == len(bad_offsets)
-            assert (bad_onsets[1:] > bad_offsets[:-1]).all()
-            count = 0
-            dur = 0.
-            for onset, offset in zip(bad_onsets, bad_offsets):
-                if offset - onset > coil_bad_count_duration_limit - 1e-6:
-                    annot.append(onset, offset - onset, 'BAD_HPI_COUNT')
-                    dur += offset - onset
-                    count += 1
-            print('%sOmitting %5.1f%% (%3d segments) '
-                  'due to < 3 good coils for over %s sec'
-                  % (prefix, 100 * dur / raw.times[-1], count,
-                     coil_bad_count_duration_limit))
+        fit_t = np.concatenate([fit_t, fit_t[-1] + [1. / raw.info['sfreq']]])
+        bad_mask = (counts < 3)
+        onsets, offsets = _mask_to_onsets_offsets(bad_mask)
+        onsets = fit_t[onsets]
+        offsets = fit_t[offsets]
+        count = 0
+        dur = 0.
+        for onset, offset in zip(onsets, offsets):
+            if offset - onset > coil_bad_count_duration_limit - 1e-6:
+                annot.append(onset, offset - onset, 'BAD_HPI_COUNT')
+                dur += offset - onset
+                count += 1
+        print('%sOmitting %5.1f%% (%3d segments): '
+              '< 3 good coils for over %s sec'
+              % (prefix, 100 * dur / raw.times[-1], count,
+                 coil_bad_count_duration_limit))
 
     # Annotate based on rotational velocity
+    t_tot = raw.times[-1]
     if do_rotation:
         assert rotation_limit > 0
         # Rotational velocity (radians / sec)
         r = mne.transforms._angle_between_quats(head_pos[:-1, 1:4],
                                                 head_pos[1:, 1:4])
         r /= dt
-        bad_idx = np.where(r >= np.deg2rad(rotation_limit))[0]
-        bad_pct = 100 * dt[bad_idx].sum() / (head_pos[-1, 0] - head_pos[0, 0])
-        print(u'%sOmitting %5.1f%% (%3d segments) due to bad rotational '
-              'velocity (>=%5.1f deg/s), with max %0.2f deg/s'
-              % (prefix, bad_pct, len(bad_idx), rotation_limit,
+        bad_mask = (r >= np.deg2rad(rotation_limit))
+        onsets, offsets = _mask_to_onsets_offsets(bad_mask)
+        onsets, offsets = head_pos_t[onsets], head_pos_t[offsets]
+        bad_pct = 100 * (offsets - onsets).sum() / t_tot
+        print(u'%sOmitting %5.1f%% (%3d segments): '
+              u'ω >= %5.1f°/s (max: %0.1f°/s)'
+              % (prefix, bad_pct, len(onsets), rotation_limit,
                  np.rad2deg(r.max())))
-        for idx in bad_idx:
-            annot.append(head_pos_t[idx], dt[idx], 'BAD_RV')
+        for onset, offset in zip(onsets, offsets):
+            annot.append(onset, offset - onset, 'BAD_RV')
 
     # Annotate based on translational velocity
     if do_translation:
         assert translation_limit > 0
         v = np.linalg.norm(np.diff(head_pos[:, 4:7], axis=0), axis=-1)
         v /= dt
-        bad_idx = np.where(v >= translation_limit)[0]
-        bad_pct = 100 * dt[bad_idx].sum() / (head_pos[-1, 0] - head_pos[0, 0])
-        print(u'%sOmitting %5.1f%% (%3d segments) due to translational '
-              u'velocity (>=%5.1f m/s), with max %0.4f m/s'
-              % (prefix, bad_pct, len(bad_idx), translation_limit, v.max()))
-        for idx in bad_idx:
-            annot.append(head_pos_t[idx], dt[idx], 'BAD_TV')
+        bad_mask = (v >= translation_limit)
+        onsets, offsets = _mask_to_onsets_offsets(bad_mask)
+        onsets, offsets = head_pos_t[onsets], head_pos_t[offsets]
+        bad_pct = 100 * (offsets - onsets).sum() / t_tot
+        print(u'%sOmitting %5.1f%% (%3d segments): '
+              u'v >= %5.4fm/s (max: %5.4fm/s)'
+              % (prefix, bad_pct, len(onsets), translation_limit, v.max()))
+        for onset, offset in zip(onsets, offsets):
+            annot.append(onset, offset - onset, 'BAD_TV')
 
     # Annotate on distance from the sensors
     return annot
+
+
+def _mask_to_onsets_offsets(mask):
+    """Group boolean mask into contiguous segments."""
+    assert mask.dtype == bool and mask.ndim == 1
+    mask = mask.astype(int)
+    diff = np.diff(mask)
+    onsets = np.where(diff > 0)[0] + 1
+    if mask[0]:
+        onsets = np.concatenate([[0], onsets])
+    offsets = np.where(diff < 0)[0] + 1
+    if mask[-1]:
+        offsets = np.concatenate([offsets, [len(mask)]])
+    assert len(onsets) == len(offsets)
+    return onsets, offsets
 
 
 @contextmanager

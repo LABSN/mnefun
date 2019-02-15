@@ -27,7 +27,8 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
     import matplotlib.pyplot as plt
     from ._mnefun import (_load_trans_to, plot_good_coils, _head_pos_annot,
                           _get_bem_src_trans, safe_inserter, _prebad,
-                          _load_meg_bads, mlab_offscreen, _fix_raw_eog_cals)
+                          _load_meg_bads, mlab_offscreen, _fix_raw_eog_cals,
+                          _handle_dict, _get_t_window, plot_chpi_snr_raw)
     if run_indices is None:
         run_indices = [None] * len(subjects)
     style = {'axes.spines.right': 'off', 'axes.spines.top': 'off',
@@ -69,6 +70,9 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
         # whitening and source localization
         inv_dir = op.join(p.work_dir, subj, p.inverse_dir)
 
+        has_fwd = op.isfile(op.join(p.work_dir, subj, p.forward_dir,
+                                    subj + p.inv_tag + '-fwd.fif'))
+
         with plt.style.context(style):
             ljust = 25
             #
@@ -89,6 +93,31 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                     captions.append('%s: %s' % (section, op.split(fname)[-1]))
                 report.add_figs_to_section(figs, captions, section,
                                            image_format='svg')
+                print('%5.1f sec' % ((time.time() - t0),))
+            else:
+                print('    %s skipped' % section)
+
+            #
+            # cHPI SNR
+            #
+            section = 'cHPI SNR'
+            if p.report_params.get('chpi_snr', True) and p.movecomp:
+                t0 = time.time()
+                print(('    %s ... ' % section).ljust(ljust), end='')
+                figs = list()
+                captions = list()
+                for fname in fnames:
+                    raw = mne.io.read_raw_fif(fname, allow_maxshield='yes')
+                    t_window = _get_t_window(p, raw)
+                    fig = plot_chpi_snr_raw(raw, t_window, show=False,
+                                            verbose=False)
+                    fig.set_size_inches(10, 5)
+                    fig.subplots_adjust(0.1, 0.1, 0.8, 0.95,
+                                        wspace=0, hspace=0.5)
+                    figs.append(fig)
+                    captions.append('%s: %s' % (section, op.split(fname)[-1]))
+                report.add_figs_to_section(figs, captions, section,
+                                           image_format='png')  # svd too slow
                 print('%5.1f sec' % ((time.time() - t0),))
             else:
                 print('    %s skipped' % section)
@@ -143,6 +172,48 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                 print('    %s skipped' % section)
 
             #
+            # Raw segments
+            #
+            if op.isfile(pca_fnames[0]):
+                raw_pca = mne.concatenate_raws(
+                    [mne.io.read_raw_fif(fname) for fname in pca_fnames])
+            section = 'Raw segments'
+            if p.report_params.get('raw_segments', True) and has_pca:
+                times = np.linspace(raw.times[0], raw.times[-1], 12)[1:-1]
+                raw_plot = list()
+                for t in times:
+                    this_raw = raw_pca.copy().crop(t - 0.5, t + 0.5)
+                    this_raw.load_data()
+                    this_raw._data[:] -= np.mean(this_raw._data, axis=-1,
+                                                 keepdims=True)
+                    raw_plot.append(this_raw)
+                raw_plot = mne.concatenate_raws(raw_plot)
+                for key in ('BAD boundary', 'EDGE boundary'):
+                    raw_plot.annotations.delete(
+                        np.where(raw_plot.annotations.description == key)[0])
+                new_events = np.linspace(
+                    0, int(round(10 * raw.info['sfreq'])) - 1, 11).astype(int)
+                new_events += raw_plot.first_samp
+                new_events = np.array([new_events,
+                                       np.zeros_like(new_events),
+                                       np.ones_like(new_events)]).T
+                fig = raw_plot.plot(group_by='selection', butterfly=True,
+                                    events=new_events)
+                fig.axes[0].lines[-1].set_zorder(10)  # events
+                fig.axes[0].set(xticks=np.arange(0, len(times)) + 0.5)
+                xticklabels = ['%0.1f' % t for t in times]
+                fig.axes[0].set(xticklabels=xticklabels)
+                fig.axes[0].set(xlabel='Center of 1-second segments')
+                fig.axes[0].grid(False)
+                for _ in range(len(fig.axes) - 1):
+                    fig.delaxes(fig.axes[-1])
+                fig.set(figheight=(fig.axes[0].get_yticks() != 0).sum(),
+                        figwidth=12)
+                fig.subplots_adjust(0.0, 0.0, 1, 1, 0, 0)
+                report.add_figs_to_section(fig, 'Processed', section,
+                                           image_format='png')  # svg too slow
+
+            #
             # PSD
             #
             section = 'PSD'
@@ -161,8 +232,6 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                 figs.append(raw.plot_psd(fmax=fmax, n_fft=n_fft, show=False))
                 captions.append('%s: Raw (zoomed)' % section)
                 if op.isfile(pca_fnames[0]):
-                    raw_pca = mne.concatenate_raws(
-                        [mne.io.read_raw_fif(fname) for fname in pca_fnames])
                     figs.append(raw_pca.plot_psd(fmax=fmax, n_fft=n_fft,
                                                  show=False))
                     captions.append('%s: Processed' % section)
@@ -189,8 +258,10 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
             # SSP
             #
             section = 'SSP topomaps'
+
+            proj_nums = _handle_dict(p.proj_nums, subj)
             if p.report_params.get('ssp_topomaps', True) and has_pca and \
-                    np.sum(p.proj_nums) > 0:
+                    np.sum(proj_nums) > 0:
                 assert sss_info is not None
                 t0 = time.time()
                 print(('    %s ... ' % section).ljust(ljust), end='')
@@ -203,33 +274,27 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                                               p.proj_extra))
                     figs.append(plot_projs_topomap(projs, info=sss_info,
                                                    show=False))
-                if any(p.proj_nums[0]):  # ECG
+                if any(proj_nums[0]):  # ECG
                     if 'preproc_ecg-proj.fif' in proj_files:
                         comments.append('ECG')
-                        projs = read_proj(op.join(p.work_dir, subj, p.pca_dir,
-                                                  'preproc_ecg-proj.fif'))
-                        figs.append(plot_projs_topomap(projs, info=sss_info,
-                                                       show=False))
-                if any(p.proj_nums[1]):  # EOG
+                        figs.append(_proj_fig(op.join(
+                            p.work_dir, subj, p.pca_dir,
+                            'preproc_ecg-proj.fif'), sss_info,
+                            proj_nums[0]))
+                if any(proj_nums[1]):  # EOG
                     if 'preproc_blink-proj.fif' in proj_files:
                         comments.append('Blink')
-                        projs = read_proj(op.join(p.work_dir, subj, p.pca_dir,
-                                                  'preproc_blink-proj.fif'))
-                        figs.append(plot_projs_topomap(projs, info=sss_info,
-                                                       show=False))
-                if any(p.proj_nums[2]):  # ERM
+                        figs.append(_proj_fig(op.join(
+                            p.work_dir, subj, p.pca_dir,
+                            'preproc_blink-proj.fif'), sss_info,
+                            proj_nums[1]))
+                if any(proj_nums[2]):  # ERM
                     if 'preproc_blink-cont.fif' in proj_files:
                         comments.append('Continuous')
-                        projs = read_proj(op.join(p.work_dir, subj, p.pca_dir,
-                                                  'preproc_cont-proj.fif'))
-                        figs.append(plot_projs_topomap(projs, info=sss_info,
-                                                       show=False))
-                # adjust sizes
-                for fig in figs:
-                    n_rows = np.floor(np.sqrt(len(fig.axes)))
-                    n_cols = np.ceil(len(fig.axes) / float(n_rows))
-                    fig.set_size_inches(2 * n_cols, 2 * n_rows)
-                    fig.tight_layout()
+                        figs.append(_proj_fig(op.join(
+                            p.work_dir, subj, p.pca_dir,
+                            'preproc_cont-proj.fif'), sss_info,
+                            proj_nums[2]))
                 captions = [section] + [None] * (len(comments) - 1)
                 report.add_figs_to_section(
                      figs, captions, section, image_format='svg',
@@ -242,7 +307,8 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
             # Source alignment
             #
             section = 'Source alignment'
-            if p.report_params.get('source_alignment', True) and has_sss:
+            if p.report_params.get('source_alignment', True) and has_sss \
+                    and has_fwd:
                 assert sss_info is not None
                 t0 = time.time()
                 print(('    %s ... ' % section).ljust(ljust), end='')
@@ -316,9 +382,11 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                                            % (analysis, p.lp_cut, p.inv_tag,
                                               p.eq_tag, subj))
                     if not op.isfile(fname_inv):
-                        print('Missing inv: %s' % fname_inv)
+                        print('    Missing inv: %s'
+                              % op.basename(fname_inv), end='')
                     elif not op.isfile(fname_evoked):
-                        print('Missing evoked: %s' % fname_evoked)
+                        print('    Missing evoked: %s'
+                              % op.basename(fname_evoked), end='')
                     else:
                         inv = mne.minimum_norm.read_inverse_operator(fname_inv)
                         this_evoked = mne.read_evokeds(fname_evoked, name)
@@ -338,7 +406,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
             # BEM
             #
             section = 'BEM'
-            if p.report_params.get('bem', True):
+            if p.report_params.get('bem', True) and has_fwd:
                 caption = '%s<br>%s' % (section, struc)
                 bem, src, trans, _ = _get_bem_src_trans(
                     p, raw.info, subj, struc)
@@ -386,9 +454,11 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                                            % (analysis, p.lp_cut, p.inv_tag,
                                               p.eq_tag, subj))
                     if not op.isfile(cov_name):
-                        print('Missing cov: %s' % cov_name)
+                        print('    Missing cov: %s'
+                              % op.basename(cov_name), end='')
                     elif not op.isfile(fname_evoked):
-                        print('Missing evoked: %s' % fname_evoked)
+                        print('    Missing evoked: %s'
+                              % op.basename(fname_evoked), end='')
                     else:
                         noise_cov = mne.read_cov(cov_name)
                         evo = mne.read_evokeds(fname_evoked, name)
@@ -420,7 +490,8 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                                            % (analysis, p.lp_cut, p.inv_tag,
                                               p.eq_tag, subj))
                     if not op.isfile(fname_evoked):
-                        print('Missing evoked: %s' % fname_evoked)
+                        print('    Missing evoked: %s'
+                              % op.basename(fname_evoked), end='')
                     else:
                         this_evoked = mne.read_evokeds(fname_evoked, name)
                         figs = this_evoked.plot_joint(
@@ -458,9 +529,11 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                                            % (analysis, p.lp_cut, p.inv_tag,
                                               p.eq_tag, subj))
                     if not op.isfile(fname_inv):
-                        print('Missing inv: %s' % fname_inv)
+                        print('    Missing inv: %s'
+                              % op.basename(fname_inv), end='')
                     elif not op.isfile(fname_evoked):
-                        print('Missing evoked: %s' % fname_evoked)
+                        print('    Missing evoked: %s'
+                              % op.basename(fname_evoked), end='')
                     else:
                         inv = mne.minimum_norm.read_inverse_operator(fname_inv)
                         this_evoked = mne.read_evokeds(fname_evoked, name)
@@ -517,3 +590,71 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
 
         report_fname = get_report_fnames(p, subj)[0]
         report.save(report_fname, open_browser=False, overwrite=True)
+
+
+def _proj_fig(fname, info, proj_nums):
+    import matplotlib.pyplot as plt
+    proj_nums = np.array(proj_nums, int)
+    assert proj_nums.shape == (3,)
+    projs = read_proj(fname)
+    epochs = fname.replace('-proj.fif', '-epo.fif')
+    assert len(projs) == proj_nums.sum()
+    n_col = proj_nums.max()
+    rs_topo = 3
+    if op.isfile(epochs):
+        epochs = mne.read_epochs(epochs)
+        evoked = epochs.average()
+        rs_trace = 2
+    else:
+        rs_trace = 0
+    n_row = proj_nums.astype(bool).sum() * (rs_topo + rs_trace)
+    shape = (n_row, n_col)
+    fig = plt.figure(figsize=(n_col * 2, n_row * 0.75))
+    used = np.zeros(len(projs), bool)
+    ri = 0
+    for count, ch_type in zip(proj_nums, ('grad', 'mag', 'eeg')):
+        if count == 0:
+            continue
+        if ch_type == 'eeg':
+            meg, eeg = False, True
+        else:
+            meg, eeg = ch_type, False
+        ch_names = [info['ch_names'][pick]
+                    for pick in mne.pick_types(info, meg=meg, eeg=eeg)]
+        idx = np.where([np.in1d(proj['data']['col_names'], ch_names).all()
+                        for proj in projs])[0]
+        assert len(idx) == count
+        assert not used[idx].any()
+        used[idx] = True
+        these_projs = [projs[ii] for ii in idx]
+        topo_axes = [plt.subplot2grid(
+            shape, (ri * (rs_topo + rs_trace), ci),
+            rowspan=rs_topo) for ci in range(count)]
+        # topomaps
+        with warnings.catch_warnings(record=True):
+            plot_projs_topomap(these_projs, info=info, show=False,
+                               axes=topo_axes)
+        plt.setp(topo_axes, title='', xlabel='')
+        topo_axes[0].set(ylabel=ch_type)
+        if rs_trace:
+            trace_axes = [plt.subplot2grid(
+                shape, (ri * (rs_topo + rs_trace) + rs_topo, ci),
+                rowspan=rs_trace) for ci in range(count)]
+            for proj, ax in zip(these_projs, trace_axes):
+                p = proj['data']['data']
+                this_evoked = evoked.copy().pick_channels(
+                    proj['data']['col_names'])
+                assert p.shape == (1, len(this_evoked.data))
+                with warnings.catch_warnings(record=True):  # tight_layout
+                    this_evoked.plot(
+                        picks=np.arange(len(this_evoked.data)), axes=[ax])
+                ax.texts = []
+                trace = np.dot(p, this_evoked.data)[0]
+                trace *= 0.8 * (np.abs(ax.get_ylim()).max() /
+                                np.abs(trace).max())
+                ax.plot(this_evoked.times, trace, color='#9467bd')
+                ax.set(title='', ylabel='', xlabel='')
+        ri += 1
+    assert used.all()
+    fig.subplots_adjust(0.1, 0.1, 0.95, 1, 0.3, 0.3)
+    return fig
