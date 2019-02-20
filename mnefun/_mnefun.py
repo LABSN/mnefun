@@ -182,8 +182,8 @@ class Params(Frozen):
         The channel to use to detect ECG events. None will use ECG063.
         In lieu of an ECG recording, MEG1531 may work.
         Can be a dict that maps subject names to channels.
-    eog_channel : str
-        The channel to use to detect EOG events. None will use EOG*.
+    eog_channel : str | None
+        The channel to use to detect EOG events. None will use EOG* channels.
         In lieu of an EOG recording, MEG1411 may work.
     plot_raw : bool
         If True, plot the raw files with the ECG/EOG events overlaid.
@@ -280,6 +280,9 @@ class Params(Frozen):
         List of projector counts to use for ECG/EOG/ERM; each list contains
         three values for grad/mag/eeg channels.
         Can be a dict that maps subject names to projector counts to use.
+    proj_meg : str
+        Can be "separate" (default for backward compat) or "combined"
+        (should be better for SSS'ed data).
 
     Returns
     -------
@@ -466,6 +469,7 @@ class Params(Frozen):
         self.ecg_t_lims = (-0.08, 0.08)
         self.eog_f_lims = (0, 2)
         self.ecg_f_lims = (5, 35)
+        self.proj_meg = 'separate'
         self.freeze()
 
     @property
@@ -1937,7 +1941,8 @@ def gen_inverses(p, subjects, run_indices):
                 fwd_restricted = pick_types_forward(fwd, meg=m, eeg=e)
                 for l, s, x, d in zip(looses, tags, fixeds, depths):
                     inv_name = op.join(inv_dir, temp_name + f + s + '-inv.fif')
-                    kwargs = dict(loose=l, depth=d, fixed=x, use_cps=True)
+                    kwargs = dict(loose=l, depth=d, fixed=x, use_cps=True,
+                                  verbose='error')
                     inv = make_inverse_operator(
                         epochs.info, fwd_restricted, cov, rank=rank, **kwargs)
                     write_inverse_operator(inv_name, inv)
@@ -2141,7 +2146,7 @@ def gen_covariances(p, subjects, run_indices):
                 want_rank = sum(kwargs['rank'].values())
                 out_rank = mne.cov.compute_whitener(cov, epochs.info,
                                                     return_rank=True,
-                                                    verbose=False)[2]
+                                                    verbose='error')[2]
                 assert want_rank == out_rank
             write_cov(cov_name, cov)
         print()
@@ -2383,6 +2388,16 @@ def do_preprocessing_combined(p, subjects, run_indices):
             extra_proj = op.join(pca_dir, p.proj_extra)
             projs = read_proj(extra_proj)
 
+        extra_proj = dict()
+        p_sl = 1
+        if 'meg' not in get_args(compute_proj_raw):
+            if p.proj_meg != 'separate':
+                raise RuntimeError('MNE is too old for proj_meg option')
+        else:
+            extra_proj['meg'] = p.proj_meg
+            if p.proj_meg == 'combined':
+                p_sl = 2
+
         #
         # Calculate and apply ERM projectors
         #
@@ -2390,6 +2405,7 @@ def do_preprocessing_combined(p, subjects, run_indices):
             raise ValueError('proj_nums for %s must be an array with shape '
                              '(3, 3), got %s' % (subj, projs.shape))
         if any(proj_nums[2]):
+            assert proj_nums[2][2] == 0  # no EEG projectors for ERM
             if len(empty_names) >= 1:
                 if p.disp_files:
                     print('    Computing continuous projectors using ERM.')
@@ -2416,7 +2432,8 @@ def do_preprocessing_combined(p, subjects, run_indices):
             pr = compute_proj_raw(raw, duration=1, n_grad=proj_nums[2][0],
                                   n_mag=proj_nums[2][1], n_eeg=proj_nums[2][2],
                                   reject=p.reject, flat=p.flat,
-                                  n_jobs=p.n_jobs_mkl)
+                                  n_jobs=p.n_jobs_mkl, **extra_proj)
+            assert len(pr) == np.sum(proj_nums[2][::p_sl])
             write_proj(cont_proj, pr)
             projs.extend(pr)
             del raw
@@ -2461,8 +2478,8 @@ def do_preprocessing_combined(p, subjects, run_indices):
                 pr = compute_proj_wrap(
                     ecg_epochs, p.proj_ave, n_grad=proj_nums[0][0],
                     n_mag=proj_nums[0][1], n_eeg=proj_nums[0][2],
-                    desc_prefix=desc_prefix)
-                assert len(pr) == np.sum(proj_nums[0])
+                    desc_prefix=desc_prefix, **extra_proj)
+                assert len(pr) == np.sum(proj_nums[0][::p_sl])
                 write_proj(ecg_proj, pr)
                 projs.extend(pr)
             else:
@@ -2493,8 +2510,8 @@ def do_preprocessing_combined(p, subjects, run_indices):
             eog_epochs = Epochs(
                 raw, eog_events, 998, eog_t_lims[0], eog_t_lims[1],
                 baseline=None, reject=use_reject, flat=use_flat, preload=True)
-            print('  obtained %d epochs from %d events' % (len(eog_epochs),
-                                                           len(eog_events)))
+            print('  obtained %d epochs from %d events.' % (len(eog_epochs),
+                                                            len(eog_events)))
             del eog_events
             if len(eog_epochs) >= 5:
                 write_events(eog_eve, eog_epochs.events)
@@ -2503,8 +2520,8 @@ def do_preprocessing_combined(p, subjects, run_indices):
                 pr = compute_proj_wrap(
                     eog_epochs, p.proj_ave, n_grad=proj_nums[1][0],
                     n_mag=proj_nums[1][1], n_eeg=proj_nums[1][2],
-                    desc_prefix=desc_prefix)
-                assert len(pr) == np.sum(proj_nums[1])
+                    desc_prefix=desc_prefix, **extra_proj)
+                assert len(pr) == np.sum(proj_nums[1][::p_sl])
                 write_proj(eog_proj, pr)
                 projs.extend(pr)
             else:

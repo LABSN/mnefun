@@ -5,6 +5,7 @@ Create HTML reports.
 """
 from __future__ import print_function, unicode_literals
 
+from copy import deepcopy
 import os.path as op
 import time
 import warnings
@@ -280,21 +281,21 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                         figs.append(_proj_fig(op.join(
                             p.work_dir, subj, p.pca_dir,
                             'preproc_ecg-proj.fif'), sss_info,
-                            proj_nums[0]))
+                            proj_nums[0], p.proj_meg))
                 if any(proj_nums[1]):  # EOG
                     if 'preproc_blink-proj.fif' in proj_files:
                         comments.append('Blink')
                         figs.append(_proj_fig(op.join(
                             p.work_dir, subj, p.pca_dir,
                             'preproc_blink-proj.fif'), sss_info,
-                            proj_nums[1]))
+                            proj_nums[1], p.proj_meg))
                 if any(proj_nums[2]):  # ERM
                     if 'preproc_blink-cont.fif' in proj_files:
                         comments.append('Continuous')
                         figs.append(_proj_fig(op.join(
                             p.work_dir, subj, p.pca_dir,
                             'preproc_cont-proj.fif'), sss_info,
-                            proj_nums[2]))
+                            proj_nums[2], p.proj_meg))
                 captions = [section] + [None] * (len(comments) - 1)
                 report.add_figs_to_section(
                      figs, captions, section, image_format='svg',
@@ -592,13 +593,12 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
         report.save(report_fname, open_browser=False, overwrite=True)
 
 
-def _proj_fig(fname, info, proj_nums):
+def _proj_fig(fname, info, proj_nums, proj_meg):
     import matplotlib.pyplot as plt
     proj_nums = np.array(proj_nums, int)
     assert proj_nums.shape == (3,)
     projs = read_proj(fname)
     epochs = fname.replace('-proj.fif', '-epo.fif')
-    assert len(projs) == proj_nums.sum()
     n_col = proj_nums.max()
     rs_topo = 3
     if op.isfile(epochs):
@@ -610,7 +610,7 @@ def _proj_fig(fname, info, proj_nums):
     n_row = proj_nums.astype(bool).sum() * (rs_topo + rs_trace)
     shape = (n_row, n_col)
     fig = plt.figure(figsize=(n_col * 2, n_row * 0.75))
-    used = np.zeros(len(projs), bool)
+    used = np.zeros(len(projs), int)
     ri = 0
     for count, ch_type in zip(proj_nums, ('grad', 'mag', 'eeg')):
         if count == 0:
@@ -621,12 +621,20 @@ def _proj_fig(fname, info, proj_nums):
             meg, eeg = ch_type, False
         ch_names = [info['ch_names'][pick]
                     for pick in mne.pick_types(info, meg=meg, eeg=eeg)]
-        idx = np.where([np.in1d(proj['data']['col_names'], ch_names).all()
+        idx = np.where([np.in1d(ch_names, proj['data']['col_names']).all()
                         for proj in projs])[0]
         assert len(idx) == count
-        assert not used[idx].any()
-        used[idx] = True
-        these_projs = [projs[ii] for ii in idx]
+        if proj_meg == 'separate':
+            assert not used[idx].any()
+        else:
+            assert (used[idx] <= 1).all()
+        used[idx] += 1
+        these_projs = [deepcopy(projs[ii]) for ii in idx]
+        for proj in these_projs:
+            sub_idx = [proj['data']['col_names'].index(name)
+                       for name in ch_names]
+            proj['data']['data'] = proj['data']['data'][:, sub_idx]
+            proj['data']['col_names'] = ch_names
         topo_axes = [plt.subplot2grid(
             shape, (ri * (rs_topo + rs_trace), ci),
             rowspan=rs_topo) for ci in range(count)]
@@ -641,9 +649,8 @@ def _proj_fig(fname, info, proj_nums):
                 shape, (ri * (rs_topo + rs_trace) + rs_topo, ci),
                 rowspan=rs_trace) for ci in range(count)]
             for proj, ax in zip(these_projs, trace_axes):
+                this_evoked = evoked.copy().pick_channels(ch_names)
                 p = proj['data']['data']
-                this_evoked = evoked.copy().pick_channels(
-                    proj['data']['col_names'])
                 assert p.shape == (1, len(this_evoked.data))
                 with warnings.catch_warnings(record=True):  # tight_layout
                     this_evoked.plot(
@@ -655,6 +662,6 @@ def _proj_fig(fname, info, proj_nums):
                 ax.plot(this_evoked.times, trace, color='#9467bd')
                 ax.set(title='', ylabel='', xlabel='')
         ri += 1
-    assert used.all()
+    assert used.all() and (used <= 2).all()
     fig.subplots_adjust(0.1, 0.1, 0.95, 1, 0.3, 0.3)
     return fig
