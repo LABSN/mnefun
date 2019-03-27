@@ -53,9 +53,10 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
         raw = [read_raw_fif(fname, allow_maxshield='yes')
                for fname in fnames]
         _fix_raw_eog_cals(raw)
-        raw = mne.concatenate_raws(raw)
         prebad_file = _prebad(p, subj)
-        _load_meg_bads(raw, prebad_file, disp=False)
+        for r in raw:
+            _load_meg_bads(r, prebad_file, disp=False)
+        raw = mne.concatenate_raws(raw)
 
         # sss
         sss_fnames = get_raw_fnames(p, subj, 'sss', False, False,
@@ -87,6 +88,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                 captions = list()
                 for fname in fnames:
                     _, _, fit_data = _head_pos_annot(p, fname, prefix='      ')
+                    assert fit_data is not None
                     fig = plot_good_coils(fit_data, show=False)
                     fig.set_size_inches(10, 2)
                     fig.tight_layout()

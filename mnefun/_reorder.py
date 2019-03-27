@@ -9,7 +9,7 @@ import re
 import warnings
 from shutil import move
 
-from mne.io import Raw
+from mne.io import Raw, read_raw_fif
 from mne import pick_types
 
 from ._paths import get_raw_fnames
@@ -61,19 +61,25 @@ def fix_eeg_channels(raw_files, anon=None, verbose=True):
             # Now we need to preorder
             if verbose:
                 print('    Making a backup and %s file %i' % (to_do, ri + 1))
-            raw = Raw(raw_file, preload=True, allow_maxshield=True)
+            if isinstance(raw_file, str):
+                raw = read_raw_fif(raw_file, preload=True,
+                                   allow_maxshield='yes')
+            else:
+                raw = raw_file
             # rename split files if any
             regex = re.compile("-*.fif")
-            split_files = glob.glob(raw_file[:-4] + regex.pattern)
-            move_files = [raw_file] + split_files
-            for f in move_files:
-                move(f, f + '.orig')
+            if isinstance(raw_file, str):
+                split_files = glob.glob(raw_file[:-4] + regex.pattern)
+                move_files = [raw_file] + split_files
+                for f in move_files:
+                    move(f, f + '.orig')
             if need_reorder:
                 raw._data[picks, :] = raw._data[picks, :][order]
             if need_anon and raw.info['subject_info'] is not None:
                 raw.info['subject_info'].update(anon)
             raw.info['description'] = write_key + anon_key
-            raw.save(raw_file, fmt=raw.orig_format, overwrite=True)
+            if isinstance(raw_file, str):
+                raw.save(raw_file, fmt=raw.orig_format, overwrite=True)
         else:
             if verbose:
                 print('    File %i already corrected' % (ri + 1))
@@ -98,7 +104,10 @@ def _is_file_unfixed(fname, anon=None):
     write_key = 'LABSN_EEG_REORDER:' + ','.join([str(o) for o in order])
     anon_key = '' if anon is None else ';anonymized'
     with warnings.catch_warnings(record=True):
-        raw = Raw(fname, preload=False, allow_maxshield=True)
+        if isinstance(fname, Raw):
+            raw = fname
+        else:
+            raw = read_raw_fif(fname, preload=False, allow_maxshield='yes')
     picks = pick_types(raw.info, meg=False, eeg=True, exclude=[])
     if len(picks) == 0:
         return False, False, None, None, None, None

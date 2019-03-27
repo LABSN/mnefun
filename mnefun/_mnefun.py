@@ -2753,31 +2753,33 @@ def _get_t_window(p, raw):
 
 def _head_pos_annot(p, raw_fname, prefix='  '):
     """Locate head position estimation file and do annotations."""
-    if p.movecomp is None:
-        return None, None, None
     raw = mne.io.read_raw_fif(raw_fname, allow_maxshield='yes')
-    t_window = _get_t_window(p, raw)
-    pos_fname = raw_fname[:-4] + '.pos'
-    if not op.isfile(pos_fname):
-        # XXX Someday we can do:
-        # head_pos = _calculate_chpi_positions(
-        #     raw, t_window=t_window, dist_limit=dist_limit)
-        # write_head_positions(pos_fname, head_pos)
-        print('%sEstimating position file %s'
-              % (prefix, op.basename(pos_fname)))
-        run_sss_positions(raw_fname, pos_fname,
-                          host=p.sws_ssh, port=p.sws_port, prefix=prefix,
-                          work_dir=p.sws_dir, t_window=t_window,
-                          t_step_min=p.coil_t_step_min,
-                          dist_limit=p.coil_dist_limit)
-    head_pos = read_head_pos(pos_fname)
-    assert head_pos[0, 7] >= 0.98  # otherwise we need to go back and fix!
+    if p.movecomp is None:
+        head_pos = None
+    else:
+        t_window = _get_t_window(p, raw)
+        pos_fname = raw_fname[:-4] + '.pos'
+        if not op.isfile(pos_fname):
+            # XXX Someday we can do:
+            # head_pos = _calculate_chpi_positions(
+            #     raw, t_window=t_window, dist_limit=dist_limit)
+            # write_head_positions(pos_fname, head_pos)
+            print('%sEstimating position file %s'
+                  % (prefix, op.basename(pos_fname)))
+            run_sss_positions(raw_fname, pos_fname,
+                              host=p.sws_ssh, port=p.sws_port, prefix=prefix,
+                              work_dir=p.sws_dir, t_window=t_window,
+                              t_step_min=p.coil_t_step_min,
+                              dist_limit=p.coil_dist_limit)
+        head_pos = read_head_pos(pos_fname)
+        assert head_pos[0, 7] >= 0.98  # otherwise we need to go back and fix!
 
     # do the coil counts
-    count_fname = raw_fname[:-4] + '-counts.h5'
-    if p.coil_dist_limit is None or p.coil_bad_count_duration_limit is None:
+    if any(x is None for x in (head_pos, p.coil_dist_limit,
+                               p.coil_bad_count_duration_limit)):
         fit_data = None
     else:
+        count_fname = raw_fname[:-4] + '-counts.h5'
         if not op.isfile(count_fname):
             fit_t, counts, n_coils = compute_good_coils(
                 raw, p.coil_t_step_min, t_window, p.coil_dist_limit,
@@ -2796,10 +2798,10 @@ def _head_pos_annot(p, raw_fname, prefix='  '):
                                    % (key, val, fit_data[key], count_fname))
 
     # do the annotations
-    lims = [p.rotation_limit, p.translation_limit, p.coil_dist_limit,
-            p.coil_t_step_min, t_window, p.coil_bad_count_duration_limit]
     annot_fname = raw_fname[:-4] + '-annot.fif'
     if not op.isfile(annot_fname) and fit_data is not None:
+        lims = [p.rotation_limit, p.translation_limit, p.coil_dist_limit,
+                p.coil_t_step_min, t_window, p.coil_bad_count_duration_limit]
         if np.isfinite(lims[:3]).any() or np.isfinite(lims[5]):
             print(prefix.join(['', 'Annotating raw segments with:\n',
                                u'  rotation_limit    = %s °/s\n' % lims[0],
@@ -2822,12 +2824,16 @@ def _head_pos_annot(p, raw_fname, prefix='  '):
         annot.orig_time = orig_time
     except IOError:  # no annotations requested
         annot = mne.Annotations([], [], [], orig_time=raw.info['meas_date'])
+
     # Append custom annotations (probably needs some tweaking due to meas_date)
-    try:
-        custom_annot = read_annotations(raw_fname[:-4] + '-custom-annot.fif')
-    except IOError:
-        custom_annot = mne.Annotations(
-            [], [], [], orig_time=raw.info['meas_date'])
+    custom_fname = raw_fname[:-4] + '-custom-annot.fif'
+    if op.isfile(custom_fname):
+        custom_annot = read_annotations(custom_fname)
+        assert custom_annot.orig_time == orig_time
+        print(prefix + 'Using custom annotations: %s'
+              % (op.basename(custom_fname),))
+    else:
+        custom_annot = mne.Annotations([], [], [], orig_time=orig_time)
     assert custom_annot.orig_time == orig_time
     annot += custom_annot
     return head_pos, annot, fit_data
