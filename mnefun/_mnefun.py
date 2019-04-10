@@ -182,7 +182,7 @@ class Params(Frozen):
         The channel to use to detect ECG events. None will use ECG063.
         In lieu of an ECG recording, MEG1531 may work.
         Can be a dict that maps subject names to channels.
-    eog_channel : str | None
+    eog_channel : str | dict | None
         The channel to use to detect EOG events. None will use EOG* channels.
         In lieu of an EOG recording, MEG1411 may work.
     plot_raw : bool
@@ -395,8 +395,8 @@ class Params(Frozen):
         self.keep_orig = False
         # This is used by fix_eeg_channels to fix original files
         self.raw_fif_tag = '_raw.fif'
-        self.cal_file = None
-        self.ct_file = None
+        self.cal_file = 'uw'
+        self.ct_file = 'uw'
         # SSS denoising params
         self.sss_type = 'maxfilter'
         self.mf_args = ''
@@ -1198,11 +1198,11 @@ def run_sss_locally(p, subjects, run_indices):
     mne.preprocessing.maxwell_filter
     """
     data_dir = op.join(op.dirname(__file__), 'data')
-    if p.cal_file is None:
+    if p.cal_file == 'uw':
         cal_file = op.join(data_dir, 'sss_cal.dat')
     else:
         cal_file = p.cal_file
-    if p.ct_file is None:
+    if p.ct_file == 'uw':
         ct_file = op.join(data_dir, 'ct_sparse.fif')
     else:
         ct_file = p.ct_file
@@ -1241,14 +1241,25 @@ def run_sss_locally(p, subjects, run_indices):
             raw = read_raw_fif(r, preload=True, allow_maxshield='yes')
             raw.fix_mag_coil_types()
             _load_meg_bads(raw, prebad_file, disp=ii == 0, prefix=' ' * 6)
+            if ii == 0:
+                if p.sss_origin == 'auto':
+                    R, origin = mne.bem.fit_sphere_to_headshape(
+                        raw.info, verbose=False, units='m')[:2]
+                    kind, extra = 'automatic', ' R=%0.1f' % (1000 * R,)
+                else:
+                    kind, extra, origin = 'manual', '', p.sss_origin
+                print('      Using %s origin=[%0.1f, %0.1f, %0.1f]%s mm' %
+                      ((kind,) + tuple(1000 * np.array(origin, float)) +
+                       (extra,)))
             print('      Processing %s ...' % op.basename(r))
 
             # For the empty room files, mimic the necessary components
             if r in erm_files:
                 for key in ('dev_head_t', 'hpi_meas', 'hpi_subsystem', 'dig'):
                     raw.info[key] = raw_info[key]
-                raw_head_pos[:, 0] -= raw_head_pos[0, 0]
-                raw_head_pos[:, 0] += raw.first_samp / raw.info['sfreq']
+                if raw_head_pos is not None:
+                    raw_head_pos[:, 0] -= raw_head_pos[0, 0]
+                    raw_head_pos[:, 0] += raw.first_samp / raw.info['sfreq']
                 if raw_annot is not None:
                     raw_annot.orig_time = mne.annotations._handle_meas_date(
                         raw.info['meas_date'])
@@ -1257,7 +1268,10 @@ def run_sss_locally(p, subjects, run_indices):
                 # estimate head position for movement compensation
                 head_pos, annot, _ = _head_pos_annot(p, r, prefix='        ')
                 if raw_info is None:
-                    raw_head_pos = head_pos.copy()
+                    if head_pos is None:
+                        raw_head_pos = None
+                    else:
+                        raw_head_pos = head_pos.copy()
                     raw_annot = annot
                     raw_info = raw.info.copy()
 
@@ -1275,10 +1289,10 @@ def run_sss_locally(p, subjects, run_indices):
 
             # apply maxwell filter
             t0 = time.time()
-            print('        Running maxwell_filter ... ', end='')
+            print('        Running maxwell_filter ...', end='')
             raw_sss = maxwell_filter(
                 raw, head_pos=head_pos,
-                origin=p.sss_origin, int_order=p.int_order,
+                origin=origin, int_order=p.int_order,
                 ext_order=p.ext_order, calibration=cal_file,
                 cross_talk=ct_file, st_correlation=p.st_correlation,
                 st_duration=st_duration, destination=trans_to,
@@ -1336,7 +1350,12 @@ def _load_meg_bads(raw, prebad_file, disp=True, prefix='     '):
             # Maxfilter type file
             if len(lines) > 1:
                 raise RuntimeError('Could not parse bad file')
-            bads = ['MEG%04d' % int(bad) for bad in lines[0].split()]
+            bads = lines[0].split()
+            if len(bads) > 0:
+                for fmt in ('MEG %03d', 'MEG%04d'):
+                    if fmt % int(bads[0]) in raw.ch_names:
+                        break
+                bads = [fmt % int(bad) for bad in bads]
     else:
         bads = list()
     if disp:
@@ -1848,7 +1867,11 @@ def _compute_rank(p, subj, run_indices):
         eps = epochs.copy().pick_types(meg=meg, eeg=False)
         eps = eps.get_data().transpose([1, 0, 2])
         eps = eps.reshape(len(eps), -1)
-        rank['meg'] = estimate_rank(eps, tol=1e-6)
+        if 'grad' in epochs and 'mag' in epochs:  # Neuromag
+            key = 'meg'
+        else:
+            key = 'grad' if 'grad' in epochs else 'mag'
+        rank[key] = estimate_rank(eps, tol=1e-6)
     if eeg:
         eps = epochs.copy().pick_types(meg=False, eeg=eeg)
         eps = eps.get_data().transpose([1, 0, 2])
@@ -2267,6 +2290,7 @@ def do_preprocessing_combined(p, subjects, run_indices):
     for si, subj in enumerate(subjects):
         proj_nums = np.array(_handle_dict(p.proj_nums, subj), int)
         ecg_channel = _handle_dict(p.ecg_channel, subj)
+        eog_channel = _handle_dict(p.eog_channel, subj)
         if p.disp_files:
             print('  Preprocessing subject %g/%g (%s).'
                   % (si + 1, len(subjects), subj))
@@ -2504,7 +2528,7 @@ def do_preprocessing_combined(p, subjects, run_indices):
             raw.add_proj(projs)
             raw.apply_proj()
             eog_events = find_eog_events(
-                raw, ch_name=p.eog_channel, reject_by_annotation=True)
+                raw, ch_name=eog_channel, reject_by_annotation=True)
             use_reject, use_flat = _restrict_reject_flat(
                 p.ssp_eog_reject, p.flat, raw)
             eog_epochs = Epochs(
@@ -2729,31 +2753,33 @@ def _get_t_window(p, raw):
 
 def _head_pos_annot(p, raw_fname, prefix='  '):
     """Locate head position estimation file and do annotations."""
-    if p.movecomp is None:
-        return None, None, None
     raw = mne.io.read_raw_fif(raw_fname, allow_maxshield='yes')
-    t_window = _get_t_window(p, raw)
-    pos_fname = raw_fname[:-4] + '.pos'
-    if not op.isfile(pos_fname):
-        # XXX Someday we can do:
-        # head_pos = _calculate_chpi_positions(
-        #     raw, t_window=t_window, dist_limit=dist_limit)
-        # write_head_positions(pos_fname, head_pos)
-        print('%sEstimating position file %s'
-              % (prefix, op.basename(pos_fname)))
-        run_sss_positions(raw_fname, pos_fname,
-                          host=p.sws_ssh, port=p.sws_port, prefix=prefix,
-                          work_dir=p.sws_dir, t_window=t_window,
-                          t_step_min=p.coil_t_step_min,
-                          dist_limit=p.coil_dist_limit)
-    head_pos = read_head_pos(pos_fname)
-    assert head_pos[0, 7] >= 0.98  # otherwise we need to go back and fix!
+    if p.movecomp is None:
+        head_pos = None
+    else:
+        t_window = _get_t_window(p, raw)
+        pos_fname = raw_fname[:-4] + '.pos'
+        if not op.isfile(pos_fname):
+            # XXX Someday we can do:
+            # head_pos = _calculate_chpi_positions(
+            #     raw, t_window=t_window, dist_limit=dist_limit)
+            # write_head_positions(pos_fname, head_pos)
+            print('%sEstimating position file %s'
+                  % (prefix, op.basename(pos_fname)))
+            run_sss_positions(raw_fname, pos_fname,
+                              host=p.sws_ssh, port=p.sws_port, prefix=prefix,
+                              work_dir=p.sws_dir, t_window=t_window,
+                              t_step_min=p.coil_t_step_min,
+                              dist_limit=p.coil_dist_limit)
+        head_pos = read_head_pos(pos_fname)
+        assert head_pos[0, 7] >= 0.98  # otherwise we need to go back and fix!
 
     # do the coil counts
-    count_fname = raw_fname[:-4] + '-counts.h5'
-    if p.coil_dist_limit is None or p.coil_bad_count_duration_limit is None:
+    if any(x is None for x in (head_pos, p.coil_dist_limit,
+                               p.coil_bad_count_duration_limit)):
         fit_data = None
     else:
+        count_fname = raw_fname[:-4] + '-counts.h5'
         if not op.isfile(count_fname):
             fit_t, counts, n_coils = compute_good_coils(
                 raw, p.coil_t_step_min, t_window, p.coil_dist_limit,
@@ -2772,10 +2798,10 @@ def _head_pos_annot(p, raw_fname, prefix='  '):
                                    % (key, val, fit_data[key], count_fname))
 
     # do the annotations
-    lims = [p.rotation_limit, p.translation_limit, p.coil_dist_limit,
-            p.coil_t_step_min, t_window, p.coil_bad_count_duration_limit]
     annot_fname = raw_fname[:-4] + '-annot.fif'
     if not op.isfile(annot_fname) and fit_data is not None:
+        lims = [p.rotation_limit, p.translation_limit, p.coil_dist_limit,
+                p.coil_t_step_min, t_window, p.coil_bad_count_duration_limit]
         if np.isfinite(lims[:3]).any() or np.isfinite(lims[5]):
             print(prefix.join(['', 'Annotating raw segments with:\n',
                                u'  rotation_limit    = %s °/s\n' % lims[0],
@@ -2798,12 +2824,16 @@ def _head_pos_annot(p, raw_fname, prefix='  '):
         annot.orig_time = orig_time
     except IOError:  # no annotations requested
         annot = mne.Annotations([], [], [], orig_time=raw.info['meas_date'])
+
     # Append custom annotations (probably needs some tweaking due to meas_date)
-    try:
-        custom_annot = read_annotations(raw_fname[:-4] + '-custom-annot.fif')
-    except IOError:
-        custom_annot = mne.Annotations(
-            [], [], [], orig_time=raw.info['meas_date'])
+    custom_fname = raw_fname[:-4] + '-custom-annot.fif'
+    if op.isfile(custom_fname):
+        custom_annot = read_annotations(custom_fname)
+        assert custom_annot.orig_time == orig_time
+        print(prefix + 'Using custom annotations: %s'
+              % (op.basename(custom_fname),))
+    else:
+        custom_annot = mne.Annotations([], [], [], orig_time=orig_time)
     assert custom_annot.orig_time == orig_time
     annot += custom_annot
     return head_pos, annot, fit_data

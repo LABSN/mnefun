@@ -53,9 +53,10 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
         raw = [read_raw_fif(fname, allow_maxshield='yes')
                for fname in fnames]
         _fix_raw_eog_cals(raw)
-        raw = mne.concatenate_raws(raw)
         prebad_file = _prebad(p, subj)
-        _load_meg_bads(raw, prebad_file, disp=False)
+        for r in raw:
+            _load_meg_bads(r, prebad_file, disp=False)
+        raw = mne.concatenate_raws(raw)
 
         # sss
         sss_fnames = get_raw_fnames(p, subj, 'sss', False, False,
@@ -87,6 +88,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                 captions = list()
                 for fname in fnames:
                     _, _, fit_data = _head_pos_annot(p, fname, prefix='      ')
+                    assert fit_data is not None
                     fig = plot_good_coils(fit_data, show=False)
                     fig.set_size_inches(10, 2)
                     fig.tight_layout()
@@ -308,9 +310,16 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
             # Source alignment
             #
             section = 'Source alignment'
-            if p.report_params.get('source_alignment', True) and has_sss \
-                    and has_fwd:
+            source_alignment = p.report_params.get('source_alignment', True)
+            if source_alignment is True or isinstance(source_alignment, dict) \
+                    and has_sss and has_fwd:
                 assert sss_info is not None
+                kwargs = source_alignment
+                if isinstance(source_alignment, dict):
+                    kwargs = dict(**source_alignment)
+                else:
+                    assert source_alignment is True
+                    kwargs = dict()
                 t0 = time.time()
                 print(('    %s ... ' % section).ljust(ljust), end='')
                 captions = [section]
@@ -331,10 +340,13 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                     with mlab_offscreen():
                         fig = mlab.figure(bgcolor=(0., 0., 0.),
                                           size=(1000, 1000))
-                        kwargs = dict(
-                            info=sss_info, subjects_dir=subjects_dir, bem=bem,
-                            dig=True, coord_frame=coord_frame, show_axes=True,
-                            fig=fig, trans=trans, src=src)
+                        for key, val in (
+                                ('info', sss_info),
+                                ('subjects_dir', subjects_dir), ('bem', bem),
+                                ('dig', True), ('coord_frame', coord_frame),
+                                ('show_axes', True), ('fig', fig),
+                                ('trans', trans), ('src', src)):
+                            kwargs[key] = kwargs.get(key, val)
                         try_surfs = ['head-dense', 'head', 'inner_skull']
                         for surf in try_surfs:
                             try:
@@ -498,13 +510,15 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                         figs = this_evoked.plot_joint(
                             times, show=False, ts_args=dict(**time_kwargs),
                             topomap_args=dict(outlines='head', **time_kwargs))
+                        if not isinstance(figs, (list, tuple)):
+                            figs = [figs]
                         captions = ('%s<br>%s["%s"] (N=%d)'
                                     % (section, analysis, name,
                                        this_evoked.nave))
                         captions = [captions] + [None] * (len(figs) - 1)
                         report.add_figs_to_section(
                             figs, captions, section=section,
-                            image_format='svg')
+                            image_format='png')
                 print('%5.1f sec' % ((time.time() - t0),))
 
             #
@@ -543,8 +557,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                         stc = mne.minimum_norm.apply_inverse(
                             this_evoked, inv,
                             lambda2=source.get('lambda2', 1. / 9.),
-                            method=source.get('method', 'dSPM'),
-                            pick_ori=None)
+                            method=source.get('method', 'dSPM'))
                         stc = abs(stc)
                         # get clim using the reject_tmin <->reject_tmax
                         stc_crop = stc.copy().crop(
