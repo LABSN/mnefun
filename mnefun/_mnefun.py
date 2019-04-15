@@ -3564,3 +3564,69 @@ def get_hcpmmp_mapping():
         'DorsoLateral Prefrontal Cortex',  # 22
         '???',  # 23
         ])}
+
+
+def extract_roi(stc, src, label=None, thresh=0.5):
+    """Extract a functional ROI.
+
+    Parameters
+    ----------
+    stc : instance of SourceEstimate
+        The source estimate data. The maximum positive peak will be selected.
+        If you want the maximum negative peak, consider passing
+        abs(stc) or -stc.
+    src : instance of SourceSpaces
+        The associated source space.
+    label : instance of Label | None
+        The label within which to select the peak.
+        Can be None to use the entire STC.
+    thresh : float
+        Threshold value (relative to the peak value) above which vertices
+        will be taken.
+
+    Returns
+    -------
+    roi : instance of Label
+        The functional ROI.
+    """
+    assert isinstance(stc, mne.SourceEstimate)
+    if label is None:
+        stc_label = stc.copy()
+    else:
+        stc_label = stc.in_label(label)
+    del label
+    max_vidx, max_tidx = np.unravel_index(np.argmax(stc_label.data),
+                                          stc_label.data.shape)
+    max_val = stc_label.data[max_vidx, max_tidx]
+    if max_vidx < len(stc_label.vertices[0]):
+        hemi = 'lh'
+        max_vert = stc_label.vertices[0][max_vidx]
+        max_vidx = list(stc.vertices[0]).index(max_vert)
+    else:
+        hemi = 'rh'
+        max_vert = stc_label.vertices[1][max_vidx - len(stc_label.vertices[0])]
+        max_vidx = list(stc.vertices[1]).index(max_vert)
+        max_vidx += len(stc.vertices[0])
+    del stc_label
+    assert max_val == stc.data[max_vidx, max_tidx]
+
+    # Get contiguous vertices within 50%
+    threshold = max_val * thresh
+    connectivity = mne.spatial_src_connectivity(src, verbose='error')  # holes
+    _, clusters, _, _ = mne.stats.spatio_temporal_cluster_1samp_test(
+        np.array([stc.data]), threshold, n_permutations=1,
+        stat_fun=lambda x: x.mean(0), tail=1,
+        connectivity=connectivity)
+    for cluster in clusters:
+        cluster = cluster[0]  # just care about space indices
+        if max_vidx in cluster:
+            break  # found our cluster
+    else:  # in case we did not "break"
+        raise RuntimeError('Clustering failed somehow!')
+    if hemi == 'lh':
+        verts = stc.vertices[0][cluster]
+    else:
+        verts = stc.vertices[1][cluster - len(stc.vertices[0])]
+    func_label = mne.Label(verts, hemi=hemi, subject=stc.subject)
+    func_label = func_label.fill(src)
+    return func_label, max_vert, max_vidx, max_tidx
