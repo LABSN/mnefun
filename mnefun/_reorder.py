@@ -15,6 +15,15 @@ from mne import pick_types
 from ._paths import get_raw_fnames
 
 
+_1_ORDER = (1, 2, 3, 5, 6, 7, 9, 10,
+            11, 12, 13, 14, 15, 16, 17, 19, 20,
+            21, 22, 23, 24, 25, 26, 27, 30,
+            31, 32, 33, 34, 35, 36, 37, 38,
+            41, 42, 43, 44, 45, 46, 47, 48, 49,
+            51, 52, 54, 55, 56, 57, 58, 60,
+            39, 29, 18, 4, 8, 28, 40, 59, 50, 53)  # 1-index based reordering
+
+
 def fix_eeg_channels(raw_files, anon=None, verbose=True):
     """Reorder EEG channels based on UW cap setup
 
@@ -29,20 +38,6 @@ def fix_eeg_channels(raw_files, anon=None, verbose=True):
     verbose : bool
         If True, print whether or not the files were modified.
     """
-    order = np.array([1, 2, 3, 5, 6, 7, 9, 10,
-                      11, 12, 13, 14, 15, 16, 17, 19, 20,
-                      21, 22, 23, 24, 25, 26, 27, 30,
-                      31, 32, 33, 34, 35, 36, 37, 38,
-                      41, 42, 43, 44, 45, 46, 47, 48, 49,
-                      51, 52, 54, 55, 56, 57, 58, 60,
-                      39, 29, 18, 4, 8, 28, 40, 59, 50, 53]) - 1
-    assert len(order) == 60
-    write_key = 'LABSN_EEG_REORDER:' + ','.join([str(o) for o in order])
-    if anon is None:
-        anon_key = ''
-    else:
-        anon_key = ';anonymized'
-
     # do some type checking
     if not isinstance(raw_files, list):
         raw_files = [raw_files]
@@ -93,13 +88,7 @@ def _all_files_fixed(p, subj, type_='pca'):
 
 def _is_file_unfixed(fname, anon=None):
     """Determine if a file needs reordering or anonymization"""
-    order = np.array([1, 2, 3, 5, 6, 7, 9, 10,
-                      11, 12, 13, 14, 15, 16, 17, 19, 20,
-                      21, 22, 23, 24, 25, 26, 27, 30,
-                      31, 32, 33, 34, 35, 36, 37, 38,
-                      41, 42, 43, 44, 45, 46, 47, 48, 49,
-                      51, 52, 54, 55, 56, 57, 58, 60,
-                      39, 29, 18, 4, 8, 28, 40, 59, 50, 53]) - 1
+    order = np.array(_1_ORDER) - 1
     assert len(order) == 60
     write_key = 'LABSN_EEG_REORDER:' + ','.join([str(o) for o in order])
     anon_key = '' if anon is None else ';anonymized'

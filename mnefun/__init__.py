@@ -8,7 +8,7 @@ from ._mnefun import (
     info_sss_basis, plot_reconstruction, plot_chpi_snr_raw,
     get_fsaverage_label_operator, compute_good_coils, plot_good_coils,
     compute_auc, combine_medial_labels, clean_brain, plot_colorbar,
-    discretize_cmap, fix_eeg_channels)
+    discretize_cmap, fix_eeg_channels, get_hcpmmp_mapping, extract_roi)
 from .misc import make_montage
 from .stats import anova_time
 
