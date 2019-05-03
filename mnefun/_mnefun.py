@@ -2453,9 +2453,10 @@ def do_preprocessing_combined(p, subjects, run_indices):
                        skip_by_annotation='edge', **fir_kwargs)
             raw.add_proj(projs)
             raw.apply_proj()
+            use_reject, use_flat = _restrict_reject_flat(p.reject, p.flat, raw)
             pr = compute_proj_raw(raw, duration=1, n_grad=proj_nums[2][0],
                                   n_mag=proj_nums[2][1], n_eeg=proj_nums[2][2],
-                                  reject=p.reject, flat=p.flat,
+                                  reject=use_reject, flat=use_flat,
                                   n_jobs=p.n_jobs_mkl, **extra_proj)
             assert len(pr) == np.sum(proj_nums[2][::p_sl])
             write_proj(cont_proj, pr)
