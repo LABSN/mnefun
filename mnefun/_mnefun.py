@@ -3619,8 +3619,7 @@ def extract_roi(stc, src, label=None, thresh=0.5):
         stat_fun=lambda x: x.mean(0), tail=1,
         connectivity=connectivity)
     for cluster in clusters:
-        cluster = cluster[0]  # just care about space indices
-        if max_vidx in cluster:
+        if max_vidx in cluster[0] and max_tidx in cluster[1]:
             break  # found our cluster
     else:  # in case we did not "break"
         raise RuntimeError('Clustering failed somehow!')

@@ -19,6 +19,7 @@ from mne.viz import plot_projs_topomap
 from mne.viz._3d import plot_head_positions
 from mne.viz import plot_snr_estimate
 from mne.report import Report
+from mne.utils import _pl
 
 from ._paths import get_raw_fnames, get_proj_fnames, get_report_fnames
 
@@ -283,21 +284,21 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                         figs.append(_proj_fig(op.join(
                             p.work_dir, subj, p.pca_dir,
                             'preproc_ecg-proj.fif'), sss_info,
-                            proj_nums[0], p.proj_meg))
+                            proj_nums[0], p.proj_meg, 'ECG'))
                 if any(proj_nums[1]):  # EOG
                     if 'preproc_blink-proj.fif' in proj_files:
                         comments.append('Blink')
                         figs.append(_proj_fig(op.join(
                             p.work_dir, subj, p.pca_dir,
                             'preproc_blink-proj.fif'), sss_info,
-                            proj_nums[1], p.proj_meg))
+                            proj_nums[1], p.proj_meg, 'EOG'))
                 if any(proj_nums[2]):  # ERM
                     if 'preproc_blink-cont.fif' in proj_files:
                         comments.append('Continuous')
                         figs.append(_proj_fig(op.join(
                             p.work_dir, subj, p.pca_dir,
                             'preproc_cont-proj.fif'), sss_info,
-                            proj_nums[2], p.proj_meg))
+                            proj_nums[2], p.proj_meg, 'ERM'))
                 captions = [section] + [None] * (len(comments) - 1)
                 report.add_figs_to_section(
                      figs, captions, section, image_format='svg',
@@ -606,7 +607,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
         report.save(report_fname, open_browser=False, overwrite=True)
 
 
-def _proj_fig(fname, info, proj_nums, proj_meg):
+def _proj_fig(fname, info, proj_nums, proj_meg, kind):
     import matplotlib.pyplot as plt
     proj_nums = np.array(proj_nums, int)
     assert proj_nums.shape == (3,)
@@ -636,7 +637,11 @@ def _proj_fig(fname, info, proj_nums, proj_meg):
                     for pick in mne.pick_types(info, meg=meg, eeg=eeg)]
         idx = np.where([np.in1d(ch_names, proj['data']['col_names']).all()
                         for proj in projs])[0]
-        assert len(idx) == count
+        if len(idx) != count:
+            raise RuntimeError('Expected %d %s projector%s for channel type '
+                               '%s based on proj_nums but got %d in %s'
+                               % (count, kind, _pl(count), ch_type, len(idx),
+                                  fname))
         if proj_meg == 'separate':
             assert not used[idx].any()
         else:
