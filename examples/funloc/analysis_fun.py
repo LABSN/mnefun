@@ -102,7 +102,6 @@ params.force_erm_cov_rank_full = False  # compute and use the empty-room rank
 # Define number of SSP projectors.
 # Three lists, one for ECG/EOG/continuous, each list with entries for
 # Grad/Mag/EEG. Can also be a per-subject dict (or defaultdict), like:
-# Can also be a dict (including defaultdict). So let's set some defaults:
 params.proj_nums = dict(
     subj_01=[[2, 2, 0], [1, 1, 3], [0, 0, 0]],
     subj_02=[[2, 2, 0], [1, 1, 2], [0, 0, 0]],

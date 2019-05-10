@@ -1,8 +1,6 @@
 #!/usr/bin/env python2
 # -*- coding: utf-8 -*-
-"""
-Create HTML reports.
-"""
+"""Create HTML reports."""
 from __future__ import print_function, unicode_literals
 
 from copy import deepcopy
@@ -21,7 +19,8 @@ from mne.viz import plot_snr_estimate
 from mne.report import Report
 from mne.utils import _pl
 
-from ._paths import get_raw_fnames, get_proj_fnames, get_report_fnames
+from ._paths import (get_raw_fnames, get_proj_fnames, get_report_fnames,
+                     get_bad_fname)
 
 
 def gen_html_report(p, subjects, structurals, run_indices=None):
@@ -63,7 +62,11 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
         sss_fnames = get_raw_fnames(p, subj, 'sss', False, False,
                                     run_indices[si])
         has_sss = all(op.isfile(fname) for fname in sss_fnames)
-        sss_info = mne.io.read_info(sss_fnames[0]) if has_sss else None
+        sss_info = mne.io.read_raw_fif(sss_fnames[0]) if has_sss else None
+        bad_file = get_bad_fname(p, subj)
+        if bad_file is not None:
+            sss_info.load_bad_channels(bad_file)
+        sss_info = sss_info.info
 
         # pca
         pca_fnames = get_raw_fnames(p, subj, 'pca', False, False,
@@ -293,7 +296,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                             'preproc_blink-proj.fif'), sss_info,
                             proj_nums[1], p.proj_meg, 'EOG'))
                 if any(proj_nums[2]):  # ERM
-                    if 'preproc_blink-cont.fif' in proj_files:
+                    if 'preproc_cont-proj.fif' in proj_files:
                         comments.append('Continuous')
                         figs.append(_proj_fig(op.join(
                             p.work_dir, subj, p.pca_dir,

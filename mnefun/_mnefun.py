@@ -84,7 +84,7 @@ except ImportError:
 from mne.viz import plot_drop_log, tight_layout
 from mne.fixes import _get_args as get_args
 
-from ._paths import (get_raw_fnames, get_event_fnames,
+from ._paths import (get_raw_fnames, get_event_fnames, get_bad_fname,
                      get_epochs_evokeds_fnames, safe_inserter, _regex_convert)
 from ._status import print_proc_status
 from ._reorder import fix_eeg_channels
@@ -97,8 +97,13 @@ except Exception:
     pass
 
 
+epo_kwargs = dict(verbose=False)
+if 'overwrite' in get_args(Epochs.save):
+    epo_kwargs['overwrite'] = True
+
 # Class adapted from:
 # http://stackoverflow.com/questions/3603502/
+
 
 class Frozen(object):
     __isfrozen = False
@@ -1849,7 +1854,7 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
                                         drop_log=epochs.drop_log),
                          do_compression=True, oned_as='column')
         if 'fif' in p.epochs_type:
-            epochs.save(fif_file)
+            epochs.save(fif_file, **epo_kwargs)
 
     if p.plot_drop_logs:
         for subj, drop_log in zip(subjects, drop_logs):
@@ -2272,8 +2277,16 @@ def _handle_dict(entry, subj):
     return entry[subj] if isinstance(entry, dict) else entry
 
 
+def _safe_remove(fnames):
+    if isinstance(fnames, str):
+        fnames = [fnames]
+    for fname in fnames:
+        if op.isfile(fname):
+            os.remove(fname)
+
+
 def do_preprocessing_combined(p, subjects, run_indices):
-    """Do preprocessing on all raw files together
+    """Do preprocessing on all raw files together.
 
     Calculates projection vectors to use to clean data.
 
@@ -2295,7 +2308,7 @@ def do_preprocessing_combined(p, subjects, run_indices):
             print('  Preprocessing subject %g/%g (%s).'
                   % (si + 1, len(subjects), subj))
         pca_dir = op.join(p.work_dir, subj, p.pca_dir)
-        bad_dir = op.join(p.work_dir, subj, p.bad_dir)
+        bad_file = get_bad_fname(p, subj, check_exists=False)
 
         # Create SSP projection vectors after marking bad channels
         raw_names = get_raw_fnames(p, subj, 'sss', False, False,
@@ -2305,13 +2318,10 @@ def do_preprocessing_combined(p, subjects, run_indices):
             if not op.isfile(r):
                 raise NameError('File not found (' + r + ')')
 
-        bad_file = op.join(bad_dir, 'bad_ch_' + subj + p.bad_tag)
         fir_kwargs, old_kwargs = _get_fir_kwargs(p.fir_design)
         if isinstance(p.auto_bad, float):
             print('    Creating bad channel file, marking bad channels:\n'
                   '        %s' % bad_file)
-            if not op.isdir(bad_dir):
-                os.mkdir(bad_dir)
             # do autobad
             raw = _raw_LRFCP(raw_names, p.proj_sfreq, None, None, p.n_jobs_fir,
                              p.n_jobs_resample, list(), None, p.disp_files,
@@ -2462,6 +2472,8 @@ def do_preprocessing_combined(p, subjects, run_indices):
             write_proj(cont_proj, pr)
             projs.extend(pr)
             del raw
+        else:
+            _safe_remove(cont_proj)
 
         #
         # Calculate and apply the ECG projectors
@@ -2498,7 +2510,7 @@ def do_preprocessing_combined(p, subjects, run_indices):
                                                             len(ecg_events)))
             if len(ecg_epochs) >= 20:
                 write_events(ecg_eve, ecg_epochs.events)
-                ecg_epochs.save(ecg_epo)
+                ecg_epochs.save(ecg_epo, **epo_kwargs)
                 desc_prefix = 'ECG-%s-%s' % tuple(ecg_t_lims)
                 pr = compute_proj_wrap(
                     ecg_epochs, p.proj_ave, n_grad=proj_nums[0][0],
@@ -2513,6 +2525,8 @@ def do_preprocessing_combined(p, subjects, run_indices):
                 raise RuntimeError('Only %d/%d good ECG epochs found'
                                    % (len(ecg_epochs), len(ecg_events)))
             del raw, ecg_epochs, ecg_events
+        else:
+            _safe_remove([ecg_proj, ecg_eve, ecg_epo])
 
         #
         # Next calculate and apply the EOG projectors
@@ -2540,7 +2554,7 @@ def do_preprocessing_combined(p, subjects, run_indices):
             del eog_events
             if len(eog_epochs) >= 5:
                 write_events(eog_eve, eog_epochs.events)
-                eog_epochs.save(eog_epo)
+                eog_epochs.save(eog_epo, **epo_kwargs)
                 desc_prefix = 'EOG-%s-%s' % tuple(eog_t_lims)
                 pr = compute_proj_wrap(
                     eog_epochs, p.proj_ave, n_grad=proj_nums[1][0],
@@ -2551,7 +2565,10 @@ def do_preprocessing_combined(p, subjects, run_indices):
                 projs.extend(pr)
             else:
                 warnings.warn('Only %d usable EOG events!' % len(eog_epochs))
+                _safe_remove([eog_proj, eog_eve, eog_epo])
             del raw, eog_epochs
+        else:
+            _safe_remove([eog_proj, eog_eve, eog_epo])
 
         # save the projectors
         write_proj(all_proj, projs)
@@ -2613,9 +2630,7 @@ def apply_preprocessing_combined(p, subjects, run_indices):
                                    run_indices[si])
         erm_in = get_raw_fnames(p, subj, 'sss', 'only')
         erm_out = get_raw_fnames(p, subj, 'pca', 'only')
-        bad_dir = op.join(p.work_dir, subj, p.bad_dir)
-        bad_file = op.join(bad_dir, 'bad_ch_' + subj + p.bad_tag)
-        bad_file = None if not op.isfile(bad_file) else bad_file
+        bad_file = get_bad_fname(p, subj)
         all_proj = op.join(pca_dir, 'preproc_all-proj.fif')
         projs = read_proj(all_proj)
         fir_kwargs = _get_fir_kwargs(p.fir_design)[0]
@@ -3160,8 +3175,8 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics=None, show=True,
 
     # SNR plots for gradiometers and magnetometers
     ax = axs[0]
-    lines1 = ax.plot(tvec, 10*np.log10(snr_avg_grad.T))
-    lines1_med = ax.plot(tvec, 10*np.log10(np.median(snr_avg_grad, axis=0)),
+    lines1 = ax.plot(tvec, 10 * np.log10(snr_avg_grad.T))
+    lines1_med = ax.plot(tvec, 10 * np.log10(np.median(snr_avg_grad, axis=0)),
                          lw=2, ls=':', color='k')
     ax.set_xlim([tvec.min(), tvec.max()])
     ax.set(ylabel='SNR (dB)')
@@ -3240,7 +3255,8 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics=None, show=True,
     ax = axs[3]
     box = ax.get_position()
     ax.set_position([box.x0, box.y0, box.width * 0.8, box.height])
-    plt.show(show)
+    if show:
+        plt.show()
 
     return fig
 
@@ -3374,8 +3390,7 @@ def _spherical_conductor(info, subject, pos):
     """Helper to make spherical conductor model."""
     bem = make_sphere_model(info=info, r0='auto',
                             head_radius='auto', verbose=False)
-    src = setup_volume_source_space(subject=subject, sphere=bem,
-                                    pos=pos, mindist=1.)
+    src = setup_volume_source_space(sphere=bem, pos=pos, mindist=1.)
     return bem, src, None
 
 
@@ -3564,7 +3579,7 @@ def get_hcpmmp_mapping():
         'Inferior Frontal Cortex',  # 21
         'DorsoLateral Prefrontal Cortex',  # 22
         '???',  # 23
-        ])}
+    ])}
 
 
 def extract_roi(stc, src, label=None, thresh=0.5):
