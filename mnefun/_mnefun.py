@@ -3520,8 +3520,10 @@ def mlab_offscreen(offscreen=True):
     from mayavi import mlab
     old_offscreen = mlab.options.offscreen
     mlab.options.offscreen = offscreen
-    yield
-    mlab.options.offscreen = old_offscreen
+    try:
+        yield
+    finally:
+        mlab.options.offscreen = old_offscreen
 
 
 def discretize_cmap(colormap, lims, transparent=True):
