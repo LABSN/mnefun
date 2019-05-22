@@ -2341,7 +2341,10 @@ def do_preprocessing_combined(p, subjects, run_indices):
                             reject_tmin=p.reject_tmin,
                             reject_tmax=p.reject_tmax)
             # channel scores from drop log
-            scores = Counter([ch for d in epochs.drop_log for ch in d])
+            drops = Counter([ch for d in epochs.drop_log for ch in d])
+            # get rid of non-channel reasons in drop log
+            scores = {kk: vv for kk, vv in drops.items() if
+                      kk in epochs.ch_names}
             ch_names = np.array(list(scores.keys()))
             # channel scores expressed as percentile and rank ordered
             counts = (100 * np.array([scores[ch] for ch in ch_names], float) /
