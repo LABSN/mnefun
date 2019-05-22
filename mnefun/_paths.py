@@ -201,13 +201,13 @@ def get_epochs_evokeds_fnames(p, subj, analyses, remove_unsaved=False):
 
 
 def get_report_fnames(p, subj):
-    """Get filenames of report files"""
+    """Get filenames of report files."""
     fnames = [op.join(p.work_dir, subj, '%s_fil%d_report.html'
                       % (subj, p.lp_cut))]
     return fnames
 
-def get_proj_fnames(p, subj, ):
-    """Get filenames of projections files"""
+def get_proj_fnames(p, subj):
+    """Get filenames of projections files."""
     proj_fnames = []
     proj_dir = op.join(p.work_dir, subj, p.pca_dir)
     for fn in ['preproc_all-proj.fif', 'preproc_ecg-proj.fif',
@@ -215,3 +215,14 @@ def get_proj_fnames(p, subj, ):
         if op.isfile(op.join(proj_dir, fn)):
             proj_fnames.append(fn)
     return proj_fnames
+
+
+def get_bad_fname(p, subj, check_exists=True):
+    """Get filename for post-SSS bad channels."""
+    bad_dir = op.join(p.work_dir, subj, p.bad_dir)
+    if not op.isdir(bad_dir):
+        os.mkdir(bad_dir)
+    bad_file = op.join(bad_dir, 'bad_ch_' + subj + p.bad_tag)
+    if check_exists:
+        bad_file = None if not op.isfile(bad_file) else bad_file
+    return bad_file

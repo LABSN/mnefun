@@ -1,8 +1,6 @@
 #!/usr/bin/env python2
 # -*- coding: utf-8 -*-
-"""
-Create HTML reports.
-"""
+"""Create HTML reports."""
 from __future__ import print_function, unicode_literals
 
 from copy import deepcopy
@@ -19,8 +17,10 @@ from mne.viz import plot_projs_topomap
 from mne.viz._3d import plot_head_positions
 from mne.viz import plot_snr_estimate
 from mne.report import Report
+from mne.utils import _pl
 
-from ._paths import get_raw_fnames, get_proj_fnames, get_report_fnames
+from ._paths import (get_raw_fnames, get_proj_fnames, get_report_fnames,
+                     get_bad_fname)
 
 
 def gen_html_report(p, subjects, structurals, run_indices=None):
@@ -62,7 +62,11 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
         sss_fnames = get_raw_fnames(p, subj, 'sss', False, False,
                                     run_indices[si])
         has_sss = all(op.isfile(fname) for fname in sss_fnames)
-        sss_info = mne.io.read_info(sss_fnames[0]) if has_sss else None
+        sss_info = mne.io.read_raw_fif(sss_fnames[0]) if has_sss else None
+        bad_file = get_bad_fname(p, subj)
+        if bad_file is not None:
+            sss_info.load_bad_channels(bad_file)
+        sss_info = sss_info.info
 
         # pca
         pca_fnames = get_raw_fnames(p, subj, 'pca', False, False,
@@ -283,21 +287,21 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                         figs.append(_proj_fig(op.join(
                             p.work_dir, subj, p.pca_dir,
                             'preproc_ecg-proj.fif'), sss_info,
-                            proj_nums[0], p.proj_meg))
+                            proj_nums[0], p.proj_meg, 'ECG'))
                 if any(proj_nums[1]):  # EOG
                     if 'preproc_blink-proj.fif' in proj_files:
                         comments.append('Blink')
                         figs.append(_proj_fig(op.join(
                             p.work_dir, subj, p.pca_dir,
                             'preproc_blink-proj.fif'), sss_info,
-                            proj_nums[1], p.proj_meg))
+                            proj_nums[1], p.proj_meg, 'EOG'))
                 if any(proj_nums[2]):  # ERM
-                    if 'preproc_blink-cont.fif' in proj_files:
+                    if 'preproc_cont-proj.fif' in proj_files:
                         comments.append('Continuous')
                         figs.append(_proj_fig(op.join(
                             p.work_dir, subj, p.pca_dir,
                             'preproc_cont-proj.fif'), sss_info,
-                            proj_nums[2], p.proj_meg))
+                            proj_nums[2], p.proj_meg, 'ERM'))
                 captions = [section] + [None] * (len(comments) - 1)
                 report.add_figs_to_section(
                      figs, captions, section, image_format='svg',
@@ -366,9 +370,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                                       distance=0.6, figure=fig)
                             view.append(mlab.screenshot(figure=fig))
                         mlab.close(fig)
-                    view = np.concatenate(view, axis=1)
-                    view = view[:, (view != 0).any(0).any(-1)]
-                    view = view[(view != 0).any(1).any(-1)]
+                    view = trim_bg(np.concatenate(view, axis=1), 0)
                     report.add_figs_to_section(view, captions, section)
                 print('%5.1f sec' % ((time.time() - t0),))
             else:
@@ -592,7 +594,8 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                                 imgs = list()
                                 for t in times:
                                     brain.set_time(t)
-                                    imgs.append(brain.screenshot())
+                                    imgs.append(
+                                        trim_bg(brain.screenshot(), 255))
                                 brain.close()
                             captions = ['%2.3f sec' % t for t in times]
                             report.add_slider_to_section(
@@ -606,7 +609,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
         report.save(report_fname, open_browser=False, overwrite=True)
 
 
-def _proj_fig(fname, info, proj_nums, proj_meg):
+def _proj_fig(fname, info, proj_nums, proj_meg, kind):
     import matplotlib.pyplot as plt
     proj_nums = np.array(proj_nums, int)
     assert proj_nums.shape == (3,)
@@ -636,7 +639,11 @@ def _proj_fig(fname, info, proj_nums, proj_meg):
                     for pick in mne.pick_types(info, meg=meg, eeg=eeg)]
         idx = np.where([np.in1d(ch_names, proj['data']['col_names']).all()
                         for proj in projs])[0]
-        assert len(idx) == count
+        if len(idx) != count:
+            raise RuntimeError('Expected %d %s projector%s for channel type '
+                               '%s based on proj_nums but got %d in %s'
+                               % (count, kind, _pl(count), ch_type, len(idx),
+                                  fname))
         if proj_meg == 'separate':
             assert not used[idx].any()
         else:
@@ -678,3 +685,12 @@ def _proj_fig(fname, info, proj_nums, proj_meg):
     assert used.all() and (used <= 2).all()
     fig.subplots_adjust(0.1, 0.1, 0.95, 1, 0.3, 0.3)
     return fig
+
+
+def trim_bg(img, color=None):
+    """Trim background rows/cols from an image-like object."""
+    if color is None:
+        color = img[0, 0]
+    img = img[:, (img != color).any(0).any(-1)]
+    img = img[(img != color).any(1).any(-1)]
+    return img
