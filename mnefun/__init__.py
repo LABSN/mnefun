@@ -11,5 +11,6 @@ from ._mnefun import (
     discretize_cmap, fix_eeg_channels, get_hcpmmp_mapping, extract_roi)
 from .misc import make_montage
 from .stats import anova_time
+from ._report import trim_bg
 
 __version__ = '0.1.0.dev0'

@@ -370,9 +370,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                                       distance=0.6, figure=fig)
                             view.append(mlab.screenshot(figure=fig))
                         mlab.close(fig)
-                    view = np.concatenate(view, axis=1)
-                    view = view[:, (view != 0).any(0).any(-1)]
-                    view = view[(view != 0).any(1).any(-1)]
+                    view = trim_bg(np.concatenate(view, axis=1), 0)
                     report.add_figs_to_section(view, captions, section)
                 print('%5.1f sec' % ((time.time() - t0),))
             else:
@@ -596,7 +594,8 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                                 imgs = list()
                                 for t in times:
                                     brain.set_time(t)
-                                    imgs.append(brain.screenshot())
+                                    imgs.append(
+                                        trim_bg(brain.screenshot(), 255))
                                 brain.close()
                             captions = ['%2.3f sec' % t for t in times]
                             report.add_slider_to_section(
@@ -686,3 +685,12 @@ def _proj_fig(fname, info, proj_nums, proj_meg, kind):
     assert used.all() and (used <= 2).all()
     fig.subplots_adjust(0.1, 0.1, 0.95, 1, 0.3, 0.3)
     return fig
+
+
+def trim_bg(img, color=None):
+    """Trim background rows/cols from an image-like object."""
+    if color is None:
+        color = img[0, 0]
+    img = img[:, (img != color).any(0).any(-1)]
+    img = img[(img != color).any(1).any(-1)]
+    return img
