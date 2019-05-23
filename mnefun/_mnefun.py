@@ -2405,6 +2405,10 @@ def do_preprocessing_combined(p, subjects, run_indices):
                              pick=True, skip_by_annotation='edge',
                              **fir_kwargs)
             events = fixed_len_events(p, raw)
+            rtmin = p.reject_tmin \
+                if p.reject_tmin is not None else p.tmin
+            rtmax = p.reject_tmax \
+                if p.reject_tmax is not None else p.tmax
             # do not mark eog channels bad
             meg, eeg = 'meg' in raw, 'eeg' in raw
             picks = pick_types(raw.info, meg=meg, eeg=eeg, eog=False,
@@ -2417,12 +2421,33 @@ def do_preprocessing_combined(p, subjects, run_indices):
                                    'and flat channel detection '
                                    'parameters not defined. '
                                    'At least one criterion must be defined.')
-            epochs = Epochs(raw, events, None, p.tmin, p.tmax,
+            reject = get_epochs_evokeds_fnames(p, subj, [])[0][1]
+            reject = reject.replace('-epo.fif', '-reject.h5')
+            if op.isfile(reject):
+                reject = read_hdf5(reject)
+            else:
+                try:
+                    from autoreject import get_rejection_threshold
+                    print('    Computing autoreject thresholds', end='')
+                    temp_epochs = Epochs(
+                            raw, events, event_id=None, tmin=rtmin, tmax=rtmax,
+                            baseline=_get_baseline(p), proj=True, reject=None,
+                            flat=None,
+                            preload=True, decim=decim[si])
+                    kwargs = dict()
+                    if 'verbose' in get_args(get_rejection_threshold):
+                        kwargs['verbose'] = False
+                    reject = get_rejection_threshold(temp_epochs, **kwargs)
+                except ImportError:
+                    print('     Autoreject module not installed.\n'
+                          '     Using predefined rejection criteria\n'
+                          '     for autobad channel selection.')
+                    reject = p.auto_bad_reject
+            epochs = Epochs(raw, events, None, tmin=rtmin, tmax=rtmax,
                             baseline=_get_baseline(p), picks=picks,
-                            reject=p.auto_bad_reject, flat=p.auto_bad_flat,
+                            reject=reject, flat=p.auto_bad_flat,
                             proj=True, preload=True, decim=1,
-                            reject_tmin=p.reject_tmin,
-                            reject_tmax=p.reject_tmax)
+                            reject_tmin=rtmin, reject_tmax=rtmax)
             # channel scores from drop log
             drops = Counter([ch for d in epochs.drop_log for ch in d])
             # get rid of non-channel reasons in drop log
