@@ -262,6 +262,12 @@ class Params(Frozen):
         Default is ('mag', 'grad', 'eeg'). Can set to ('mag', 'grad', 'eeg',
         'eog) to use EOG channel rejection criterion from autoreject module to
         reject trials on basis of EOG.
+    mf_autobad : bool
+        Default False. If True use Maxfilter to automatically mark bad
+        channels prior to SSS denoising.
+    mf_badlimit : int
+        Default is 7. Threshold limit for Maxfilter noisy channel
+        detection.
     src_pos : float
         Default is 7 mm. Defines source grid spacing for volumetric source
         space.
@@ -366,6 +372,8 @@ class Params(Frozen):
                              'or "fif"')
         self.epochs_type = epochs_type
         self.fwd_mindist = fwd_mindist
+        self.mf_autobad = False
+        self.mf_badlimit = 7
         self.auto_bad = auto_bad
         self.auto_bad_reject = None
         self.auto_bad_flat = None
@@ -1246,6 +1254,13 @@ def run_sss_locally(p, subjects, run_indices):
             raw = read_raw_fif(r, preload=True, allow_maxshield='yes')
             raw.fix_mag_coil_types()
             _load_meg_bads(raw, prebad_file, disp=ii == 0, prefix=' ' * 6)
+            # If so run Maxfilter for automatic bad channel selection
+            if p.mf_autobad:
+                print('     Maxfilter auto bad channel selection requested. '
+                      'Running on kasga...', end='')
+                add_bads = do_mf_autobad(p, r, prebad_file)
+                raw.info['bads'] += add_bads
+                raw.info._check_consistency()
             if ii == 0:
                 if p.sss_origin == 'auto':
                     R, origin = mne.bem.fit_sphere_to_headshape(
@@ -1369,6 +1384,27 @@ def _load_meg_bads(raw, prebad_file, disp=True, prefix='     '):
               % (prefix, len(bads), pl, op.basename(prebad_file)))
     raw.info['bads'] = bads
     raw.info._check_consistency()
+    
+
+def _configure_ch_names(ch_names, raw):
+    """Helper to load MEG bad channels from a file (pre-MF)"""
+    if len(ch_names) > 0:
+        try:
+            int(ch_names[0][0])
+        except ValueError:
+            # MNE-Python type file
+            bads = ch_names
+        else:
+            # Maxfilter type file
+            bads = ch_names[0].split()
+            if len(bads) > 0:
+                for fmt in ('MEG %03d', 'MEG%04d'):
+                    if fmt % int(bads[0]) in raw.ch_names:
+                        break
+                bads = [fmt % int(bad) for bad in bads]
+    else:
+        bads = list()
+    return bads
 
 
 def extract_expyfun_events(fname, return_offsets=False):
@@ -3650,3 +3686,54 @@ def extract_roi(stc, src, label=None, thresh=0.5):
     func_label = mne.Label(verts, hemi=hemi, subject=stc.subject)
     func_label = func_label.fill(src)
     return func_label, max_vert, max_vidx, max_tidx
+
+
+def do_mf_autobad(p, r, prebad_file):
+    t0 = time.time()
+    tmp_name = op.join(op.dirname(r), 'temp_%s_raw.fif' % t0)
+    tmp_raw = filter_chpi(read_raw_fif(r, allow_maxshield='yes',
+                                       preload=True),
+                          include_line=True)
+    mne.channels.fix_mag_coil_types(tmp_raw.info)
+    tmp_raw.save(tmp_name, fmt='short', overwrite=True)
+    remote_in = op.join(p.sws_ssh, p.sws_dir,
+                        op.basename(tmp_name))
+    print('     Copying...', end='')
+    cmd = ['scp', '-P', str(p.sws_port), tmp_name,
+           p.sws_ssh + ':' + p.sws_dir]
+    run_subprocess(cmd, stdout=subprocess.PIPE,
+                   stderr=subprocess.PIPE)
+    print('     Running maxfilter -autobad on', end='')
+    t1 = time.time()
+    tmp_name = op.join(op.dirname(r), 'temp_%s_raw.fif' % t1)
+    remote_out = op.join(p.sws_ssh, p.sws_dir,
+                         op.basename(tmp_name))
+    mf_log = op.join(p.sws_ssh, p.sws_dir,
+                     '%s_stdout.txt' % op.basename(remote_out[:-8]))
+    cmd = ['ssh', '-p', str(p.sws_port), p.sws_ssh,
+           '/neuro/bin/util/maxfilter -f ' + remote_in + ' -o ' +
+           remote_out + ' -autobad on -skip 0 30 -format short '
+                        '-badlimit %d -v' % p.mf_badlimit]
+    output = run_subprocess(cmd, stdout=subprocess.PIPE,
+                            stderr=subprocess.DEVNULL)[0]
+    print('     Cleaning up...')
+    _safe_remove(op.join(op.dirname(r), 'temp_%s_raw.fif' % t0))
+    cmd = ['ssh', '-p', str(p.sws_port), p.sws_ssh]
+    cmd += [' rm %s %s' %(remote_in, remote_out)]
+    run_subprocess(cmd, stdout=subprocess.PIPE,
+                   stderr=subprocess.PIPE)
+    # Parse output for bad channels
+    detected = 'Static bad channels'
+    if detected in output:
+        chs = [ll for ll in output.split('\n') if detected in ll][
+            0].split(':')[1].strip()
+        chs = _configure_ch_names([chs], tmp_raw)
+        with open(prebad_file) as f:
+            prebad = f.readlines()
+        prebad = _configure_ch_names(prebad, tmp_raw)
+        bads = list(set(chs) - set(prebad))
+    if len(bads) > p.auto_bad_meg_thresh:
+        raise RuntimeError('Too many bad MEG channels detected by Maxfilter '
+                           'found: %s > %s'
+                           % (len(bads), p.auto_bad_meg_thresh))
+    return bads
