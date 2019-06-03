@@ -1016,8 +1016,9 @@ def fetch_sss_files(p, subjects, run_indices):
 
 
 def run_sss_command(fname_in, options, fname_out, host='kasga', port=22,
-                    fname_pos=None, stdout=None, stderr=None, prefix='',
-                    work_dir='~/'):
+                    fname_pos=None, fname_bads=None, stdout=None, stderr=None,
+                    prefix='',
+                    work_dir='~/', **kwargs):
     """Run Maxfilter remotely and fetch resulting file
 
     Parameters
@@ -1033,6 +1034,8 @@ def run_sss_command(fname_in, options, fname_out, host='kasga', port=22,
         The SSH/scp host to run the command on.
     fname_pos : str | None
         The ``-hp fname_pos`` to use with MaxFilter.
+    fname_bads : str | None
+        The output file containing channels detected by MaxFilter as bad.
     stdout : file-like | None
         Where to send stdout.
     stderr : file-like | None
@@ -1041,12 +1044,15 @@ def run_sss_command(fname_in, options, fname_out, host='kasga', port=22,
         The text to prefix to messages.
     work_dir : str
         Where to store the temporary files.
+    **kwargs: dict
+        Additional command line arguments to Maxfilter as key, value pairs.
     """
     # let's make sure we can actually write where we want
     if not op.isfile(fname_in):
         raise IOError('input file not found: %s' % fname_in)
-    if not op.isdir(op.dirname(op.abspath(fname_out))):
-        raise IOError('output directory for output file does not exist')
+    if fname_out is not None:
+        if not op.isdir(op.dirname(op.abspath(fname_out))):
+            raise IOError('output directory for output file does not exist')
     if any(x in options for x in ('-f ', '-o ', '-hp ')):
         raise ValueError('options cannot contain -o, -f, or -hp, these are '
                          'set automatically')
@@ -1057,9 +1063,21 @@ def run_sss_command(fname_in, options, fname_out, host='kasga', port=22,
     remote_pos = op.join(work_dir, 'temp_%s_raw_sss.pos' % t0)
     print('%sOn %s: copying' % (prefix, host), end='')
     fname_in = op.realpath(fname_in)  # in case it's a symlink
-    cmd = ['scp', '-P' + port, fname_in, host + ':' + remote_in]
+    cmd = ['scp', '-P ' + port, fname_in, host + ':' + remote_in]
     run_subprocess(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-
+    
+    if fname_bads is not None:
+        if kwargs is not None:
+            if 'badlimit' in kwargs.keys():
+                options += ' -badlimit %d' % kwargs['badlimit']
+        options += ' -autobad on -skip 0 30'
+        cmd = ['ssh', '-p', port, host,
+               'maxfilter -f ' + remote_in + ' -o ' + remote_out + ' ' +
+               options]
+        with open(fname_bads, "w+") as f:
+            run_subprocess(cmd, stdout=f, stderr=subprocess.PIPE)
+        options = '-v -force'
+    
     if fname_pos is not None:
         options += ' -hp ' + remote_pos
 
@@ -1068,8 +1086,8 @@ def run_sss_command(fname_in, options, fname_out, host='kasga', port=22,
            'maxfilter -f ' + remote_in + ' -o ' + remote_out + ' ' + options]
     try:
         run_subprocess(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-
-        print(', copying to %s' % (op.basename(fname_out),), end='')
+        if fname_out is not None:
+            print(', copying to %s' % (op.basename(fname_out),), end='')
         if fname_pos is not None:
             try:
                 cmd = ['scp', '-P' + port, host + ':' + remote_pos, fname_pos]
@@ -1077,8 +1095,6 @@ def run_sss_command(fname_in, options, fname_out, host='kasga', port=22,
                                stderr=subprocess.PIPE)
             except Exception:
                 pass
-        cmd = ['scp', '-P' + port, host + ':' + remote_out, fname_out]
-        run_subprocess(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     finally:
         print(', cleaning', end='')
         files = [remote_in, remote_out]
@@ -1252,15 +1268,15 @@ def run_sss_locally(p, subjects, run_indices):
             if not op.isfile(r):
                 raise NameError('File not found (' + r + ')')
             raw = read_raw_fif(r, preload=True, allow_maxshield='yes')
-            raw.fix_mag_coil_types()
-            _load_meg_bads(raw, prebad_file, disp=ii == 0, prefix=' ' * 6)
             # If so run Maxfilter for automatic bad channel selection
             if p.mf_autobad:
-                print('     Maxfilter auto bad channel selection requested. '
-                      'Running on kasga...', end='')
-                add_bads = do_mf_autobad(p, r, prebad_file)
-                raw.info['bads'] += add_bads
-                raw.info._check_consistency()
+                print('     Maxfilter auto bad channel selection requested.\n',
+                        end='')
+                maxbad_file = op.join(p.work_dir, subj, p.raw_dir,
+                                      subj + '_maxbad.txt')
+                bads = _maxbad(p, subj, r, maxbad_file)
+            raw.fix_mag_coil_types()
+            _load_meg_bads(raw, prebad_file, disp=ii == 0, prefix=' ' * 6)
             if ii == 0:
                 if p.sss_origin == 'auto':
                     R, origin = mne.bem.fit_sphere_to_headshape(
@@ -1386,25 +1402,25 @@ def _load_meg_bads(raw, prebad_file, disp=True, prefix='     '):
     raw.info._check_consistency()
     
 
-def _configure_ch_names(ch_names, raw):
+def _configure_ch_names(ch_names, info):
     """Helper to load MEG bad channels from a file (pre-MF)"""
     if len(ch_names) > 0:
         try:
             int(ch_names[0][0])
         except ValueError:
             # MNE-Python type file
-            bads = ch_names
+            chs = ch_names
         else:
             # Maxfilter type file
-            bads = ch_names[0].split()
-            if len(bads) > 0:
+            chs = ch_names[0].split()
+            if len(chs) > 0:
                 for fmt in ('MEG %03d', 'MEG%04d'):
-                    if fmt % int(bads[0]) in raw.ch_names:
+                    if fmt % int(chs[0]) in info['ch_names']:
                         break
-                bads = [fmt % int(bad) for bad in bads]
+                chs = [fmt % int(ch) for ch in chs]
     else:
-        bads = list()
-    return bads
+        chs = list()
+    return chs
 
 
 def extract_expyfun_events(fname, return_offsets=False):
@@ -2356,7 +2372,7 @@ def do_preprocessing_combined(p, subjects, run_indices):
 
         fir_kwargs, old_kwargs = _get_fir_kwargs(p.fir_design)
         if isinstance(p.auto_bad, float):
-            print('    Creating bad channel file, marking bad channels:\n'
+            print('    Creating post SSS bad channel file:\n'
                   '        %s' % bad_file)
             # do autobad
             raw = _raw_LRFCP(raw_names, p.proj_sfreq, None, None, p.n_jobs_fir,
@@ -2785,6 +2801,45 @@ def _prebad(p, subj):
         raise RuntimeError('Could not find SSS prebad file: %s' % prebad_file)
     return prebad_file
 
+
+def _maxbad(p, subj, raw_fname, bad_file):
+    """Helper for handling Maxfilter bad channels selection prior to SSS"""
+    prebad_file = _prebad(p, subj)
+    if not op.isfile(bad_file):
+        print('         Could not find MaxFilter bad file: %s' %
+              bad_file + ' ... Running on kasga.\n', end='')
+        opts = '-v -force'
+        if not p.mf_badlimit == 7:
+            mf_kwargs = {'badlimit': p.mf_badlimit}
+        run_sss_command(raw_fname, opts, None, host=p.sws_ssh,
+                        fname_bads=bad_file,
+                        work_dir=p.sws_dir, **mf_kwargs)
+        with open(bad_file, "r") as f:
+            output = [line for line in f]
+        # Parse output for bad channels
+        if any('Static bad channels' in ss for ss in output):
+            chs = [ll for ll in output if 'Static bad channels' in ll][
+                0].split(':')[1].strip()
+            with open(bad_file, "w+") as f:
+                f.write(chs)
+        print('Backing-up %s.orig: ' % prebad_file,
+              '\nWriting modified %s: ' % prebad_file, end='')
+        copy2(prebad_file, prebad_file + '.orig')
+    print('\nUsing bad channels from: %s\n' % bad_file, end='')
+    with open(prebad_file, 'r') as f:
+        prebad = f.readlines()[0].strip('\n')
+    prebad = _configure_ch_names([prebad], read_info(raw_fname))
+    with open(bad_file, 'r') as f:
+        maxbad = f.readlines()
+    maxbad = _configure_ch_names(maxbad, read_info(raw_fname))
+    bads = list(set(prebad).union(set(maxbad)))
+    if len(bads) > p.auto_bad_meg_thresh:
+        raise RuntimeError('Too many bad MEG channels detected by Maxfilter'
+                           ' found: %s > %s'
+                           % (len(bads), p.auto_bad_meg_thresh))
+    with open(prebad_file, 'w+') as f:
+        f.write('\n'.join(bads))
+    
 
 def _pos_valid(pos, dist_limit, gof_limit):
     """Check for a reasonable head position."""
@@ -3686,54 +3741,3 @@ def extract_roi(stc, src, label=None, thresh=0.5):
     func_label = mne.Label(verts, hemi=hemi, subject=stc.subject)
     func_label = func_label.fill(src)
     return func_label, max_vert, max_vidx, max_tidx
-
-
-def do_mf_autobad(p, r, prebad_file):
-    t0 = time.time()
-    tmp_name = op.join(op.dirname(r), 'temp_%s_raw.fif' % t0)
-    tmp_raw = filter_chpi(read_raw_fif(r, allow_maxshield='yes',
-                                       preload=True),
-                          include_line=True)
-    mne.channels.fix_mag_coil_types(tmp_raw.info)
-    tmp_raw.save(tmp_name, fmt='short', overwrite=True)
-    remote_in = op.join(p.sws_ssh, p.sws_dir,
-                        op.basename(tmp_name))
-    print('     Copying...', end='')
-    cmd = ['scp', '-P', str(p.sws_port), tmp_name,
-           p.sws_ssh + ':' + p.sws_dir]
-    run_subprocess(cmd, stdout=subprocess.PIPE,
-                   stderr=subprocess.PIPE)
-    print('     Running maxfilter -autobad on', end='')
-    t1 = time.time()
-    tmp_name = op.join(op.dirname(r), 'temp_%s_raw.fif' % t1)
-    remote_out = op.join(p.sws_ssh, p.sws_dir,
-                         op.basename(tmp_name))
-    mf_log = op.join(p.sws_ssh, p.sws_dir,
-                     '%s_stdout.txt' % op.basename(remote_out[:-8]))
-    cmd = ['ssh', '-p', str(p.sws_port), p.sws_ssh,
-           '/neuro/bin/util/maxfilter -f ' + remote_in + ' -o ' +
-           remote_out + ' -autobad on -skip 0 30 -format short '
-                        '-badlimit %d -v' % p.mf_badlimit]
-    output = run_subprocess(cmd, stdout=subprocess.PIPE,
-                            stderr=subprocess.DEVNULL)[0]
-    print('     Cleaning up...')
-    _safe_remove(op.join(op.dirname(r), 'temp_%s_raw.fif' % t0))
-    cmd = ['ssh', '-p', str(p.sws_port), p.sws_ssh]
-    cmd += [' rm %s %s' %(remote_in, remote_out)]
-    run_subprocess(cmd, stdout=subprocess.PIPE,
-                   stderr=subprocess.PIPE)
-    # Parse output for bad channels
-    detected = 'Static bad channels'
-    if detected in output:
-        chs = [ll for ll in output.split('\n') if detected in ll][
-            0].split(':')[1].strip()
-        chs = _configure_ch_names([chs], tmp_raw)
-        with open(prebad_file) as f:
-            prebad = f.readlines()
-        prebad = _configure_ch_names(prebad, tmp_raw)
-        bads = list(set(chs) - set(prebad))
-    if len(bads) > p.auto_bad_meg_thresh:
-        raise RuntimeError('Too many bad MEG channels detected by Maxfilter '
-                           'found: %s > %s'
-                           % (len(bads), p.auto_bad_meg_thresh))
-    return bads
