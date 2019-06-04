@@ -1070,7 +1070,9 @@ def run_sss_command(fname_in, options, fname_out, host='kasga', port=22,
         if kwargs is not None:
             if 'badlimit' in kwargs.keys():
                 options += ' -badlimit %d' % kwargs['badlimit']
-        options += ' -autobad on -skip 0 30'
+        r = read_raw_fif(fname_in, allow_maxshield='yes')
+        s0, s1 = r._first_time, r._first_time + 30.
+        options += ' -autobad on -skip %i %i' % (s0, s1)
         cmd = ['ssh', '-p', port, host,
                'maxfilter -f ' + remote_in + ' -o ' + remote_out + ' ' +
                options]
@@ -2809,8 +2811,7 @@ def _maxbad(p, subj, raw_fname, bad_file):
         print('         Could not find MaxFilter bad file: %s' %
               bad_file + ' ... Running on kasga.\n', end='')
         opts = '-v -force'
-        if not p.mf_badlimit == 7:
-            mf_kwargs = {'badlimit': p.mf_badlimit}
+        mf_kwargs = {'badlimit': p.mf_badlimit}
         run_sss_command(raw_fname, opts, None, host=p.sws_ssh,
                         fname_bads=bad_file,
                         work_dir=p.sws_dir, **mf_kwargs)
@@ -2822,23 +2823,22 @@ def _maxbad(p, subj, raw_fname, bad_file):
                 0].split(':')[1].strip()
             with open(bad_file, "w+") as f:
                 f.write(chs)
-        print('Backing-up %s.orig: ' % prebad_file,
-              '\nWriting modified %s: ' % prebad_file, end='')
+        print('Backing-up %s.orig: \n' % prebad_file, end='')
         copy2(prebad_file, prebad_file + '.orig')
-    print('\nUsing bad channels from: %s\n' % bad_file, end='')
-    with open(prebad_file, 'r') as f:
-        prebad = f.readlines()[0].strip('\n')
-    prebad = _configure_ch_names([prebad], read_info(raw_fname))
-    with open(bad_file, 'r') as f:
-        maxbad = f.readlines()
-    maxbad = _configure_ch_names(maxbad, read_info(raw_fname))
-    bads = list(set(prebad).union(set(maxbad)))
-    if len(bads) > p.auto_bad_meg_thresh:
-        raise RuntimeError('Too many bad MEG channels detected by Maxfilter'
-                           ' found: %s > %s'
-                           % (len(bads), p.auto_bad_meg_thresh))
-    with open(prebad_file, 'w+') as f:
-        f.write('\n'.join(bads))
+    if all(fs > 0 for fs in [op.getsize(ff) for ff in [prebad_file, bad_file]]):
+        with open(prebad_file, 'r') as f:
+            prebad = f.readlines()[0].strip('\n')
+        prebad = _configure_ch_names([prebad], read_info(raw_fname))
+        with open(bad_file, 'r') as f:
+            maxbad = f.readlines()
+        maxbad = _configure_ch_names(maxbad, read_info(raw_fname))
+        bads = list(set(prebad).union(set(maxbad)))
+        if len(bads) > p.auto_bad_meg_thresh:
+            raise RuntimeError('Too many bad MEG channels detected by Maxfilter'
+                               ' found: %s > %s'
+                               % (len(bads), p.auto_bad_meg_thresh))
+        with open(prebad_file, 'w+') as f:
+            f.write('\n'.join(bads))
     
 
 def _pos_valid(pos, dist_limit, gof_limit):
