@@ -117,6 +117,10 @@ params.autoreject_types = ('mag', 'grad', 'eeg')
 params.cov_method = 'shrunk'  # Cleaner noise covariance regularization
 # python | maxfilter for choosing SSS applied using either Maxfilter or MNE
 params.sss_type = 'python'
+# Run remote Maxfilter to automatically detect bad channels prior to SSS
+params.mf_autobad = True
+# Threshold limit for Maxfilter noisy channel detection.
+params.mf_badlimit = 7
 # The scoring function needs to produce an event file with these values
 params.in_numbers = [10, 11, 20, 21]
 # Those values correspond to real categories as:
