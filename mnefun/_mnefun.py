@@ -1417,27 +1417,6 @@ def _load_meg_bads(raw, prebad_file, disp=True, prefix='     ',
     raw.info._check_consistency()
 
 
-def _configure_ch_names(ch_names, info):
-    """Helper to load MEG bad channels from a file (pre-MF)"""
-    if len(ch_names) > 0:
-        try:
-            int(ch_names[0][0])
-        except ValueError:
-            # MNE-Python type file
-            chs = ch_names
-        else:
-            # Maxfilter type file
-            chs = ch_names[0].split()
-            if len(chs) > 0:
-                for fmt in ('MEG %03d', 'MEG%04d'):
-                    if fmt % int(chs[0]) in info['ch_names']:
-                        break
-                chs = [fmt % int(ch) for ch in chs]
-    else:
-        chs = list()
-    return chs
-
-
 def extract_expyfun_events(fname, return_offsets=False):
     """Extract expyfun-style serial-coded events from file
 
