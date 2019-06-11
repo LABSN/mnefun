@@ -131,7 +131,13 @@ def _ht2_p(mu, sigma, n_ave, mu_other, sigma_other, n_ave_other, use_pinv):
 def hotelling_t2_baseline(stc, n_ave, baseline=(None, 0), check_baseline=True,
                           stc_other=None, n_ave_other=None):
     """Compute p values from a baseline-corrected VectorSourceEstimate."""
-    assert isinstance(stc, mne.VectorSourceEstimate)
+    if isinstance(stc, mne.VectorSourceEstimate):
+        stc_class = mne.SourceEstimate
+    elif isinstance(stc, mne.VolVectorSourceEstimate):
+        stc_class = mne.VolSourceEstimate
+    else:
+        raise ValueError('stc must be a vector source estimate, got %s'
+                         % (type(stc),))
     assert isinstance(baseline, tuple) and len(baseline) == 2
     mask = np.ones(len(stc.times), bool)
     if baseline[0] is not None:
@@ -165,7 +171,7 @@ def hotelling_t2_baseline(stc, n_ave, baseline=(None, 0), check_baseline=True,
                    mu_other, sigma_other, n_ave_other,
                    use_pinv=True)
     assert p_val.shape == (stc.data.shape[0], stc.data.shape[2])
-    stc = mne.SourceEstimate(
+    stc = stc_class(
         p_val, stc.vertices, stc.tmin, stc.tstep, stc.subject, stc.verbose)
     return stc
 

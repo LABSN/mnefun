@@ -24,7 +24,7 @@ from ._paths import (get_raw_fnames, get_proj_fnames, get_report_fnames,
 
 
 def gen_html_report(p, subjects, structurals, run_indices=None):
-    """Generates HTML reports"""
+    """Generate HTML reports."""
     import matplotlib.pyplot as plt
     from ._mnefun import (_load_trans_to, plot_good_coils, _head_pos_annot,
                           _get_bem_src_trans, safe_inserter, _prebad,
@@ -351,7 +351,10 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                                 ('show_axes', True), ('fig', fig),
                                 ('trans', trans), ('src', src)):
                             kwargs[key] = kwargs.get(key, val)
-                        try_surfs = ['head-dense', 'head', 'inner_skull']
+                        try_surfs = [('head-dense', 'inner_skull'),
+                                     ('head', 'inner_skull'),
+                                     'head',
+                                     'inner_skull']
                         for surf in try_surfs:
                             try:
                                 mne.viz.plot_alignment(surfaces=surf, **kwargs)
@@ -567,40 +570,62 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                         clim = source.get('clim', dict(kind='percent',
                                                        lims=[82, 90, 98]))
                         out = mne.viz._3d._limits_to_control_points(
-                             clim, stc_crop.data, 'viridis',
-                             transparent=True)  # dummy cmap
+                            clim, stc_crop.data, 'viridis',
+                            transparent=True)  # dummy cmap
                         if isinstance(out[0], (list, tuple, np.ndarray)):
                             clim = out[0]  # old MNE
                         else:
                             clim = out[1]  # new MNE (0.17+)
                         clim = dict(kind='value', lims=clim)
-                        if not isinstance(stc, mne.SourceEstimate):
-                            print('Only surface source estimates currently '
-                                  'supported')
-                        else:
-                            subjects_dir = mne.utils.get_subjects_dir(
-                                p.subjects_dir, raise_error=True)
+                        assert isinstance(stc, (mne.SourceEstimate,
+                                                mne.VolSourceEstimate))
+                        bem, _, _, _ = _get_bem_src_trans(
+                            p, raw.info, subj, struc)
+                        is_usable = (isinstance(stc, mne.SourceEstimate) or
+                                     not bem['is_sphere'])
+                        if not is_usable:
+                            print('Only source estimates with individual '
+                                  'anatomy supported')
+                            break
+                        subjects_dir = mne.utils.get_subjects_dir(
+                            p.subjects_dir, raise_error=True)
+                        kwargs = dict(
+                            colormap=source.get('colormap', 'viridis'),
+                            transparent=source.get('transparent',True),
+                            clim=clim, subjects_dir=subjects_dir,
+                        )
+                        imgs = list()
+                        size = source.get('size', (800, 600))
+                        if isinstance(stc, mne.SourceEstimate):
                             with mlab_offscreen():
                                 brain = stc.plot(
                                     hemi=source.get('hemi', 'split'),
                                     views=source.get('views', ['lat', 'med']),
-                                    size=source.get('size', (800, 600)),
-                                    colormap=source.get('colormap', 'viridis'),
-                                    transparent=source.get('transparent',
-                                                           True),
+                                    size=size,
                                     foreground='k', background='w',
-                                    clim=clim, subjects_dir=subjects_dir,
-                                    )
-                                imgs = list()
+                                    **kwargs)
                                 for t in times:
                                     brain.set_time(t)
                                     imgs.append(
                                         trim_bg(brain.screenshot(), 255))
                                 brain.close()
-                            captions = ['%2.3f sec' % t for t in times]
-                            report.add_slider_to_section(
-                                imgs, captions=captions, section=section,
-                                title=title, image_format='png')
+                        else:
+                            # XXX eventually plot_volume_source_estimtates
+                            # will have an intial_time arg...
+                            mode = source.get('mode', 'stat_map')
+                            for t in times:
+                                fig = stc.copy().crop(t, t).plot(
+                                    src=inv['src'], mode=mode, show=False,
+                                    **kwargs,
+                                )
+                                fig.set_dpi(100.)
+                                fig.set_size_inches(*(np.array(size) / 100.))
+                                imgs.append(fig)
+                        captions = ['%2.3f sec' % t for t in times]
+                        report.add_slider_to_section(
+                            imgs, captions=captions, section=section,
+                            title=title, image_format='png')
+                        plt.close('all')
                 print('%5.1f sec' % ((time.time() - t0),))
             else:
                 print('    %s skipped' % section)
