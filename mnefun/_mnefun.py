@@ -294,6 +294,13 @@ class Params(Frozen):
     proj_meg : str
         Can be "separate" (default for backward compat) or "combined"
         (should be better for SSS'ed data).
+    src : str | dict
+        Can start be:
+
+        - 'oct6' to use a surface source space decimated using the 6th
+          (or another integer) subdivision of an octahedron, or
+        - 'vol5' to use a volumetric grid source space with 5mm (or another
+          integer) spacing
 
     Returns
     -------
@@ -483,6 +490,7 @@ class Params(Frozen):
         self.eog_f_lims = (0, 2)
         self.ecg_f_lims = (5, 35)
         self.proj_meg = 'separate'
+        self.src = 'oct6'
         self.freeze()
 
     @property
@@ -2001,11 +2009,13 @@ def gen_inverses(p, subjects, run_indices):
             tags = [p.inv_free_tag]
             fixeds = [False]
             depths = [0.8]
-            if fwd['src'][0]['type'] == 'surf':
+            if fwd['src'].kind == 'surface':
                 looses += [0, 0.2]
                 tags += [p.inv_fixed_tag, p.inv_loose_tag]
                 fixeds += [True, False]
                 depths += [0.8, 0.8]
+            else:
+                assert fwd['src'].kind == 'volume'
             cov_name = op.join(cov_dir, safe_inserter(name, subj) +
                                ('-%d' % p.lp_cut) + p.inv_tag + '-cov.fif')
             cov = read_cov(cov_name)
@@ -2091,20 +2101,37 @@ def _get_bem_src_trans(p, info, subj, struc):
                               '%s\n%s' % (old, trans))
         trans = mne.read_trans(trans)
         trans = mne.transforms._ensure_trans(trans, 'mri', 'head')
-        for mid in ('oct6', 'oct-6'):
+        this_src = _handle_dict(p.src, subj)
+        assert isinstance(this_src, str)
+        if this_src.startswith('oct'):
+            kind = 'oct'
+        elif this_src.startswith('vol'):
+            kind = 'vol'
+        else:
+            raise RuntimeError('Unknown source space type %s, must be '
+                               'oct or vol' % (this_src,))
+        num = int(this_src.split(kind)[-1].split('-')[-1])
+        bem = op.join(subjects_dir, struc, 'bem', '%s-%s-bem-sol.fif'
+                      % (struc, p.bem_type))
+        for mid in ('', '-'):
             src_space_file = op.join(subjects_dir, struc, 'bem',
-                                     '%s-%s-src.fif' % (struc, mid))
+                                     '%s-%s%s%s-src.fif'
+                                     % (struc, kind, mid, num))
             if op.isfile(src_space_file):
                 break
         else:  # if neither exists, use last filename
-            print('  Creating source space for %s...' % subj)
-            src = setup_source_space(
-                struc, spacing='oct6', subjects_dir=p.subjects_dir,
-                n_jobs=p.n_jobs)
+            print('    Creating %s%s source space for %s...'
+                  % (kind, num, subj))
+            if kind == 'oct':
+                src = setup_source_space(
+                    struc, spacing='%s%s' % (kind, num),
+                    subjects_dir=p.subjects_dir, n_jobs=p.n_jobs)
+            else:
+                assert kind == 'vol'
+                src = setup_volume_source_space(
+                    struc, pos=num, bem=bem, subjects_dir=p.subjects_dir)
             write_source_spaces(src_space_file, src)
         src = read_source_spaces(src_space_file)
-        bem = op.join(subjects_dir, struc, 'bem', '%s-%s-bem-sol.fif'
-                      % (struc, p.bem_type))
         bem = mne.read_bem_solution(bem, verbose=False)
         bem_type = ('%s-layer BEM' % len(bem['surfs']))
     return bem, src, trans, bem_type

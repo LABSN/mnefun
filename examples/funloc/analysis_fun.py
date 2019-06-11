@@ -44,12 +44,17 @@ params = mnefun.Params(tmin=-0.2, tmax=0.5, t_adjust=-4e-3,
                        decim=5, proj_sfreq=200, filter_length='auto')
 
 params.subjects = ['subj_01', 'subj_02']
-params.structurals = [None, 'AKCLEE_110_slim']  # None means use sphere
+params.structurals = ['AKCLEE_107_slim', 'AKCLEE_110_slim']
 params.dates = [(2014, 2, 14), None]  # Use "None" to more fully anonymize
 params.score = score  # Scoring function used to slice data into trials
 params.subject_indices = np.arange(2)  # Define which subjects to run
 params.plot_drop_logs = False  # Turn off so plots do not halt processing
-
+# typically this is a single string, but here we'll use a per-subject dict
+# to demonstrate that both surface and volumetric source spaces can be used
+params.src = dict(
+    subj_01='oct6',  # standard oct-6 surface
+    subj_02='vol5',  # 5 mm volumetric grid
+)
 # The default is to use the median (across runs) of the starting head positions
 # individually for each subject.
 # params.trans_to = 'median'
@@ -150,7 +155,7 @@ params.report_params.update(  # add a couple of nice diagnostic plots
                    cov='%s-55-sss-cov.fif'),
     sensor=dict(analysis='All', name='All', times=[0.1, 0.2]),
     source=dict(analysis='All', name='All',
-                inv='%s-55-sss-meg-eeg-free-inv.fif', times=[0.1, 0.2],
+                inv='%s-55-sss-meg-eeg-free-inv.fif', times=[0.09, 0.4],
                 views='lat', size=(800, 400)),
     snr=dict(analysis='All', name='All',
              inv='%s-55-sss-meg-eeg-free-inv.fif'),
