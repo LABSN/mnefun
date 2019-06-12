@@ -185,7 +185,7 @@ class Params(Frozen):
         they disqualify a proportion of events exceeding ``autobad``.
     auto_bad_reject : str | dict
         Default is None. Must be defined if using Autoreject module to
-        compute noisy sensor rejection ctriteria. Set to 'auto' to compute
+        compute noisy sensor rejection criteria. Set to 'auto' to compute
         criteria automatically, or dictionary of channel keys and amplitude
         values e.g., dict(grad=1500e-13, mag=5000e-15, eeg=150e-6) to define
         rejection threshold(s). See
