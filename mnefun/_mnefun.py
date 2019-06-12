@@ -2429,7 +2429,15 @@ def do_preprocessing_combined(p, subjects, run_indices):
                       'compute rejection criterion.\n' , end='')
                 try:
                     from autoreject import get_rejection_threshold
-                    print('    Computing autoreject thresholds.\n', end='')
+                except ImportError:
+                    raise ImportError('     Autoreject module not installed.\n'
+                                      '     Noisy channel detection parameter '
+                                      '     not defined. To use autobad '
+                                      '     channel selection either define '
+                                      '     rejection criteria or install '
+                                      '     Autoreject module.\n')
+                else:
+                    print('    Computing thresholds.\n', end='')
                     temp_epochs = Epochs(
                             raw, events, event_id=None, tmin=rtmin, tmax=rtmax,
                             baseline=_get_baseline(p), proj=True, reject=None,
@@ -2440,12 +2448,6 @@ def do_preprocessing_combined(p, subjects, run_indices):
                         kwargs['verbose'] = False
                     reject = get_rejection_threshold(temp_epochs, **kwargs)
                     reject = {kk: vv for kk, vv in reject.items()}
-                except ImportError:
-                    print('     Autoreject module not installed.\n'
-                          '     Noisy channel detection parameter not defined. '
-                          '     To use autobad channel selection either '
-                          '     define rejection criterion or install '
-                          '     Autoreject module.')
             elif p.auto_bad_reject is None and p.auto_bad_flat is None:
                 raise RuntimeError('Auto bad channel detection active. Noisy '
                                    'and flat channel detection '
