@@ -115,10 +115,14 @@ params.proj_meg = 'combined'  # jointly estimate MEG projectors
 params.proj_ave = True  # better projections by averaging ECG/EOG epochs
 params.eog_f_lims = [1, 10]  # band-pass limits for the EOG detection+artifacts
 
-# Set to True to use Autoreject module to set global epoch rejection thresholds
+# Set to True to use Autoreject module to compute noisy sensor thresholds for
+# epoching
 params.autoreject_thresholds = False
 # Set to ('meg', 'eeg', eog') to reject trials based on EOG
 params.autoreject_types = ('mag', 'grad', 'eeg')
+# To define noisy sensor thresholds set to 'auto' to compute values with
+# Autoreject module # or e.g., # dict(grad=1500e-13, mag=5000e-15, eeg=150e-6).
+params.auto_bad_reject = None
 params.cov_method = 'shrunk'  # Cleaner noise covariance regularization
 # python | maxfilter for choosing SSS applied using either Maxfilter or MNE
 params.sss_type = 'python'

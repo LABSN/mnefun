@@ -183,6 +183,13 @@ class Params(Frozen):
     auto_bad : float | None
         If not None, bad channels will be automatically excluded if
         they disqualify a proportion of events exceeding ``autobad``.
+    auto_bad_reject : str | dict
+        Default is None. Must be defined if using Autoreject module to
+        compute noisy sensor rejection ctriteria. Set to 'auto' to compute
+        criteria automatically, or dictionary of channel keys and amplitude
+        values e.g., dict(grad=1500e-13, mag=5000e-15, eeg=150e-6) to define
+        rejection threshold(s). See
+        http://autoreject.github.io/ for details.
     ecg_channel : str | dict | None
         The channel to use to detect ECG events. None will use ECG063.
         In lieu of an ECG recording, MEG1531 may work.
@@ -266,8 +273,7 @@ class Params(Frozen):
         Default False. If True use Maxfilter to automatically mark bad
         channels prior to SSS denoising.
     mf_badlimit : int
-        Default is 7. Threshold limit for Maxfilter noisy channel
-        detection.
+        Default Maxfilter threshold for noisy channel detection is 7.
     src_pos : float
         Default is 7 mm. Defines source grid spacing for volumetric source
         space.
@@ -2415,34 +2421,40 @@ def do_preprocessing_combined(p, subjects, run_indices):
                                exclude=[])
             assert p.auto_bad_flat is None or isinstance(p.auto_bad_flat, dict)
             assert p.auto_bad_reject is None or isinstance(p.auto_bad_reject,
-                                                           dict)
-            if p.auto_bad_reject is None and p.auto_bad_flat is None:
-                raise RuntimeError('Auto bad channel detection active. Noisy '
-                                   'and flat channel detection '
-                                   'parameters not defined. '
-                                   'At least one criterion must be defined.')
-            reject = get_epochs_evokeds_fnames(p, subj, [])[0][1]
-            reject = reject.replace('-epo.fif', '-reject.h5')
-            if op.isfile(reject):
-                reject = read_hdf5(reject)
-            else:
+                                                           dict) or \
+                   p.auto_bad_reject is 'auto'
+            if p.auto_bad_reject is 'auto':
+                print('    Auto bad channel selection active. '
+                      'Will try using Autoreject module to '
+                      'compute rejection criterion.\n' , end='')
                 try:
                     from autoreject import get_rejection_threshold
-                    print('    Computing autoreject thresholds', end='')
+                    print('    Computing autoreject thresholds.\n', end='')
                     temp_epochs = Epochs(
                             raw, events, event_id=None, tmin=rtmin, tmax=rtmax,
                             baseline=_get_baseline(p), proj=True, reject=None,
                             flat=None,
-                            preload=True, decim=decim[si])
+                            preload=True, decim=1)
                     kwargs = dict()
                     if 'verbose' in get_args(get_rejection_threshold):
                         kwargs['verbose'] = False
                     reject = get_rejection_threshold(temp_epochs, **kwargs)
+                    reject = {kk: vv for kk, vv in reject.items()}
                 except ImportError:
                     print('     Autoreject module not installed.\n'
-                          '     Using predefined rejection criteria\n'
-                          '     for autobad channel selection.')
-                    reject = p.auto_bad_reject
+                          '     Noisy channel detection parameter not defined. '
+                          '     To use autobad channel selection either '
+                          '     define rejection criterion or install '
+                          '     Autoreject module.')
+            elif p.auto_bad_reject is None and p.auto_bad_flat is None:
+                raise RuntimeError('Auto bad channel detection active. Noisy '
+                                   'and flat channel detection '
+                                   'parameters not defined. '
+                                   'At least one criterion must be defined.')
+            else:
+                reject = p.auto_bad_reject
+            if 'eog' in reject.keys():
+                reject.pop('eog', None)
             epochs = Epochs(raw, events, None, tmin=rtmin, tmax=rtmax,
                             baseline=_get_baseline(p), picks=picks,
                             reject=reject, flat=p.auto_bad_flat,
