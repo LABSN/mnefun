@@ -2436,18 +2436,16 @@ def do_preprocessing_combined(p, subjects, run_indices):
                                       '     channel selection either define '
                                       '     rejection criteria or install '
                                       '     Autoreject module.\n')
-                else:
-                    print('    Computing thresholds.\n', end='')
-                    temp_epochs = Epochs(
-                            raw, events, event_id=None, tmin=rtmin, tmax=rtmax,
-                            baseline=_get_baseline(p), proj=True, reject=None,
-                            flat=None,
-                            preload=True, decim=1)
-                    kwargs = dict()
-                    if 'verbose' in get_args(get_rejection_threshold):
-                        kwargs['verbose'] = False
-                    reject = get_rejection_threshold(temp_epochs, **kwargs)
-                    reject = {kk: vv for kk, vv in reject.items()}
+                print('    Computing thresholds.\n', end='')
+                temp_epochs = Epochs(
+                    raw, events, event_id=None, tmin=rtmin, tmax=rtmax,
+                    baseline=_get_baseline(p), proj=True, reject=None,
+                    flat=None, preload=True, decim=1)
+                kwargs = dict()
+                if 'verbose' in get_args(get_rejection_threshold):
+                    kwargs['verbose'] = False
+                reject = get_rejection_threshold(temp_epochs, **kwargs)
+                reject = {kk: vv for kk, vv in reject.items()}
             elif p.auto_bad_reject is None and p.auto_bad_flat is None:
                 raise RuntimeError('Auto bad channel detection active. Noisy '
                                    'and flat channel detection '
