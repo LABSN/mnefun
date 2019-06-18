@@ -2426,7 +2426,7 @@ def do_preprocessing_combined(p, subjects, run_indices):
             if p.auto_bad_reject is 'auto':
                 print('    Auto bad channel selection active. '
                       'Will try using Autoreject module to '
-                      'compute rejection criterion.\n' , end='')
+                      'compute rejection criterion.')
                 try:
                     from autoreject import get_rejection_threshold
                 except ImportError:
