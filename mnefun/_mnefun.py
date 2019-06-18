@@ -183,7 +183,7 @@ class Params(Frozen):
     auto_bad : float | None
         If not None, bad channels will be automatically excluded if
         they disqualify a proportion of events exceeding ``autobad``.
-    auto_bad_reject : str | dict
+    auto_bad_reject : str | dict | None
         Default is None. Must be defined if using Autoreject module to
         compute noisy sensor rejection criteria. Set to 'auto' to compute
         criteria automatically, or dictionary of channel keys and amplitude
