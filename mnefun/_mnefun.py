@@ -183,6 +183,13 @@ class Params(Frozen):
     auto_bad : float | None
         If not None, bad channels will be automatically excluded if
         they disqualify a proportion of events exceeding ``autobad``.
+    auto_bad_reject : str | dict | None
+        Default is None. Must be defined if using Autoreject module to
+        compute noisy sensor rejection criteria. Set to 'auto' to compute
+        criteria automatically, or dictionary of channel keys and amplitude
+        values e.g., dict(grad=1500e-13, mag=5000e-15, eeg=150e-6) to define
+        rejection threshold(s). See
+        http://autoreject.github.io/ for details.
     ecg_channel : str | dict | None
         The channel to use to detect ECG events. None will use ECG063.
         In lieu of an ECG recording, MEG1531 may work.
@@ -266,8 +273,7 @@ class Params(Frozen):
         Default False. If True use Maxfilter to automatically mark bad
         channels prior to SSS denoising.
     mf_badlimit : int
-        Default is 7. Threshold limit for Maxfilter noisy channel
-        detection.
+        Default Maxfilter threshold for noisy channel detection is 7.
     src_pos : float
         Default is 7 mm. Defines source grid spacing for volumetric source
         space.
@@ -2405,24 +2411,55 @@ def do_preprocessing_combined(p, subjects, run_indices):
                              pick=True, skip_by_annotation='edge',
                              **fir_kwargs)
             events = fixed_len_events(p, raw)
+            rtmin = p.reject_tmin \
+                if p.reject_tmin is not None else p.tmin
+            rtmax = p.reject_tmax \
+                if p.reject_tmax is not None else p.tmax
             # do not mark eog channels bad
             meg, eeg = 'meg' in raw, 'eeg' in raw
             picks = pick_types(raw.info, meg=meg, eeg=eeg, eog=False,
                                exclude=[])
             assert p.auto_bad_flat is None or isinstance(p.auto_bad_flat, dict)
             assert p.auto_bad_reject is None or isinstance(p.auto_bad_reject,
-                                                           dict)
-            if p.auto_bad_reject is None and p.auto_bad_flat is None:
+                                                           dict) or \
+                   p.auto_bad_reject == 'auto'
+            if p.auto_bad_reject == 'auto':
+                print('    Auto bad channel selection active. '
+                      'Will try using Autoreject module to '
+                      'compute rejection criterion.')
+                try:
+                    from autoreject import get_rejection_threshold
+                except ImportError:
+                    raise ImportError('     Autoreject module not installed.\n'
+                                      '     Noisy channel detection parameter '
+                                      '     not defined. To use autobad '
+                                      '     channel selection either define '
+                                      '     rejection criteria or install '
+                                      '     Autoreject module.\n')
+                print('    Computing thresholds.\n', end='')
+                temp_epochs = Epochs(
+                    raw, events, event_id=None, tmin=rtmin, tmax=rtmax,
+                    baseline=_get_baseline(p), proj=True, reject=None,
+                    flat=None, preload=True, decim=1)
+                kwargs = dict()
+                if 'verbose' in get_args(get_rejection_threshold):
+                    kwargs['verbose'] = False
+                reject = get_rejection_threshold(temp_epochs, **kwargs)
+                reject = {kk: vv for kk, vv in reject.items()}
+            elif p.auto_bad_reject is None and p.auto_bad_flat is None:
                 raise RuntimeError('Auto bad channel detection active. Noisy '
                                    'and flat channel detection '
                                    'parameters not defined. '
                                    'At least one criterion must be defined.')
-            epochs = Epochs(raw, events, None, p.tmin, p.tmax,
+            else:
+                reject = p.auto_bad_reject
+            if 'eog' in reject.keys():
+                reject.pop('eog', None)
+            epochs = Epochs(raw, events, None, tmin=rtmin, tmax=rtmax,
                             baseline=_get_baseline(p), picks=picks,
-                            reject=p.auto_bad_reject, flat=p.auto_bad_flat,
+                            reject=reject, flat=p.auto_bad_flat,
                             proj=True, preload=True, decim=1,
-                            reject_tmin=p.reject_tmin,
-                            reject_tmax=p.reject_tmax)
+                            reject_tmin=rtmin, reject_tmax=rtmax)
             # channel scores from drop log
             drops = Counter([ch for d in epochs.drop_log for ch in d])
             # get rid of non-channel reasons in drop log
