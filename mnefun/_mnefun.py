@@ -2423,7 +2423,7 @@ def do_preprocessing_combined(p, subjects, run_indices):
             assert p.auto_bad_reject is None or isinstance(p.auto_bad_reject,
                                                            dict) or \
                    p.auto_bad_reject == 'auto'
-            if p.auto_bad_reject is 'auto':
+            if p.auto_bad_reject == 'auto':
                 print('    Auto bad channel selection active. '
                       'Will try using Autoreject module to '
                       'compute rejection criterion.')
