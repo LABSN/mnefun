@@ -2077,10 +2077,27 @@ def gen_forwards(p, subjects, structurals, run_indices):
             raise RuntimeError('Not translating positions is no longer '
                                'supported')
         print('  Creating forward solution(s) using a %s for %s...'
-              % (bem_type, subj))
+              % (bem_type, subj), end='')
         # XXX Don't actually need to generate a different fwd for each inv
         # anymore, since all runs are included, but changing the filename
         # would break a lot of existing pipelines :(
+        try:
+            subjects_dir = mne.utils.get_subjects_dir(
+                p.subjects_dir, raise_error=True)
+            subject = src[0]['subject_his_id']
+            dist = mne.dig_mri_distances(info, trans, subject,
+                                         subjects_dir=subjects_dir)
+        except Exception as exp:
+            # old MNE or bad args
+            print(' (dig<->MRI unknown: %s)' % (str(exp)[:20] + '...',))
+        else:
+            dist = np.median(dist)
+            print(' (dig<->MRI %0.1f mm)' % (1000 * dist,))
+            if dist > 5:
+                warnings.warn(
+                    '%s dig<->MRI distance %0.1f mm could indicate a problem '
+                    'with coregistration, check coreg'
+                    % (subject, 1000 * dist))
         for ii, (inv_name, inv_run) in enumerate(zip(p.inv_names,
                                                      p.inv_runs)):
             fwd_name = op.join(fwd_dir, safe_inserter(inv_name, subj) +
