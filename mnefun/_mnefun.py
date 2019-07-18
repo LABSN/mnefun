@@ -2949,6 +2949,7 @@ def _head_pos_annot(p, raw_fname, prefix='  '):
                               t_step_min=p.coil_t_step_min,
                               dist_limit=p.coil_dist_limit)
         head_pos = read_head_pos(pos_fname)
+        assert (head_pos[0, 1:7] != 0).any()
         assert head_pos[0, 7] >= 0.98  # otherwise we need to go back and fix!
 
     # do the coil counts
