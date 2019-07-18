@@ -2026,7 +2026,7 @@ def gen_inverses(p, subjects, run_indices):
                                ('-%d' % p.lp_cut) + p.inv_tag + '-cov.fif')
             cov = read_cov(cov_name)
             if cov.get('method', 'empirical') == 'empirical':
-                cov = regularize(cov, epochs.info, rank=p.cov_rank)
+                cov = regularize(cov, epochs.info, rank=rank)
             for f, m, e in zip(out_flags, meg_bools, eeg_bools):
                 fwd_restricted = pick_types_forward(fwd, meg=m, eeg=e)
                 for l, s, x, d in zip(looses, tags, fixeds, depths):
