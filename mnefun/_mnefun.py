@@ -2276,22 +2276,30 @@ def gen_covariances(p, subjects, run_indices):
         print()
 
 
-def _fix_raw_eog_cals(raws):
+def _fix_raw_eog_cals(raws, kind='EOG'):
     """Fix for annoying issue where EOG cals don't match"""
     # Warning: this will only produce correct EOG scalings with preloaded
     # raw data!
-    picks = pick_types(raws[0].info, eeg=False, meg=False, eog=True,
-                       exclude=[])
+    if kind == 'EOG':
+        picks = pick_types(raws[0].info, eeg=False, meg=False, eog=True,
+                           exclude=[])
+    else:
+        assert kind == 'all'
+        picks = np.arange(len(raws[0].ch_names))
     if len(picks) > 0:
         first_cals = _cals(raws[0])[picks]
         for ri, r in enumerate(raws[1:]):
-            picks_2 = pick_types(r.info, eeg=False, meg=False, eog=True,
-                                 exclude=[])
+            if kind == 'EOG':
+                picks_2 = pick_types(r.info, eeg=False, meg=False, eog=True,
+                                     exclude=[])
+            else:
+                picks_2 = np.arange(len(r.ch_names))
+
             assert np.array_equal(picks, picks_2)
             these_cals = _cals(r)[picks]
             if not np.array_equal(first_cals, these_cals):
-                warnings.warn('Adjusting EOG cals for %s'
-                              % op.basename(r._filenames[0]))
+                warnings.warn('Adjusting %s cals for %s'
+                              % (kind, op.basename(r._filenames[0])))
                 _cals(r)[picks] = first_cals
 
 
@@ -2960,7 +2968,7 @@ def _head_pos_annot(p, raw_fname, prefix='  '):
                               dist_limit=p.coil_dist_limit)
         head_pos = read_head_pos(pos_fname)
         # otherwise we need to go back and fix!
-        assert _pos_valid(head_pos[0], p.coil_dist_limit, 0.98)
+        assert _pos_valid(head_pos[0], p.coil_dist_limit, 0.98), pos_fname
 
     # do the coil counts
     if any(x is None for x in (head_pos, p.coil_dist_limit)) or \
