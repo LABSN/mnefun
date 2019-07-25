@@ -2926,8 +2926,8 @@ def _maxbad(p, subj, raw, bad_file):
 def _pos_valid(pos, dist_limit, gof_limit):
     """Check for a usable head position."""
     return (
-        (np.abs(pos[1:4]).max(axis=-1) <= 1) &  # all abs(quats) <= 1
-        (np.linalg.norm(pos[4:7], axis=-1) <= 10) &  # all pos < 10 m
+        (np.abs(pos[..., 1:4]).max(axis=-1) <= 1) &  # all abs(quats) <= 1
+        (np.linalg.norm(pos[..., 4:7], axis=-1) <= 10) &  # all pos < 10 m
         ((pos[..., 1:7] != 0).any(axis=-1)) &  # actual quat+pos
         (pos[..., 7] >= gof_limit) &  # decent GOF
         (pos[..., 8] <= dist_limit))  # decent dists

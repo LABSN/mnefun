@@ -183,6 +183,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
             #
             if op.isfile(pca_fnames[0]):
                 raw_pca = [mne.io.read_raw_fif(fname) for fname in pca_fnames]
+                _fix_raw_eog_cals(raw_pca, 'all')
                 raw_pca = mne.concatenate_raws(raw_pca)
             section = 'Raw segments'
             if p.report_params.get('raw_segments', True) and has_pca:
