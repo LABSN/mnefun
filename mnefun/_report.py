@@ -52,7 +52,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                                    'exist, missing:\n%s' % fname)
         raw = [read_raw_fif(fname, allow_maxshield='yes')
                for fname in fnames]
-        _fix_raw_eog_cals(raw)
+        _fix_raw_eog_cals(raw, 'all')
         prebad_file = _prebad(p, subj)
         for r in raw:
             _load_meg_bads(r, prebad_file, disp=False)
@@ -182,8 +182,9 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
             # Raw segments
             #
             if op.isfile(pca_fnames[0]):
-                raw_pca = mne.concatenate_raws(
-                    [mne.io.read_raw_fif(fname) for fname in pca_fnames])
+                raw_pca = [mne.io.read_raw_fif(fname) for fname in pca_fnames]
+                _fix_raw_eog_cals(raw_pca, 'all')
+                raw_pca = mne.concatenate_raws(raw_pca)
             section = 'Raw segments'
             if p.report_params.get('raw_segments', True) and has_pca:
                 times = np.linspace(raw.times[0], raw.times[-1], 12)[1:-1]

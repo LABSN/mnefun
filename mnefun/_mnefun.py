@@ -1225,10 +1225,9 @@ def run_sss_positions(fname_in, fname_out, host='kasga', opts='-force',
         # Let's use a heuristic of at least two entries being
         # zero, or any invalid quat, or an invalid position, and take the
         # next valid one
-        if len(this_pos > 0) and not _pos_valid(this_pos[0],
-                                                dist_limit, gof_limit):
-            first_valid = np.where((this_pos[1:, 7] >= gof_limit) &
-                                   (this_pos[1:, 8] <= dist_limit))[0][0] + 1
+        valid = _pos_valid(this_pos[1:], dist_limit, gof_limit)
+        if len(this_pos > 0) and not valid[0]:
+            first_valid = np.where(valid)[0][0]
             print('%sFound %d invalid position%s from MaxFilter, '
                   'replacing with: %r'
                   % (prefix, first_valid, _pl(first_valid),
@@ -1825,7 +1824,8 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
         else:
             use_reject = p.reject
 
-        use_reject, use_flat = _restrict_reject_flat(use_reject, p.flat, raw)
+        flat = _handle_dict(p.flat, subj)
+        use_reject, use_flat = _restrict_reject_flat(use_reject, flat, raw)
         epochs = Epochs(raw, events, event_id=old_dict, tmin=p.tmin,
                         tmax=p.tmax, baseline=_get_baseline(p),
                         reject=use_reject, flat=use_flat, proj='delayed',
@@ -2205,6 +2205,7 @@ def gen_covariances(p, subjects, run_indices):
             reject = read_hdf5(reject)
         else:
             reject = p.reject
+        flat = _handle_dict(p.flat, subj)
 
         # Make empty room cov
         if p.runs_empty:
@@ -2216,8 +2217,7 @@ def gen_covariances(p, subjects, run_indices):
             empty_fif = get_raw_fnames(p, subj, 'pca', 'only', False)[0]
             raw = read_raw_fif(empty_fif, preload=True)
             raw.pick_types(meg=True, eog=True, exclude='bads')
-            use_reject, use_flat = _restrict_reject_flat(
-                reject, p.flat, raw)
+            use_reject, use_flat = _restrict_reject_flat(reject, flat, raw)
             if 'eeg' in use_reject:
                 del use_reject['eeg']
             if 'eeg' in use_flat:
@@ -2259,7 +2259,7 @@ def gen_covariances(p, subjects, run_indices):
                       % (new_count, old_count, op.basename(cov_name)))
             events = concatenate_events(events, first_samps,
                                         last_samps)
-            use_reject, use_flat = _restrict_reject_flat(reject, p.flat, raw)
+            use_reject, use_flat = _restrict_reject_flat(reject, flat, raw)
             epochs = Epochs(raw, events, event_id=None, tmin=p.bmin,
                             tmax=p.bmax, baseline=(None, None), proj=False,
                             reject=use_reject, flat=use_flat, preload=True)
@@ -2276,22 +2276,30 @@ def gen_covariances(p, subjects, run_indices):
         print()
 
 
-def _fix_raw_eog_cals(raws):
+def _fix_raw_eog_cals(raws, kind='EOG'):
     """Fix for annoying issue where EOG cals don't match"""
     # Warning: this will only produce correct EOG scalings with preloaded
     # raw data!
-    picks = pick_types(raws[0].info, eeg=False, meg=False, eog=True,
-                       exclude=[])
+    if kind == 'EOG':
+        picks = pick_types(raws[0].info, eeg=False, meg=False, eog=True,
+                           exclude=[])
+    else:
+        assert kind == 'all'
+        picks = np.arange(len(raws[0].ch_names))
     if len(picks) > 0:
         first_cals = _cals(raws[0])[picks]
         for ri, r in enumerate(raws[1:]):
-            picks_2 = pick_types(r.info, eeg=False, meg=False, eog=True,
-                                 exclude=[])
+            if kind == 'EOG':
+                picks_2 = pick_types(r.info, eeg=False, meg=False, eog=True,
+                                     exclude=[])
+            else:
+                picks_2 = np.arange(len(r.ch_names))
+
             assert np.array_equal(picks, picks_2)
             these_cals = _cals(r)[picks]
             if not np.array_equal(first_cals, these_cals):
-                warnings.warn('Adjusting EOG cals for %s'
-                              % op.basename(r._filenames[0]))
+                warnings.warn('Adjusting %s cals for %s'
+                              % (kind, op.basename(r._filenames[0])))
                 _cals(r)[picks] = first_cals
 
 
@@ -2370,7 +2378,13 @@ def compute_proj_wrap(epochs, average, **kwargs):
 
 
 def _handle_dict(entry, subj):
-    return entry[subj] if isinstance(entry, dict) else entry
+    out = entry
+    if isinstance(entry, dict):
+        try:
+            out = entry[subj]
+        except KeyError:
+            pass
+    return out
 
 
 def _safe_remove(fnames):
@@ -2400,6 +2414,7 @@ def do_preprocessing_combined(p, subjects, run_indices):
         proj_nums = np.array(_handle_dict(p.proj_nums, subj), int)
         ecg_channel = _handle_dict(p.ecg_channel, subj)
         eog_channel = _handle_dict(p.eog_channel, subj)
+        flat = _handle_dict(p.flat, subj)
         if p.disp_files:
             print('  Preprocessing subject %g/%g (%s).'
                   % (si + 1, len(subjects), subj))
@@ -2593,7 +2608,7 @@ def do_preprocessing_combined(p, subjects, run_indices):
                        skip_by_annotation='edge', **fir_kwargs)
             raw.add_proj(projs)
             raw.apply_proj()
-            use_reject, use_flat = _restrict_reject_flat(p.reject, p.flat, raw)
+            use_reject, use_flat = _restrict_reject_flat(reject, flat, raw)
             pr = compute_proj_raw(raw, duration=1, n_grad=proj_nums[2][0],
                                   n_mag=proj_nums[2][1], n_eeg=proj_nums[2][2],
                                   reject=use_reject, flat=use_flat,
@@ -2632,7 +2647,7 @@ def do_preprocessing_combined(p, subjects, run_indices):
                 raw, 999, ecg_channel, 0., ecg_f_lims[0], ecg_f_lims[1],
                 qrs_threshold='auto', return_ecg=False, **find_kwargs)[0]
             use_reject, use_flat = _restrict_reject_flat(
-                p.ssp_ecg_reject, p.flat, raw)
+                p.ssp_ecg_reject, flat, raw)
             ecg_epochs = Epochs(
                 raw, ecg_events, 999, ecg_t_lims[0], ecg_t_lims[1],
                 baseline=None, reject=use_reject, flat=use_flat, preload=True)
@@ -2675,7 +2690,7 @@ def do_preprocessing_combined(p, subjects, run_indices):
             eog_events = find_eog_events(
                 raw, ch_name=eog_channel, reject_by_annotation=True)
             use_reject, use_flat = _restrict_reject_flat(
-                p.ssp_eog_reject, p.flat, raw)
+                p.ssp_eog_reject, flat, raw)
             eog_epochs = Epochs(
                 raw, eog_events, 998, eog_t_lims[0], eog_t_lims[1],
                 baseline=None, reject=use_reject, flat=use_flat, preload=True)
@@ -2715,8 +2730,8 @@ def do_preprocessing_combined(p, subjects, run_indices):
         raw_orig.apply_proj()
         # now let's epoch with 1-sec windows to look for DQs
         events = fixed_len_events(p, raw_orig)
-        use_reject, use_flat = _restrict_reject_flat(p.reject, p.flat,
-                                                     raw_orig)
+        reject = _handle_dict(p.reject, subj)
+        use_reject, use_flat = _restrict_reject_flat(reject, flat, raw_orig)
         epochs = Epochs(raw_orig, events, None, p.tmin, p.tmax, preload=False,
                         baseline=_get_baseline(p), reject=use_reject,
                         flat=use_flat, proj=True)
@@ -2909,10 +2924,13 @@ def _maxbad(p, subj, raw, bad_file):
 
 
 def _pos_valid(pos, dist_limit, gof_limit):
-    """Check for a reasonable head position."""
-    return np.abs(pos[1:4]).max() <= 1 and \
-        np.linalg.norm(pos[4:7]) <= 10 and \
-        pos[7] >= gof_limit and pos[8] <= dist_limit  # GOF limit
+    """Check for a usable head position."""
+    return (
+        (np.abs(pos[..., 1:4]).max(axis=-1) <= 1) &  # all abs(quats) <= 1
+        (np.linalg.norm(pos[..., 4:7], axis=-1) <= 10) &  # all pos < 10 m
+        ((pos[..., 1:7] != 0).any(axis=-1)) &  # actual quat+pos
+        (pos[..., 7] >= gof_limit) &  # decent GOF
+        (pos[..., 8] <= dist_limit))  # decent dists
 
 
 def _get_t_window(p, raw):
@@ -2949,12 +2967,12 @@ def _head_pos_annot(p, raw_fname, prefix='  '):
                               t_step_min=p.coil_t_step_min,
                               dist_limit=p.coil_dist_limit)
         head_pos = read_head_pos(pos_fname)
-        assert (head_pos[0, 1:7] != 0).any()
-        assert head_pos[0, 7] >= 0.98  # otherwise we need to go back and fix!
+        # otherwise we need to go back and fix!
+        assert _pos_valid(head_pos[0], p.coil_dist_limit, 0.98), pos_fname
 
     # do the coil counts
-    if any(x is None for x in (head_pos, p.coil_dist_limit,
-                               p.coil_bad_count_duration_limit)):
+    if any(x is None for x in (head_pos, p.coil_dist_limit)) or \
+            not np.isfinite(p.coil_bad_count_duration_limit):
         fit_data = None
     else:
         count_fname = raw_fname[:-4] + '-counts.h5'
@@ -2980,7 +2998,7 @@ def _head_pos_annot(p, raw_fname, prefix='  '):
     if not op.isfile(annot_fname) and fit_data is not None:
         lims = [p.rotation_limit, p.translation_limit, p.coil_dist_limit,
                 p.coil_t_step_min, t_window, p.coil_bad_count_duration_limit]
-        if np.isfinite(lims[:3]).any() or np.isfinite(lims[5]):
+        if np.isfinite(lims[:3]).any() or np.isfinite(lims[5]) and disp:
             print(prefix.join(['', 'Annotating raw segments with:\n',
                                u'  rotation_limit    = %s °/s\n' % lims[0],
                                u'  translation_limit = %s m/s\n' % lims[1],
