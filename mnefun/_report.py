@@ -66,7 +66,8 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
         bad_file = get_bad_fname(p, subj)
         if bad_file is not None:
             sss_info.load_bad_channels(bad_file)
-        sss_info = sss_info.info
+        if sss_info is not None:
+            sss_info = sss_info.info
 
         # pca
         pca_fnames = get_raw_fnames(p, subj, 'pca', False, False,
