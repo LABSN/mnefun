@@ -155,16 +155,24 @@ params.must_match = [
 ]
 
 params.report_params.update(  # add a couple of nice diagnostic plots
+    good_hpi_count=True,  # Number of good HPI coils (default True)
+    chpi_snr=True,  # cHPI SNR (default True)
+    head_movement=True,  # head movement (default True)
+    raw_segments=True,  # 10 evenly spaced raw data segments (default True)
+    psd=False,  # often slow (default True)
+    ssp_topomaps=True,  # SSP topomaps (default True)
+    source_alignment=True,  # source alignment (defiault True)
+    drop_log=True,  # plot the epochs drop log (default True)
+    snr=dict(analysis='All', name='All',
+             inv='%s-55-sss-meg-eeg-free-inv.fif'),
+    bem=True,  # BEM layers
     whitening=dict(analysis='All', name='All',
                    cov='%s-55-sss-cov.fif'),
     sensor=dict(analysis='All', name='All', times=[0.1, 0.2]),
     source=dict(analysis='All', name='All',
                 inv='%s-55-sss-meg-eeg-free-inv.fif', times=[0.09, 0.4],
                 views='lat', size=(800, 400)),
-    snr=dict(analysis='All', name='All',
-             inv='%s-55-sss-meg-eeg-free-inv.fif'),
-    psd=False,  # often slow
-)
+) 
 
 # Set what processing steps will execute
 default = False
