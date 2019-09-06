@@ -11,7 +11,7 @@ import warnings
 import numpy as np
 
 import mne
-from mne import read_proj
+from mne import read_proj, read_epochs
 from mne.io import read_raw_fif
 from mne.viz import plot_projs_topomap
 from mne.viz._3d import plot_head_positions
@@ -20,7 +20,7 @@ from mne.report import Report
 from mne.utils import _pl
 
 from ._paths import (get_raw_fnames, get_proj_fnames, get_report_fnames,
-                     get_bad_fname)
+                     get_bad_fname, get_epochs_evokeds_fnames)
 
 
 def gen_html_report(p, subjects, structurals, run_indices=None):
@@ -74,6 +74,11 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                                     run_indices[si])
         has_pca = all(op.isfile(fname) for fname in pca_fnames)
 
+        # epochs
+        epochs_fname, _ = get_epochs_evokeds_fnames(p, subj, p.analyses)
+        _, epochs_fname = epochs_fname
+        has_epochs = op.isfile(epochs_fname)
+
         # whitening and source localization
         inv_dir = op.join(p.work_dir, subj, p.inverse_dir)
 
@@ -93,7 +98,10 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                 captions = list()
                 for fname in fnames:
                     _, _, fit_data = _head_pos_annot(p, fname, prefix='      ')
-                    assert fit_data is not None
+                    if fit_data is None:
+                        print('%s skipped, HPI count data not found (possibly '
+                              'no params.*_limit values set?' % (section,))
+                        break
                     fig = plot_good_coils(fit_data, show=False)
                     fig.set_size_inches(10, 2)
                     fig.tight_layout()
@@ -304,10 +312,10 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                             p.work_dir, subj, p.pca_dir,
                             'preproc_cont-proj.fif'), sss_info,
                             proj_nums[2], p.proj_meg, 'ERM'))
-                captions = [section] + [None] * (len(comments) - 1)
+                captions = [section] + ['SSP epochs'] * (len(comments) - 1)
                 report.add_figs_to_section(
-                     figs, captions, section, image_format='svg',
-                     comments=comments)
+                    figs, captions, section, image_format='svg',
+                    comments=comments)
                 print('%5.1f sec' % ((time.time() - t0),))
             else:
                 print('    %s skipped' % section)
@@ -380,6 +388,22 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                 print('%5.1f sec' % ((time.time() - t0),))
             else:
                 print('    %s skipped' % section)
+            #
+            # Drop log
+            #
+            section = 'Drop log'
+            if p.report_params.get('drop_log', True) and has_epochs:
+                t0 = time.time()
+                print(('    %s ... ' % section).ljust(ljust), end='')
+                epo = read_epochs(epochs_fname)
+                figs = [epo.plot_drop_log(subject=subj, show=False)]
+                captions = [repr(epo)]
+                report.add_figs_to_section(figs, captions, section,
+                                           image_format='svg')
+                print('%5.1f sec' % ((time.time() - t0),))
+            else:
+                print('    %s skipped' % section)
+
             #
             # SNR
             #

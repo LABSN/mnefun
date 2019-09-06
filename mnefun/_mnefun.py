@@ -1822,7 +1822,7 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
             assert hdf5_file.endswith('.h5')
             write_hdf5(hdf5_file, use_reject, overwrite=True)
         else:
-            use_reject = p.reject
+            use_reject = _handle_dict(p.reject, subj)
 
         flat = _handle_dict(p.flat, subj)
         use_reject, use_flat = _restrict_reject_flat(use_reject, flat, raw)
@@ -2204,7 +2204,7 @@ def gen_covariances(p, subjects, run_indices):
             reject = reject.replace('-epo.fif', '-reject.h5')
             reject = read_hdf5(reject)
         else:
-            reject = p.reject
+            reject = _handle_dict(p.reject, subj)
         flat = _handle_dict(p.flat, subj)
 
         # Make empty room cov
@@ -2608,7 +2608,9 @@ def do_preprocessing_combined(p, subjects, run_indices):
                        skip_by_annotation='edge', **fir_kwargs)
             raw.add_proj(projs)
             raw.apply_proj()
-            use_reject, use_flat = _restrict_reject_flat(reject, flat, raw)
+            raw.pick_types(meg=True, eeg=False, exclude=())  # remove EEG
+            use_reject, use_flat = _restrict_reject_flat(
+                _handle_dict(p.reject, subj), flat, raw)
             pr = compute_proj_raw(raw, duration=1, n_grad=proj_nums[2][0],
                                   n_mag=proj_nums[2][1], n_eeg=proj_nums[2][2],
                                   reject=use_reject, flat=use_flat,
