@@ -8,6 +8,7 @@ import os
 import os.path as op
 from contextlib import contextmanager
 from copy import deepcopy
+import json
 import warnings
 from shutil import move, copy2, rmtree
 import subprocess
@@ -338,6 +339,7 @@ class Params(Frozen):
                  lp_trans=0.5, hp_trans=0.5):
         self.reject = dict(eog=np.inf, grad=1500e-13, mag=5000e-15, eeg=150e-6)
         self.flat = dict(eog=0, grad=1e-13, mag=1e-15, eeg=1e-6)
+        self.eog_thresh = None
         if ssp_eog_reject is None:
             ssp_eog_reject = dict(grad=2000e-13, mag=3000e-15,
                                   eeg=500e-6, eog=np.inf)
@@ -498,6 +500,16 @@ class Params(Frozen):
         self.proj_meg = 'separate'
         self.src = 'oct6'
         self.freeze()
+        # Read static-able paraws from config file
+        config_file = op.expanduser(op.join('~', '.mnefun', 'mnefun.json'))
+        if op.isfile(config_file):
+            with open(config_file, 'rb') as fid:
+                config = json.load(fid)
+            for key, cast in (('sws_dir', str),
+                              ('sws_ssh', str),
+                              ('sws_port', int)):
+                if key in config:
+                    setattr(self, key, cast(config[key]))
 
     @property
     def pca_extra(self):
@@ -830,7 +842,7 @@ def calc_twa_hp(p, subj, out_file, ridx):
     for raw_fname in raw_fnames:
         raw = mne.io.read_raw_fif(raw_fname, allow_maxshield='yes',
                                   verbose='error')
-        hp, annot, _ = _head_pos_annot(p, raw_fname, prefix='          ')
+        hp, annot, _ = _head_pos_annot(p, subj, raw_fname, prefix='          ')
         try:
             raw.set_annotations(annot)
         except AttributeError:
@@ -1109,7 +1121,7 @@ def run_sss_command(fname_in, options, fname_out, host='kasga', port=22,
     if fname_pos is not None:
         options += ' -hp ' + remote_pos
 
-    print(', MaxFilter', end='')
+    print(', maxfilter %s' % (options,), end='')
     cmd = ['ssh', '-p', port, host,
            'maxfilter -f ' + remote_in + ' -o ' + remote_out + ' ' + options]
     try:
@@ -1216,6 +1228,7 @@ def run_sss_positions(fname_in, fname_out, host='kasga', opts='-force',
 
     # concatenate hp pos file for split raw files if any
     data = []
+    next_pre = ', '
     for f in fnames_out:
         this_pos = read_head_pos(op.join(pout, f))
         # sanitize the stupid thing; sometimes MaxFilter produces a line of all
@@ -1225,22 +1238,38 @@ def run_sss_positions(fname_in, fname_out, host='kasga', opts='-force',
         # Let's use a heuristic of at least two entries being
         # zero, or any invalid quat, or an invalid position, and take the
         # next valid one
-        valid = _pos_valid(this_pos[1:], dist_limit, gof_limit)
+        valid = _pos_valid(this_pos, dist_limit, gof_limit)
         if len(this_pos > 0) and not valid[0]:
             first_valid = np.where(valid)[0][0]
-            print('%sFound %d invalid position%s from MaxFilter, '
+            repl = this_pos[first_valid].copy()
+            repl[7:9] = [gof_limit, dist_limit]
+            print('\n%s... found %d invalid position%s from MaxFilter, '
                   'replacing with: %r'
                   % (prefix, first_valid, _pl(first_valid),
-                     this_pos[first_valid].tolist()))
-            this_pos[:first_valid, 1:7] = this_pos[first_valid, 1:7]
-            this_pos[:first_valid, 7] = gof_limit
-            this_pos[:first_valid, 8] = dist_limit
+                     this_pos[first_valid].tolist()), end='')
+            this_pos[:first_valid] = repl
+            next_pre = '\n%s... ' % (prefix,)
         data.append(this_pos)
         os.remove(op.join(pout, f))
     pos_data = np.concatenate(np.array(data))
-    print(', writing', end='')
+    print(next_pre + 'writing', end='')
     write_head_pos(fname_out, pos_data)
     print(' (%i sec)' % (time.time() - t0,))
+
+
+def _read_raw_prebad(p, subj, fname, disp=True, prefix=' ' * 6):
+    """Read SmartShield raw instance and add bads."""
+    prebad_file = _prebad(p, subj)
+    raw = read_raw_fif(fname, allow_maxshield='yes')
+    raw.fix_mag_coil_types()
+    # First load our manually marked ones (if present)
+    _load_meg_bads(raw, prebad_file, disp=disp, prefix=prefix)
+    # Next run Maxfilter for automatic bad channel selection
+    if p.mf_autobad:
+        maxbad_file = op.splitext(fname)[0] + '_maxbad.txt'
+        _maxbad(p, subj, raw, maxbad_file)
+        _load_meg_bads(raw, maxbad_file, disp=True, prefix=prefix, append=True)
+    return raw
 
 
 def run_sss_locally(p, subjects, run_indices):
@@ -1279,7 +1308,6 @@ def run_sss_locally(p, subjects, run_indices):
                                        run_indices=run_indices[si])
         erm_files = get_raw_fnames(p, subj, 'raw', 'only')
         erm_files_out = get_raw_fnames(p, subj, 'sss', 'only')
-        prebad_file = _prebad(p, subj)
 
         # get the destination head position
         assert isinstance(p.trans_to, (str, tuple, type(None)))
@@ -1291,16 +1319,7 @@ def run_sss_locally(p, subjects, run_indices):
                                         raw_files_out + erm_files_out)):
             if not op.isfile(r):
                 raise NameError('File not found (' + r + ')')
-            raw = read_raw_fif(r, preload=True, allow_maxshield='yes')
-            raw.fix_mag_coil_types()
-            # First load our manually marked ones (if present)
-            _load_meg_bads(raw, prebad_file, disp=ii == 0, prefix=' ' * 6)
-            # Next run Maxfilter for automatic bad channel selection
-            if p.mf_autobad:
-                maxbad_file = op.splitext(r)[0] + '_maxbad.txt'
-                _maxbad(p, subj, raw, maxbad_file)
-                _load_meg_bads(raw, maxbad_file, disp=True, prefix=' ' * 6,
-                               append=True)
+            raw = _read_raw_prebad(p, subj, r, disp=ii == 0).load_data()
             if ii == 0:
                 if p.sss_origin == 'auto':
                     R, origin = mne.bem.fit_sphere_to_headshape(
@@ -1326,7 +1345,8 @@ def run_sss_locally(p, subjects, run_indices):
                 head_pos, annot = raw_head_pos, raw_annot
             else:
                 # estimate head position for movement compensation
-                head_pos, annot, _ = _head_pos_annot(p, r, prefix='        ')
+                head_pos, annot, _ = _head_pos_annot(
+                    p, subj, r, prefix='        ')
                 if raw_info is None:
                     if head_pos is None:
                         raw_head_pos = None
@@ -2689,8 +2709,10 @@ def do_preprocessing_combined(p, subjects, run_indices):
                        skip_by_annotation='edge', **old_kwargs)
             raw.add_proj(projs)
             raw.apply_proj()
+            thresh = _handle_dict(p.eog_thresh, subj)
             eog_events = find_eog_events(
-                raw, ch_name=eog_channel, reject_by_annotation=True)
+                raw, ch_name=eog_channel, reject_by_annotation=True,
+                thresh=thresh)
             use_reject, use_flat = _restrict_reject_flat(
                 p.ssp_eog_reject, flat, raw)
             eog_epochs = Epochs(
@@ -2948,9 +2970,9 @@ def _get_t_window(p, raw):
     return t_window
 
 
-def _head_pos_annot(p, raw_fname, prefix='  '):
+def _head_pos_annot(p, subj, raw_fname, prefix='  '):
     """Locate head position estimation file and do annotations."""
-    raw = mne.io.read_raw_fif(raw_fname, allow_maxshield='yes')
+    raw = _read_raw_prebad(p, subj, raw_fname, disp=False)
     if p.movecomp is None:
         head_pos = None
     else:
@@ -2963,10 +2985,16 @@ def _head_pos_annot(p, raw_fname, prefix='  '):
             # write_head_positions(pos_fname, head_pos)
             print('%sEstimating position file %s'
                   % (prefix, op.basename(pos_fname)))
+            opts = ' '.join(bad.strip('MEG').strip()
+                            for bad in raw.info['bads']
+                            if bad.startswith('MEG'))
+            if opts:
+                opts = '-bad ' + opts + ' '
+            opts += '-autobad off -force'
             run_sss_positions(raw_fname, pos_fname,
                               host=p.sws_ssh, port=p.sws_port, prefix=prefix,
                               work_dir=p.sws_dir, t_window=t_window,
-                              t_step_min=p.coil_t_step_min,
+                              t_step_min=p.coil_t_step_min, opts=opts,
                               dist_limit=p.coil_dist_limit)
         head_pos = read_head_pos(pos_fname)
         # otherwise we need to go back and fix!
