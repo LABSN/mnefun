@@ -189,10 +189,10 @@ params.report_params.update(  # add a couple of nice diagnostic plots
 )
 
 # Set what processing steps will execute
-default = True
+default = False
 mnefun.do_processing(
     params,
-    fetch_raw=False,     # Fetch raw recording files from acquisition machine
+    fetch_raw=default,     # Fetch raw recording files from acquisition machine
     do_score=default,      # Do scoring to slice data into trials
 
     # Before running SSS, make SUBJ/raw_fif/SUBJ_prebad.txt file with
