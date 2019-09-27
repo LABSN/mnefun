@@ -3164,16 +3164,13 @@ def plot_colorbar(lims, ticks=None, ticklabels=None, figsize=(1, 2),
             use_lims = dict(kind='value', pos_lims=lims)
         else:
             use_lims = dict(kind='value', lims=lims)
-        cmap, scale_pts, diverging, _ = mne.viz._3d._limits_to_control_points(
-            use_lims, 0, colormap, transparent,
-            linearize=True)
+        cmap, scale_pts, diverging, _, none_ticks = \
+            mne.viz._3d._limits_to_control_points(
+                use_lims, 0, colormap, transparent,
+                linearize=True)
         vmin, vmax = scale_pts[0], scale_pts[-1]
         if ticks is None:
-            if diverging:
-                ticks = [-lims[2], -lims[1], -lims[0], 0.,
-                         lims[0], lims[1], lims[2]]
-            else:
-                ticks = [lims[0], np.mean(lims), lims[1]]
+            ticks = none_ticks
         del colormap, lims, use_lims
         adjust = (ax is None)
         if ax is None:
