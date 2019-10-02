@@ -499,6 +499,7 @@ class Params(Frozen):
         self.ecg_f_lims = (5, 35)
         self.proj_meg = 'separate'
         self.src = 'oct6'
+        self.reject_epochs_by_annot = True
         self.freeze()
         # Read static-able paraws from config file
         config_file = op.expanduser(op.join('~', '.mnefun', 'mnefun.json'))
@@ -1825,7 +1826,7 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
             temp_epochs = Epochs(
                 raw, events, event_id=None, tmin=rtmin, tmax=rtmax,
                 baseline=_get_baseline(p), proj=True, reject=None, flat=None,
-                preload=True, decim=decim[si])
+                preload=True, decim=decim[si], reject_by_annotation=p.reject_epochs_by_annot)
             kwargs = dict()
             if 'verbose' in get_args(get_rejection_threshold):
                 kwargs['verbose'] = False
@@ -1850,7 +1851,8 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
                         tmax=p.tmax, baseline=_get_baseline(p),
                         reject=use_reject, flat=use_flat, proj='delayed',
                         preload=True, decim=decim[si], on_missing=p.on_missing,
-                        reject_tmin=p.reject_tmin, reject_tmax=p.reject_tmax)
+                        reject_tmin=p.reject_tmin, reject_tmax=p.reject_tmax,
+                        reject_by_annotation=p.reject_epochs_by_annot)
         del raw
         if epochs.events.shape[0] < 1:
             epochs.plot_drop_log()
