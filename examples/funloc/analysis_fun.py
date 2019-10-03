@@ -88,9 +88,22 @@ params.acq_dir = ['/sinuhe_data01/eric_non_space',
                   '/sinuhe/data02/eric_non_space',
                   '/sinuhe/data03/eric_non_space']
 
-# Set parameters for remotely connecting to SSS workstation ('sws')
-params.sws_ssh = 'kasga'
-params.sws_dir = '/data06/larsoner/sss_work'
+# Parameters for remotely connecting to SSS workstation ('sws') can be set
+# by adding a file ~/.mnefun/mnefun.json with contents like:
+#
+#     $ mkdir ~/.mnefun
+#     $ echo '{"sws_ssh":"kasga","sws_dir":"/data06/larsoner/sss_work","sws_port":22}' > ~/.mnefun/mnefun.json
+#
+# This should be preferred to the old way, which was to set in each script
+# when running on your machine:
+#
+#     params.sws_ssh = 'kasga'
+#     params.sws_dir = '/data06/larsoner/sss_work'
+#
+# Using per-machine config files rather than per-script variables should
+# help increase portability of scripts without hurting reproducibility
+# (assuming we all use the same version of MaxFilter, which should be a
+# safe assumption).
 
 # Set the niprov handler to deal with events:
 params.on_process = handler
@@ -166,13 +179,14 @@ params.report_params.update(  # add a couple of nice diagnostic plots
     snr=dict(analysis='All', name='All',
              inv='%s-55-sss-meg-eeg-free-inv.fif'),
     bem=True,  # BEM layers
+    covariance=True,  # covariance image and SVD plots
     whitening=dict(analysis='All', name='All',
                    cov='%s-55-sss-cov.fif'),
     sensor=dict(analysis='All', name='All', times=[0.1, 0.2]),
     source=dict(analysis='All', name='All',
                 inv='%s-55-sss-meg-eeg-free-inv.fif', times=[0.09, 0.4],
                 views='lat', size=(800, 400)),
-) 
+)
 
 # Set what processing steps will execute
 default = False

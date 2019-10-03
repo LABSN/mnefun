@@ -3,6 +3,7 @@
 """Create HTML reports."""
 from __future__ import print_function, unicode_literals
 
+from contextlib import contextmanager
 from copy import deepcopy
 import os.path as op
 import time
@@ -13,9 +14,8 @@ import numpy as np
 import mne
 from mne import read_proj, read_epochs
 from mne.io import read_raw_fif
-from mne.viz import plot_projs_topomap
+from mne.viz import plot_projs_topomap, plot_cov, plot_snr_estimate
 from mne.viz._3d import plot_head_positions
-from mne.viz import plot_snr_estimate
 from mne.report import Report
 from mne.utils import _pl
 
@@ -23,17 +23,34 @@ from ._paths import (get_raw_fnames, get_proj_fnames, get_report_fnames,
                      get_bad_fname, get_epochs_evokeds_fnames)
 
 
+@contextmanager
+def report_context():
+    import matplotlib
+    import matplotlib.pyplot as plt
+    style = {'axes.spines.right': 'off', 'axes.spines.top': 'off',
+             'axes.grid': True}
+    is_interactive = matplotlib.is_interactive()
+    plt.ioff()
+    old_backend = matplotlib.get_backend()
+    matplotlib.use('Agg', force=True)
+    try:
+        with plt.style.context(style):
+            yield
+    except Exception:
+        matplotlib.use(old_backend, force=True)
+        plt.interactive(is_interactive)
+        raise
+
+
 def gen_html_report(p, subjects, structurals, run_indices=None):
     """Generate HTML reports."""
     import matplotlib.pyplot as plt
     from ._mnefun import (_load_trans_to, plot_good_coils, _head_pos_annot,
-                          _get_bem_src_trans, safe_inserter, _prebad,
-                          _load_meg_bads, mlab_offscreen, _fix_raw_eog_cals,
+                          _get_bem_src_trans, safe_inserter,
+                          _read_raw_prebad, mlab_offscreen, _fix_raw_eog_cals,
                           _handle_dict, _get_t_window, plot_chpi_snr_raw)
     if run_indices is None:
         run_indices = [None] * len(subjects)
-    style = {'axes.spines.right': 'off', 'axes.spines.top': 'off',
-             'axes.grid': True}
     time_kwargs = dict()
     if 'time_unit' in mne.fixes._get_args(mne.viz.plot_evoked):
         time_kwargs['time_unit'] = 's'
@@ -50,12 +67,8 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
             if not op.isfile(fname):
                 raise RuntimeError('Cannot create reports until raw data '
                                    'exist, missing:\n%s' % fname)
-        raw = [read_raw_fif(fname, allow_maxshield='yes')
-               for fname in fnames]
+        raw = [_read_raw_prebad(p, subj, fname, False) for fname in fnames]
         _fix_raw_eog_cals(raw, 'all')
-        prebad_file = _prebad(p, subj)
-        for r in raw:
-            _load_meg_bads(r, prebad_file, disp=False)
         raw = mne.concatenate_raws(raw)
 
         # sss
@@ -85,7 +98,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
         has_fwd = op.isfile(op.join(p.work_dir, subj, p.forward_dir,
                                     subj + p.inv_tag + '-fwd.fif'))
 
-        with plt.style.context(style):
+        with report_context():
             ljust = 25
             #
             # Head coils
@@ -97,7 +110,8 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                 figs = list()
                 captions = list()
                 for fname in fnames:
-                    _, _, fit_data = _head_pos_annot(p, fname, prefix='      ')
+                    _, _, fit_data = _head_pos_annot(
+                        p, subj, fname, prefix='      ')
                     if fit_data is None:
                         print('%s skipped, HPI count data not found (possibly '
                               'no params.*_limit values set?' % (section,))
@@ -149,7 +163,8 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                 figs = list()
                 captions = list()
                 for fname in fnames:
-                    pos, _, _ = _head_pos_annot(p, fname, prefix='      ')
+                    pos, _, _ = _head_pos_annot(
+                        p, subj, fname, prefix='      ')
                     fig = plot_head_positions(pos=pos, destination=trans_to,
                                               info=raw.info, show=False)
                     for ax in fig.axes[::2]:
@@ -227,8 +242,8 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                 fig.set(figheight=(fig.axes[0].get_yticks() != 0).sum(),
                         figwidth=12)
                 fig.subplots_adjust(0.0, 0.0, 1, 1, 0, 0)
-                report.add_figs_to_section(fig, 'Processed', section,
-                                           image_format='png')  # svg too slow
+                report.add_figs_to_section(fig, section + ' (processed)',
+                                           section, image_format='png')
 
             #
             # PSD
@@ -312,7 +327,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                             p.work_dir, subj, p.pca_dir,
                             'preproc_cont-proj.fif'), sss_info,
                             proj_nums[2], p.proj_meg, 'ERM'))
-                captions = [section] + ['SSP epochs'] * (len(comments) - 1)
+                captions = ['SSP epochs: %s' % c for c in comments]
                 report.add_figs_to_section(
                     figs, captions, section, image_format='svg',
                     comments=comments)
@@ -434,12 +449,10 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                     else:
                         inv = mne.minimum_norm.read_inverse_operator(fname_inv)
                         this_evoked = mne.read_evokeds(fname_evoked, name)
-                        title = ('%s<br>%s["%s"] (N=%d)'
-                                 % (section, analysis, name, this_evoked.nave))
-                        figs = plot_snr_estimate(this_evoked, inv,
-                                                 verbose=False)
+                        figs = plot_snr_estimate(
+                            this_evoked, inv, verbose='error')
                         figs.axes[0].set_ylim(auto=True)
-                        captions = ('%s<br>%s["%s"] (N=%d)'
+                        captions = ('%s: %s["%s"] (N=%d)'
                                     % (section, analysis, name,
                                        this_evoked.nave))
                         report.add_figs_to_section(
@@ -451,7 +464,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
             #
             section = 'BEM'
             if p.report_params.get('bem', True) and has_fwd:
-                caption = '%s<br>%s' % (section, struc)
+                caption = '%s: %s' % (section, struc)
                 bem, src, trans, _ = _get_bem_src_trans(
                     p, raw.info, subj, struc)
                 if not bem['is_sphere']:
@@ -479,6 +492,31 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
             #
             # Whitening
             #
+            section = 'Covariance'
+            if p.report_params.get('covariance', True):
+                t0 = time.time()
+                print(('    %s ... ' % section).ljust(ljust), end='')
+                cov_dir = op.join(p.work_dir, subj, p.cov_dir)
+                # just the first for now
+                inv_name = p.inv_names[0]
+                cov_name = op.join(cov_dir, safe_inserter(inv_name, subj) +
+                                   ('-%d' % p.lp_cut) + p.inv_tag + '-cov.fif')
+                if not op.isfile(cov_name):
+                    print('    Missing covariance: %s'
+                          % op.basename(cov_name), end='')
+                else:
+                    noise_cov = mne.read_cov(cov_name)
+                    info = mne.io.read_info(pca_fnames[0])
+                    figs = plot_cov(
+                        noise_cov, info, show=False, verbose='error')
+                    captions = ['%s: %s' % (section, kind)
+                                for kind in ('images', 'SVDs')]
+                    report.add_figs_to_section(
+                        figs, captions, section=section, image_format='png')
+                print('%5.1f sec' % ((time.time() - t0),))
+            else:
+                print('    %s skipped' % section)
+
             section = 'Whitening'
             if p.report_params.get('whitening', False):
                 t0 = time.time()
@@ -506,9 +544,10 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                     else:
                         noise_cov = mne.read_cov(cov_name)
                         evo = mne.read_evokeds(fname_evoked, name)
-                        captions = ('%s<br>%s["%s"] (N=%d)'
+                        captions = ('%s: %s["%s"] (N=%d)'
                                     % (section, analysis, name, evo.nave))
-                        fig = evo.plot_white(noise_cov, **time_kwargs)
+                        fig = evo.plot_white(noise_cov, verbose='error',
+                                             **time_kwargs)
                         report.add_figs_to_section(
                             fig, captions, section=section, image_format='png')
                 print('%5.1f sec' % ((time.time() - t0),))
@@ -543,10 +582,10 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                             topomap_args=dict(outlines='head', **time_kwargs))
                         if not isinstance(figs, (list, tuple)):
                             figs = [figs]
-                        captions = ('%s<br>%s["%s"] (N=%d)'
+                        captions = ('%s: %s["%s"] (N=%d)'
                                     % (section, analysis, name,
                                        this_evoked.nave))
-                        captions = [captions] + [None] * (len(figs) - 1)
+                        captions = [captions] * len(figs)
                         report.add_figs_to_section(
                             figs, captions, section=section,
                             image_format='png')
@@ -583,7 +622,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                     else:
                         inv = mne.minimum_norm.read_inverse_operator(fname_inv)
                         this_evoked = mne.read_evokeds(fname_evoked, name)
-                        title = ('%s<br>%s["%s"] (N=%d)'
+                        title = ('%s: %s["%s"] (N=%d)'
                                  % (section, analysis, name, this_evoked.nave))
                         stc = mne.minimum_norm.apply_inverse(
                             this_evoked, inv,
