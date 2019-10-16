@@ -1248,7 +1248,7 @@ def run_sss_positions(fname_in, fname_out, host='kasga', opts='-force',
                   'replacing with: %r'
                   % (prefix, first_valid, _pl(first_valid),
                      this_pos[first_valid].tolist()), end='')
-            this_pos[:first_valid] = repl
+            this_pos[:first_valid, 1:] = repl[1:]
             next_pre = '\n%s... ' % (prefix,)
         data.append(this_pos)
         os.remove(op.join(pout, f))
