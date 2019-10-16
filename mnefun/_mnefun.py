@@ -238,9 +238,9 @@ class Params(Frozen):
         signal space separation method. Must be either 'maxfilter' or 'python'
     int_order : int
         Order of internal component of spherical expansion. Default is 8.
+        Value of 6 recomended for infant data.
     ext_order : int
         Order of external component of spherical expansion. Default is 3.
-        Value of 6 recomended for infant data
     tsss_dur : float | None
         Buffer length (in seconds) fpr Spatiotemporal SSS. Default is 60.
         however based on system specification a shorter buffer may be
@@ -713,6 +713,8 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
             elif func == print_proc_status:
                 outs[ii] = func(p, subjects, structurals, p.analyses,
                                 run_indices)
+            elif func == gen_covariances:
+                outs[ii] = func(p, subjects, run_indices, decim)
             else:
                 outs[ii] = func(p, subjects, run_indices)
             print('  (' + timestring(time.time() - t0) + ')')
@@ -1247,7 +1249,7 @@ def run_sss_positions(fname_in, fname_out, host='kasga', opts='-force',
             print('\n%s... found %d invalid position%s from MaxFilter, '
                   'replacing with: %r'
                   % (prefix, first_valid, _pl(first_valid),
-                     this_pos[first_valid].tolist()), end='')
+                     repl[1:].tolist()), end='')
             this_pos[:first_valid, 1:] = repl[1:]
             next_pre = '\n%s... ' % (prefix,)
         data.append(this_pos)
@@ -1700,6 +1702,26 @@ def _restrict_reject_flat(reject, flat, raw):
     return use_reject, use_flat
 
 
+def _read_events(p, subj, ridx, raw):
+    ridx = np.array(ridx)
+    assert ridx.ndim == 1
+    events = list()
+    for fname in get_event_fnames(p, subj, ridx):
+        these_events = read_events(fname)
+        if len(np.unique(these_events[:, 0])) != len(these_events):
+            raise RuntimeError('Non-unique event samples found in %s'
+                                % (fname,))
+        events.append(these_events)
+    events = concatenate_events(events, raw._first_samps, raw._last_samps)
+    if len(np.unique(events[:, 0])) != len(events):
+        raise RuntimeError('Non-unique event samples found after '
+                            'concatenation')
+    # do time adjustment
+    t_adj = int(np.round(-p.t_adjust * raw.info['sfreq']))
+    events[:, 0] += t_adj
+    return events
+
+
 def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
                 out_numbers, must_match, decim, run_indices):
     """Generate epochs from raw data based on events
@@ -1789,20 +1811,7 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
         raw = concatenate_raws(raw)
 
         # read in events
-        events = list()
-        for fname in get_event_fnames(p, subj, run_indices[si]):
-            these_events = read_events(fname)
-            if len(np.unique(these_events[:, 0])) != len(these_events):
-                raise RuntimeError('Non-unique event samples found in %s'
-                                   % (fname,))
-            events.append(these_events)
-        events = concatenate_events(events, first_samps, last_samps)
-        if len(np.unique(events[:, 0])) != len(events):
-            raise RuntimeError('Non-unique event samples found after '
-                               'concatenation')
-        # do time adjustment
-        t_adj = int(np.round(-p.t_adjust * raw.info['sfreq']))
-        events[:, 0] += t_adj
+        events = _read_events(p, subj, run_indices[si], raw)
         new_sfreq = raw.info['sfreq'] / decim[si]
         if p.disp_files:
             print('    Epoching data (decim=%s -> sfreq=%0.1f Hz).'
@@ -1947,11 +1956,11 @@ def _compute_rank(p, subj, run_indices):
     """Compute rank of the data."""
     epochs_fnames, _ = get_epochs_evokeds_fnames(p, subj, p.analyses)
     _, fif_file = epochs_fnames
-    epochs = read_epochs(fif_file)
+    epochs = read_epochs(fif_file)  # .crop(p.bmin, p.bmax)  maybe someday...?
     meg, eeg = 'meg' in epochs, 'eeg' in epochs
     rank = dict()
     if meg:
-        eps = epochs.copy().pick_types(meg=meg, eeg=False)
+        eps = epochs.copy().pick_types(meg=meg, eeg=False).apply_proj()
         eps = eps.get_data().transpose([1, 0, 2])
         eps = eps.reshape(len(eps), -1)
         if 'grad' in epochs and 'mag' in epochs:  # Neuromag
@@ -1960,7 +1969,7 @@ def _compute_rank(p, subj, run_indices):
             key = 'grad' if 'grad' in epochs else 'mag'
         rank[key] = estimate_rank(eps, tol=1e-6)
     if eeg:
-        eps = epochs.copy().pick_types(meg=False, eeg=eeg)
+        eps = epochs.copy().pick_types(meg=False, eeg=eeg).apply_proj()
         eps = eps.get_data().transpose([1, 0, 2])
         eps = eps.reshape(len(eps), -1)
         rank['eeg'] = estimate_rank(eps, tol=1e-6)
@@ -2182,7 +2191,7 @@ def _get_bem_src_trans(p, info, subj, struc):
     return bem, src, trans, bem_type
 
 
-def gen_covariances(p, subjects, run_indices):
+def gen_covariances(p, subjects, run_indices, decim):
     """Generate forward solutions
 
     Can only complete successfully once preprocessing is performed.
@@ -2195,6 +2204,8 @@ def gen_covariances(p, subjects, run_indices):
         Subject names to analyze (e.g., ['Eric_SoP_001', ...]).
     run_indices : array-like | None
         Run indices to include.
+    decim : list of int
+        The subject decimations.
     """
     for si, subj in enumerate(subjects):
         print('  Subject %2d/%2d...' % (si + 1, len(subjects)), end='')
@@ -2257,7 +2268,6 @@ def gen_covariances(p, subjects, run_indices):
             else:
                 ridx = np.intersect1d(run_indices[si], inv_run)
             raw_fnames = get_raw_fnames(p, subj, 'pca', False, False, ridx)
-            eve_fnames = get_event_fnames(p, subj, ridx)
 
             raws = []
             first_samps = []
@@ -2268,23 +2278,24 @@ def gen_covariances(p, subjects, run_indices):
                 last_samps.append(raws[-1]._last_samps[-1])
             _fix_raw_eog_cals(raws)  # safe b/c cov only needs MEEG
             raw = concatenate_raws(raws)
-            events = [read_events(e) for e in eve_fnames]
+            events = _read_events(p, subj, ridx, raw)
             if p.pick_events_cov is not None:
                 old_count = sum(len(e) for e in events)
                 if callable(p.pick_events_cov):
                     picker = p.pick_events_cov
                 else:
                     picker = p.pick_events_cov[ii]
-                events = [picker(e) for e in events]
-                new_count = sum(len(e) for e in events)
+                events = picker(events)
+                new_count = len(events)
                 print('  Using %s/%s events for %s'
                       % (new_count, old_count, op.basename(cov_name)))
-            events = concatenate_events(events, first_samps,
-                                        last_samps)
             use_reject, use_flat = _restrict_reject_flat(reject, flat, raw)
             epochs = Epochs(raw, events, event_id=None, tmin=p.bmin,
                             tmax=p.bmax, baseline=(None, None), proj=False,
-                            reject=use_reject, flat=use_flat, preload=True)
+                            reject=use_reject, flat=use_flat, preload=True,
+                            decim=decim[si], verbose='error',    # ignore decim
+                            on_missing=p.on_missing,
+                            reject_by_annotation=p.reject_epochs_by_annot)
             epochs.pick_types(meg=True, eeg=True, exclude=[])
             cov = compute_covariance(epochs, method=p.cov_method,
                                      **kwargs)
@@ -2293,7 +2304,31 @@ def gen_covariances(p, subjects, run_indices):
                 out_rank = mne.cov.compute_whitener(cov, epochs.info,
                                                     return_rank=True,
                                                     verbose='error')[2]
-                assert want_rank == out_rank
+                if want_rank != out_rank:
+                    # Hopefully we never hit this code path, but let's keep
+                    # some debugging stuff around just in case
+                    mne.viz.plot_cov(cov, epochs.info)
+                    epochs_fnames, _ = get_epochs_evokeds_fnames(
+                        p, subj, p.analyses)
+                    epochs2 = read_epochs(epochs_fnames[1], preload=True)
+                    idx = np.searchsorted(epochs.events[:, 0],
+                                          epochs2.events[:, 0])
+                    assert len(np.unique(idx)) == len(idx)
+                    epochs = epochs[idx]
+                    assert np.array_equal(epochs.events[:, 0],
+                                          epochs2.events[:, 0])
+                    epochs2.pick_types(meg=True, eeg=True, exclude=[])
+                    import matplotlib.pyplot as plt
+                    plt.figure()
+                    for eps in (epochs, epochs2):
+                        eps = eps.get_data().transpose([1, 0, 2])
+                        eps = eps.reshape(len(eps), -1)
+                        plt.plot(np.log10(np.maximum(linalg.svdvals(eps), 1e-50)))
+                    epochs.plot()
+                    epochs2.copy().crop(p.bmin, p.bmax).plot()
+                    raise RuntimeError('Error computing rank')
+
+
             write_cov(cov_name, cov)
         print()
 
@@ -2975,6 +3010,7 @@ def _get_t_window(p, raw):
 def _head_pos_annot(p, subj, raw_fname, prefix='  '):
     """Locate head position estimation file and do annotations."""
     raw = _read_raw_prebad(p, subj, raw_fname, disp=False)
+    printed = False
     if p.movecomp is None:
         head_pos = None
     else:
@@ -2987,6 +3023,7 @@ def _head_pos_annot(p, subj, raw_fname, prefix='  '):
             # write_head_positions(pos_fname, head_pos)
             print('%sEstimating position file %s'
                   % (prefix, op.basename(pos_fname)))
+            printed = True
             opts = ' '.join(bad.strip('MEG').strip()
                             for bad in raw.info['bads']
                             if bad.startswith('MEG'))
@@ -3044,6 +3081,7 @@ def _head_pos_annot(p, subj, raw_fname, prefix='  '):
             prefix='  ' + prefix, coil_bad_count_duration_limit=lims[5])
         if annot is not None:
             annot.save(annot_fname)
+        printed = True
     orig_time = raw.info['meas_date'][0] + raw.info['meas_date'][1] / 1000000.
     try:
         annot = read_annotations(annot_fname)
@@ -3058,8 +3096,9 @@ def _head_pos_annot(p, subj, raw_fname, prefix='  '):
     if op.isfile(custom_fname):
         custom_annot = read_annotations(custom_fname)
         assert custom_annot.orig_time == orig_time
-        print(prefix + 'Using custom annotations: %s'
-              % (op.basename(custom_fname),))
+        if printed:  # only do this if we're recomputing something
+            print(prefix + 'Using custom annotations: %s'
+                % (op.basename(custom_fname),))
     else:
         custom_annot = mne.Annotations([], [], [], orig_time=orig_time)
     assert custom_annot.orig_time == orig_time
