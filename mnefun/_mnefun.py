@@ -690,8 +690,10 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
     if run_indices is None:
         run_indices = [None] * len(p.subjects)
     assert len(run_indices) == len(p.subjects)
-    run_indices = [r for ri, r in enumerate(run_indices) if ri in sinds]
-    assert all(r is None or np.in1d(r, np.arange(len(p.run_names))).all()
+    run_indices = [np.array(run_indices[si]) if run_indices[si] is not None
+                   else np.arange(len(p.run_namus)for si in sinds]
+    assert all(run_idx.ndim == 1 for run_idx in run_indices)
+    assert all(np.in1d(r, np.arange(len(p.run_names))).all()
                for r in run_indices)
 
     # Actually do the work
