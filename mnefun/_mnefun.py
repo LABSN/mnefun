@@ -493,6 +493,7 @@ class Params(Frozen):
         self.compute_rank = False
         self.cov_rank = 'full'
         self.force_erm_cov_rank_full = True  # force empty-room inv rank
+        self.cov_rank_tol = 1e-6
         self.eog_t_lims = (-0.25, 0.25)
         self.ecg_t_lims = (-0.08, 0.08)
         self.eog_f_lims = (0, 2)
@@ -1967,12 +1968,12 @@ def _compute_rank(p, subj, run_indices):
             key = 'meg'
         else:
             key = 'grad' if 'grad' in epochs else 'mag'
-        rank[key] = estimate_rank(eps, tol=1e-6)
+        rank[key] = estimate_rank(eps, tol=p.cov_rank_tol)
     if eeg:
         eps = epochs.copy().pick_types(meg=False, eeg=eeg).apply_proj()
         eps = eps.get_data().transpose([1, 0, 2])
         eps = eps.reshape(len(eps), -1)
-        rank['eeg'] = estimate_rank(eps, tol=1e-6)
+        rank['eeg'] = estimate_rank(eps, tol=p.cov_rank_tol)
     for k, v in rank.items():
         print(' : %s rank %2d' % (k.upper(), v), end='')
     return rank
