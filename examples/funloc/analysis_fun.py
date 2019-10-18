@@ -116,6 +116,11 @@ params.runs_empty = ['%s_erm']  # Define empty room runs
 params.compute_rank = True  # compute rank of the noise covariance matrix
 params.cov_rank = None  # preserve cov rank when using advanced estimators
 params.force_erm_cov_rank_full = False  # compute and use the empty-room rank
+# You can choose different run indices for subjects. This can be a list
+# (must be same length as ``params.subjects``) or a dict (keys are subject
+# strings, values are the run indices) including a defaultdict. None is an
+# alias for "all runs".
+params.subject_run_indices = [None, [0]]  # same in this case
 
 # Define number of SSP projectors.
 # Three lists, one for ECG/EOG/continuous, each list with entries for
