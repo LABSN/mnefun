@@ -114,7 +114,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                         p, subj, fname, prefix='      ')
                     if fit_data is None:
                         print('%s skipped, HPI count data not found (possibly '
-                              'no params.*_limit values set?' % (section,))
+                              'no params.*_limit values set?)' % (section,))
                         break
                     fig = plot_good_coils(fit_data, show=False)
                     fig.set_size_inches(10, 2)

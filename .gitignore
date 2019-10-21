@@ -1,6 +1,7 @@
 *.py[cod]
 auto_examples
 generated
+.vscode
 
 # C extensions
 *.so
