@@ -120,7 +120,8 @@ params.force_erm_cov_rank_full = False  # compute and use the empty-room rank
 # (must be same length as ``params.subjects``) or a dict (keys are subject
 # strings, values are the run indices) including a defaultdict. None is an
 # alias for "all runs".
-params.subject_run_indices = [None, [0]]  # same in this case
+# We have 2 subjs and 1 run per subj, so `None` or `[0]` both select all runs
+params.subject_run_indices = [None, [0]]
 
 # Define number of SSP projectors.
 # Three lists, one for ECG/EOG/continuous, each list with entries for

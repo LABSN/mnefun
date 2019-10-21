@@ -2300,7 +2300,8 @@ def gen_covariances(p, subjects, run_indices, decim):
             epochs = Epochs(raw, events, event_id=None, tmin=p.bmin,
                             tmax=p.bmax, baseline=(None, None), proj=False,
                             reject=use_reject, flat=use_flat, preload=True,
-                            decim=decim[si], verbose='error',    # ignore decim
+                            decim=decim[si],
+                            verbose='error',  # ignore decim-related warnings
                             on_missing=p.on_missing,
                             reject_by_annotation=p.reject_epochs_by_annot)
             epochs.pick_types(meg=True, eeg=True, exclude=[])
