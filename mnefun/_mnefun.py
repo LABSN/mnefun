@@ -309,6 +309,9 @@ class Params(Frozen):
         - 'vol5' to use a volumetric grid source space with 5mm (or another
           integer) spacing
 
+    epochs_prefix : str
+        The prefix to use for the ``-epo.fif`` file.
+
     Returns
     -------
     params : instance of Params
@@ -500,6 +503,7 @@ class Params(Frozen):
         self.ecg_f_lims = (5, 35)
         self.proj_meg = 'separate'
         self.src = 'oct6'
+        self.epochs_prefix = 'All'
         self.reject_epochs_by_annot = True
         self.freeze()
         # Read static-able paraws from config file
