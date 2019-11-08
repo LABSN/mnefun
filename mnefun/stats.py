@@ -107,15 +107,13 @@ def _ht2_p(mu, sigma, n_ave, mu_other, sigma_other, n_ave_other, use_pinv):
         sigma = (((n_ave - 1) * sigma + (n_ave_other - 1) * sigma_other) /
                  (n_ave + n_ave_other - 2))
     # Compute the inverses of these covariance matrices:
-    sinv = sigma  # rename
-    for si, s in enumerate(sinv):
-        if use_pinv:
-            sinv[si] = linalg.pinv(s, rcond=1e-6)
-        else:
-            try:
-                sinv[si] = linalg.inv(s)
-            except np.linalg.LinAlgError:
-                sinv[si] = linalg.pinv(s)
+    if use_pinv:
+        sinv = np.linalg.pinv(sigma, rcond=1e-6)
+    else:
+        try:
+            sinv = np.linalg.inv(sigma)
+        except np.linalg.LinAlgError:
+            sinv = np.linalg.pinv(sigma)
     # Compute the T**2 values:
     T2 = np.einsum('vo...,von,vn...->v...', mu, sinv, mu)
     # Then convert T**2 for p (here, 3) variables and n DOF into F:
@@ -191,21 +189,20 @@ def hotelling_t2(epochs, inv_op, src, baseline=(None, 0), update_interval=10,
         data_other = n_ave_other = None
     del epochs
     F_p = np.zeros((inv_op.shape[0], data.shape[-1]))
+    inv_op_t = np.array(inv_op.transpose(0, 2, 1))
     for ti in range(data.shape[-1]):  # iterate over times
         if update_interval is not None and ti % update_interval == 0:
             print(' %s' % ti, end='')
         # Compute the means and covariances
         this_data = data[:, :, ti].T
-        sens_cov = np.cov(this_data, ddof=1)
+        sens_cov = np.cov(this_data, ddof=1)[np.newaxis]
         mu = np.dot(inv_op, this_data.mean(-1))
-        sigma = np.einsum(
-            'vos,se,vre->vor', inv_op, sens_cov, inv_op)
+        sigma = np.matmul(np.matmul(inv_op, sens_cov), inv_op_t)
         if data_other is not None:
             this_data = data_other[:, :, ti].T
-            sens_cov = np.cov(this_data, ddof=1)
+            sens_cov = np.cov(this_data, ddof=1)[np.newaxis]
             mu_other = np.dot(inv_op, this_data.mean(-1))
-            sigma_other = np.einsum(
-                'vos,se,vre->vor', inv_op, sens_cov, inv_op)
+            sigma_other = np.matmul(np.matmul(inv_op, sens_cov), inv_op_t)
         else:
             mu_other = sigma_other = None
         del this_data, sens_cov
