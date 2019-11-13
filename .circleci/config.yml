@@ -1,0 +1,62 @@
+version: 2
+jobs:
+  build_docs:
+    docker:
+      - image: circleci/python:3.7-buster
+    steps:
+      # Get our data and merge with upstream
+      - checkout
+      - run: sudo apt-get install libglu1-mesa ffmpeg graphviz
+      - run: python -m pip install --quiet --upgrade --user pip
+      - run: python -m pip install --quiet --upgrade --user numpy scipy mne numpydoc sphinx sphinx-boostrap-theme
+      - run: python -c "import mne; mne.sys_info()"
+      - run: python setup.py develop --user
+      - run: cd doc && make html
+
+      - store_artifacts:
+          path: doc/_build/html/
+          destination: html
+
+      - persist_to_workspace:
+          root: doc/_build
+          paths:
+            - html
+
+
+  deploy:
+    docker:
+      - image: circleci/python:3.6-stretch
+    steps:
+      - add_ssh_keys:
+          fingerprints:
+            - d4:4f:25:af:ed:5f:61:01:dc:b6:3a:9e:b5:d6:8d:d1
+      - attach_workspace:
+          at: /tmp/_build
+      - run:
+          name: upload
+          command: |
+            echo "Deploying docs."
+            ssh-keyscan github.com >> ~/.ssh/known_hosts
+            git clone git@github.com:/LABSN/labsn.github.io.git ~/labsn.github.io --depth=1
+            git config --global user.email "circle@labsn.github.io"
+            git config --global user.name "Circle CI"
+            cd ~/labsn.github.io
+            git checkout master
+            git pull origin master
+            rm -Rf ~/labsn.github.io/mnefun
+            cp -a /tmp/_build/html ~/labsn.github.io/mnefun
+            git add -A
+            git commit -m "CircleCI update of docs (${CIRCLE_BUILD_NUM})."
+            git push origin master
+
+workflows:
+  version: 2
+  build_and_deploy:
+    jobs:
+      - build_docs
+      - deploy:
+          requires:
+            - build_docs
+          filters:
+            branches:
+              only: master

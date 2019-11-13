@@ -126,4 +126,4 @@ g.node_attr['margin'] = '0.2,0.1'
 g.get_node('legend').attr.update(shape='plaintext', margin=0)
 
 g.layout('dot')
-g.draw('flow.svg', format='svg')
+g.write('_static/flow.dot')

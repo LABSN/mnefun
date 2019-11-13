@@ -200,7 +200,7 @@ class Params(Frozen):
         In lieu of an EOG recording, MEG1411 may work.
     plot_raw : bool
         If True, plot the raw files with the ECG/EOG events overlaid.
-    match_fun : function | None
+    match_fun : callable | None
         If None, standard matching will be performed. If a function,
         must_match will be ignored, and ``match_fun`` will be called
         to equalize event counts.
@@ -522,7 +522,7 @@ class Params(Frozen):
         return self.pca_extra + self.sss_fif_tag
 
     def convert_subjects(self, subj_template, struc_template=None):
-        """Helper to convert subject names
+        """Convert subject names.
 
         Parameters
         ----------
@@ -1476,7 +1476,7 @@ def extract_expyfun_events(fname, return_offsets=False):
     events : array
         Array of events of shape (N, 3), re-coded such that 1 triggers
         are renamed according to their binary expyfun representation.
-    presses : list of arrays
+    presses : list of ndarray
         List of all press events that occurred between each one
         trigger. Each array has shape (N_presses,). If return_offset is True,
         then each array has shape (N_presses, 2), with the first column
