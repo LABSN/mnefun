@@ -8,7 +8,7 @@ jobs:
       - checkout
       - run: sudo apt-get install libglu1-mesa ffmpeg graphviz
       - run: python -m pip install --quiet --upgrade --user pip
-      - run: python -m pip install --quiet --upgrade --user numpy scipy mne numpydoc sphinx sphinx-boostrap-theme
+      - run: python -m pip install --quiet --upgrade --user numpy scipy mne numpydoc sphinx sphinx_boostrap_theme
       - run: python -c "import mne; mne.sys_info()"
       - run: python setup.py develop --user
       - run: cd doc && make html
