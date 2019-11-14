@@ -6,15 +6,7 @@ API Reference
    :no-members:
    :no-inherited-members:
 
-This is the classes and functions reference of mnefun. Functions are
-grouped by hardware control type.
-
-
-.. toctree::
-   :maxdepth: 2
-
-   python_reference
-
+This is the classes and functions reference of mnefun.
 
 Experiment analysis
 ===================
@@ -25,7 +17,6 @@ Classes:
 
 .. autosummary::
    :toctree: generated/
-   :template: class.rst
 
    Params
 
@@ -33,7 +24,6 @@ Functions:
 
 .. autosummary::
    :toctree: generated/
-   :template: function.rst
 
    do_processing
    extract_expyfun_events
@@ -43,20 +33,10 @@ Functions:
    run_sss_positions
    safe_inserter
 
-Simulation
-==========
-
-.. autosummary::
-   :toctree: generated/
-   :template: function.rst
-
-   simulate_movement
-
 Statistics helpers
 ==================
 
 .. autosummary::
    :toctree: generated/
-   :template: function.rst
 
    anova_time

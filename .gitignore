@@ -11,6 +11,7 @@ generated
 *.egg-info
 dist
 build
+doc/_build
 eggs
 parts
 var
