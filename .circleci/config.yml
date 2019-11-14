@@ -6,7 +6,7 @@ jobs:
     steps:
       # Get our data and merge with upstream
       - checkout
-      - run: sudo apt-get install graphviz-dev dot
+      - run: sudo apt-get install graphviz-dev graphviz
       - run: python -m pip install --quiet --upgrade --user pip
       - run: python -m pip install --quiet --upgrade --user numpy scipy mne numpydoc sphinx sphinx_fontawesome sphinx_bootstrap_theme pygraphviz
       - run: python -c "import mne; mne.sys_info()"
