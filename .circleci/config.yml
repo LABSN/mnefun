@@ -51,7 +51,7 @@ jobs:
             rm -Rf ~/labsn.github.io/mnefun
             cp -a /tmp/_build/html ~/labsn.github.io/mnefun
             git add -A
-            git commit -m "CircleCI update of docs (${CIRCLE_BUILD_NUM})."
+            git commit --allow-empty -m "CircleCI update of docs (${CIRCLE_BUILD_NUM})."
             git push origin master
 
 workflows:

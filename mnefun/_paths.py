@@ -183,9 +183,9 @@ def get_epochs_evokeds_fnames(p, subj, analyses, remove_unsaved=False):
     """Get epochs and evoked filenames for a subject"""
     epochs_dir = op.join(p.work_dir, subj, p.epochs_dir)
     evoked_dir = op.join(p.work_dir, subj, p.inverse_dir)
-    mat_file = op.join(epochs_dir, 'All_%d' % p.lp_cut +
+    mat_file = op.join(epochs_dir, '%s_%d' % (p.epochs_prefix, p.lp_cut) +
                        p.inv_tag + '_' + subj + p.epochs_tag + '.mat')
-    fif_file = op.join(epochs_dir, 'All_%d' % p.lp_cut +
+    fif_file = op.join(epochs_dir, '%s_%d' % (p.epochs_prefix, p.lp_cut) +
                        p.inv_tag + '_' + subj + p.epochs_tag + '.fif')
     epochs_fnames = [fname
                      for fname, c in zip([mat_file, fif_file], ['mat', 'fif'])

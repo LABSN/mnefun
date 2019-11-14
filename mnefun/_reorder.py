@@ -108,7 +108,7 @@ def _is_file_unfixed(fname, anon=None):
     return need_reorder, need_anon, write_key, anon_key, picks, order
 
 
-ch_names_uw_70 = [
+ch_names_uw_70 = (
     'Fp1', 'Fpz', 'Fp2',
     'AF3', 'AFz', 'AF4',  # AF7/8
     'F7', 'F5', 'F3', 'F1', 'Fz', 'F2', 'F4', 'F6', 'F8',
@@ -119,8 +119,8 @@ ch_names_uw_70 = [
     'PO7', 'PO3', 'POz', 'PO4', 'PO8',
     'O1', 'Oz', 'O2',
     'Iz',
-    ]
-ch_names_uw_60 = [
+)
+ch_names_uw_60 = (
     'Fp1', 'Fpz', 'Fp2',
     'AF7', 'AF3', 'AF4', 'AF8',
     'F7', 'F5', 'F3', 'F1', 'Fz', 'F2', 'F4', 'F6', 'F8',
@@ -130,5 +130,22 @@ ch_names_uw_60 = [
     'P7', 'P5', 'P3', 'P1', 'Pz', 'P2', 'P4', 'P6', 'P8',
     'PO7', 'PO3', 'PO4', 'PO8',
     'O1', 'Oz', 'O2',
-    'Iz']
+    'Iz',
+)
 assert len(ch_names_uw_70) == len(ch_names_uw_60) == 60
+ch_names_1020 = (
+    'Fp1', 'Fp2',
+    'F7', 'F3', 'Fz', 'F4', 'F8',
+    'A1', 'T3', 'C3', 'Cz', 'C4', 'T4', 'A2',
+    'T5', 'P3', 'Pz', 'P4', 'T6',
+    'O1', 'O2',
+)
+assert len(ch_names_1020) == 21
+ch_names_mgh60 = (
+    'Fz', 'F2', 'AF4', 'Fpz', 'Fp1', 'AF8', 'FT9', 'F7', 'FC5', 'FC6', 'FT7',
+    'F1', 'AF7', 'FT8', 'F6', 'F5', 'FC1', 'FC2', 'FT10', 'T9', 'Cz', 'F4',
+    'T7', 'C2', 'C4', 'C1', 'C3', 'F8', 'F3', 'C5', 'Fp2', 'AF3',
+    'CP2', 'P2', 'O2', 'Iz', 'Oz', 'PO4', 'O1', 'P8', 'PO8', 'P6', 'PO7', 'PO3', 'C6', 'TP9', 'TP8', 'CP4', 'P4',  # noqa
+    'CP3', 'CP1', 'TP7', 'P3', 'Pz', 'P1', 'P7', 'P5', 'TP10', 'T8', 'T10',
+)
+assert len(ch_names_mgh60) == 60
