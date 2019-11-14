@@ -9,5 +9,4 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           artifact-path: 0/html/index.html
-        id: run-circleci-artifacts-redirector
-        circleci-jobs: build_doc
+          circleci-jobs: build_doc
