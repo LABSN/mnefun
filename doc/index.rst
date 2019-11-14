@@ -1,8 +1,16 @@
-===========
-mnefun home
-===========
+.. raw:: html
 
-This software is provided to facilitate I-LABS MEG data analysis.
+   <div class="jumbotron">
+
+===================
+|line-chart| mnefun
+===================
+
+Software to facilitate ILABS MEG data analysis.
+
+.. raw:: html
+
+   </div></div>
 
 .. toctree::
    :maxdepth: 1
