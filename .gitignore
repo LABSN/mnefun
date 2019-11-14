@@ -56,3 +56,4 @@ env/
 cachedir/
 examples/funloc/cachedir/
 .ropeproject/
+doc/_static/flow.dot
