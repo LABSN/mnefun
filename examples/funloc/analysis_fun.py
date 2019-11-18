@@ -32,12 +32,10 @@ import mnefun
 from score import score
 import numpy as np
 
-try:
-    # Use niprov as handler for events if it's installed
-    from niprov.mnefunsupport import handler
-except ImportError:
-    handler = None
+params = mnefun.read_params('funloc_params.yml')
+params.score = score
 
+'''
 params = mnefun.Params(tmin=-0.2, tmax=0.5, t_adjust=-4e-3,
                        n_jobs=6, n_jobs_mkl=1, cov_method='shrunk',
                        n_jobs_fir='cuda', n_jobs_resample='cuda',
@@ -193,6 +191,7 @@ params.report_params.update(  # add a couple of nice diagnostic plots
                 inv='%s-55-sss-meg-eeg-free-inv.fif', times=[0.09, 0.4],
                 views='lat', size=(800, 400)),
 )
+'''
 
 # Set what processing steps will execute
 default = False

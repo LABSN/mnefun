@@ -129,10 +129,9 @@ class Frozen(object):
 class Params(Frozen):
     """Make a parameter structure for use with `do_processing`
 
-    This is technically a class, but it doesn't currently have any methods
-    other than init.
+    Some attributes can be set on init, but it's better to use
 
-    Parameters
+    Attributes
     ----------
     tmin : float
         tmin for events.
@@ -229,9 +228,6 @@ class Params(Frozen):
         Low-pass transition band.
     hp_trans : float
         High-pass transition band.
-
-    Attributes
-    ----------
     movecomp : str | None
         Movement compensation to use. Can be 'inter' or None.
     sss_type : str
@@ -311,6 +307,162 @@ class Params(Frozen):
 
     epochs_prefix : str
         The prefix to use for the ``-epo.fif`` file.
+    keep_orig : str
+        XXX.
+    eog_thresh : str
+        XXX.
+    phase : str
+        XXX.
+    in_names : str
+        XXX.
+    freeze : str
+        XXX.
+    pick_events_cov : str
+        XXX.
+    coil_t_step_min : str
+        XXX.
+    subjects : str
+        XXX.
+    score : str
+        XXX.
+    list_dir : str
+        XXX.
+    inv_erm_tag : str
+        XXX.
+    report_params : str
+        XXX.
+    sss_regularize : str
+        XXX.
+    subject_run_indices : str
+        XXX.
+    inverse_dir : str
+        XXX.
+    dig_with_eeg : str
+        XXX.
+    fir_window : str
+        XXX.
+    convert_subjects : str
+        XXX.
+    force_erm_cov_rank_full : str
+        XXX.
+    coil_t_window : str
+        XXX.
+    raw_dir : str
+        XXX.
+    proj_ave : str
+        XXX.
+    runs_empty : str
+        XXX.
+    reject_epochs_by_annot : str
+        XXX.
+    pca_extra : : str
+        XXX.
+    auto_bad_eeg_thresh : str
+        XXX.
+    translation_limit : str
+        XXX.
+    unfreeze : str
+        XXX.
+    inv_loose_tag : str
+        XXX.
+    get_projs_from : str
+        XXX.
+    structurals : str
+        XXX.
+    eq_tag : str
+        XXX.
+    on_process : str
+        XXX.
+    dates : str
+        XXX.
+    filter_chpi : str
+        XXX.
+    cov_rank : str
+        XXX.
+    inv_names : str
+        XXX.
+    out_names : str
+        XXX.
+    inv_runs : str
+        XXX.
+    trans_dir : str
+        XXX.
+    bad_dir : str
+        XXX.
+    sss_dir : str
+        XXX.
+    subjects_dir : str
+        XXX.
+    cont_lp : str
+        XXX.
+    cov_dir : str
+        XXX.
+    reject : str
+        XXX.
+    in_numbers : str
+        XXX.
+    subject_indices : str
+        XXX.
+    disp_files : str
+        XXX.
+    out_numbers : str
+        XXX.
+    flat : str
+        XXX.
+    sss_format : str
+        XXX.
+    epochs_tag : str
+        XXX.
+    pca_fif_tag : str
+        XXX.
+    rotation_limit : str
+        XXX.
+    sss_fif_tag : str
+        XXX.
+    raw_fif_tag : str
+        XXX.
+    run_names : str
+        XXX.
+    cal_file : str
+        XXX.
+    cov_rank_tol : str
+        XXX.
+    plot_drop_logs : str
+        XXX.
+    work_dir : str
+        XXX.
+    auto_bad_meg_thresh : str
+        XXX.
+    mf_args : str
+        XXX.
+    forward_dir : str
+        XXX.
+    coil_dist_limit : str
+        XXX.
+    pca_dir : str
+        XXX.
+    must_match : str
+        XXX.
+    inv_fixed_tag : str
+        XXX.
+    bad_tag : str
+        XXX.
+    analyses : str
+        XXX.
+    coil_bad_count_duration_limit : str
+        XXX.
+    inv_tag : str
+        XXX.
+    auto_bad_flat : str
+        XXX.
+    ct_file : str
+        XXX.
+    inv_free_tag : str
+        XXX.
+    proj_extra : str
+        XXX.
+    epochs_dir : str
+        XXX.
 
     Returns
     -------

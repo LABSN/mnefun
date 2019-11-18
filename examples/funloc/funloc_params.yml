@@ -1,0 +1,138 @@
+# Todo:
+# - complete doc of params
+# - nest/categorize here
+tmin: -0.2
+tmax: 0.5
+t_adjust: -4e-3
+bmin: None
+bmax : 0.
+n_jobs: 1
+lp_cut: 40
+decim: 5
+proj_sfreq: 100
+n_jobs_mkl: 1
+n_jobs_fir: 1
+n_jobs_resample: 1
+filter_length: 'auto'
+drop_thresh: 0.
+epochs_type: 'fif'
+fwd_mindist: 0.005
+bem_type: '5120-5120-5120'
+auto_bad: None
+auto_bad_reject: None
+ecg_channel: None
+eog_channel: None
+plot_raw: False
+match_fun: None
+hp_cut: None
+cov_method: 'empirical'
+ssp_eog_reject: None
+ssp_ecg_reject: None
+baseline: (None, 0)
+reject_tmin: None
+reject_tmax: None
+lp_trans: 'auto'
+hp_trans: 'auto'
+movecomp: 'inter'
+sss_type: 'python'
+int_order: 8
+ext_order : 3
+tsss_dur: 60.
+st_correlation: 0.98
+trans_to: 'median'
+sss_origin: 'auto'
+fir_design: 'firwin'
+autoreject_thresholds: False
+autoreject_types: ('mag', 'grad', 'eeg')
+mf_autobad: False
+mf_badlimit: 7.
+src_pos: 7.
+on_missing: 'error'
+compute_rank: True
+eog_t_lims: (-0.25, 0.25)
+ecg_t_lims: (-0.08, 0.08)
+eog_f_lims: (0, 2)
+ecg_f_lims: (5, 35)
+proj_nums: [[0, 0, 0], [0, 0, 0], [0, 0, 0]]
+proj_meg: 'combined'
+src: 'oct6'
+epochs_prefix : 'All'
+# XXX these need actual values
+keep_orig:
+eog_thresh:
+phase:
+in_names:
+freeze:
+pick_events_cov:
+coil_t_step_min:
+subjects:
+score:
+list_dir:
+inv_erm_tag:
+report_params:
+sss_regularize:
+subject_run_indices:
+inverse_dir:
+dig_with_eeg:
+fir_window:
+convert_subjects:
+force_erm_cov_rank_full:
+coil_t_window:
+raw_dir:
+proj_ave:
+runs_empty:
+reject_epochs_by_annot:
+pca_extra:
+auto_bad_eeg_thresh:
+translation_limit:
+unfreeze:
+inv_loose_tag:
+get_projs_from:
+structurals:
+eq_tag:
+on_process:
+dates:
+filter_chpi:
+cov_rank:
+inv_names:
+out_names:
+inv_runs:
+trans_dir:
+bad_dir:
+sss_dir:
+subjects_dir:
+cont_lp:
+cov_dir:
+reject:
+in_numbers:
+subject_indices:
+disp_files:
+out_numbers:
+flat:
+sss_format:
+epochs_tag:
+pca_fif_tag:
+rotation_limit:
+sss_fif_tag:
+raw_fif_tag:
+run_names:
+cal_file:
+cov_rank_tol:
+plot_drop_logs:
+work_dir:
+auto_bad_meg_thresh:
+mf_args:
+forward_dir:
+coil_dist_limit:
+pca_dir:
+must_match:
+inv_fixed_tag:
+bad_tag:
+analyses:
+coil_bad_count_duration_limit:
+inv_tag:
+auto_bad_flat:
+ct_file:
+inv_free_tag:
+proj_extra:
+epochs_dir:
