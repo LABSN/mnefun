@@ -15,3 +15,5 @@ install:
 
 script:
   - pytest mnefun
+  - make flake
+  # make pydocstyle  # someday, currently too bad

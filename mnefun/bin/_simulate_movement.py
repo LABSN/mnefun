@@ -50,7 +50,7 @@ class printer(object):
             sys.stdout.flush()
 
 
-def run():
+def simulate_movement():
     t0 = time.time()
     parser = get_optparser(__file__)
     parser.add_option("--raw", dest="raw_in",
@@ -255,7 +255,3 @@ def run():
     sys.stdout.flush()
     if any([plot_dipoles, plot_raw, plot_evoked]):
         plt.show(block=True)
-
-
-if __name__ == '__main__':
-    run()
