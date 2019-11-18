@@ -1,14 +1,18 @@
 # -*- coding: utf-8 -*-
 
 from datetime import date
-import sphinx_bootstrap_theme
+import os.path as op
+import sys
+
 import mnefun
 
+sys.path.append(op.dirname(__file__))
 extensions = [
     'sphinx.ext.autodoc',
     'sphinx.ext.autosummary',
     'sphinx.ext.intersphinx',
     'sphinx.ext.graphviz',
+    'sphinxext.flow',
     'sphinx_bootstrap_theme',
     'sphinx_fontawesome',
     'numpydoc',

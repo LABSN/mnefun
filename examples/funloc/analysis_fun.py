@@ -203,9 +203,7 @@ mnefun.do_processing(
 
     # Before running SSS, make SUBJ/raw_fif/SUBJ_prebad.txt file with
     # space-separated list of bad MEG channel numbers
-    push_raw=default,      # Push raw files and SSS script to SSS workstation
-    do_sss=default,        # Run SSS remotely (on sws) or locally with MNE
-    fetch_sss=default,     # Fetch SSSed files from SSS workstation
+    do_sss=default,        # Run SSS locally with MNE
     do_ch_fix=default,     # Fix channel ordering
 
     # Before running SSP, examine SSS'ed files and make
