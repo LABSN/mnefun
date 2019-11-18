@@ -11,15 +11,12 @@ Longer windows will by nature include more low frequencies and thus have
 larger residual variance (lower SNR).
 """
 
-import sys
-import os
 import mne
 import argparse
-from mnefun import plot_chpi_snr_raw
 
 
-def run():
-
+def plot_chpi_snr():
+    from mnefun import plot_chpi_snr_raw
     # default parameters
     default_winlen = 1  # window length, seconds
     default_nharm = None  # number of line harmonics to include
@@ -34,7 +31,3 @@ def run():
 
     raw = mne.io.Raw(args.fiff_file, allow_maxshield='yes')
     plot_chpi_snr_raw(raw, args.winlen, args.nharm)
-
-
-if __name__ == '__main__':
-    run()

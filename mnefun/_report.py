@@ -13,7 +13,6 @@ import numpy as np
 
 import mne
 from mne import read_proj, read_epochs
-from mne.io import read_raw_fif
 from mne.viz import plot_projs_topomap, plot_cov, plot_snr_estimate
 from mne.viz._3d import plot_head_positions
 from mne.report import Report
@@ -656,9 +655,8 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                             p.subjects_dir, raise_error=True)
                         kwargs = dict(
                             colormap=source.get('colormap', 'viridis'),
-                            transparent=source.get('transparent',True),
-                            clim=clim, subjects_dir=subjects_dir,
-                        )
+                            transparent=source.get('transparent', True),
+                            clim=clim, subjects_dir=subjects_dir)
                         imgs = list()
                         size = source.get('size', (800, 600))
                         if isinstance(stc, mne.SourceEstimate):

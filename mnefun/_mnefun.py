@@ -485,7 +485,7 @@ class Params(Frozen):
             source_alignment=True,
             bem=True,
             source=None,
-            )
+        )
         self.rotation_limit = np.inf
         self.translation_limit = np.inf
         self.coil_bad_count_duration_limit = np.inf  # for annotations
@@ -1721,12 +1721,12 @@ def _read_events(p, subj, ridx, raw):
         these_events = read_events(fname)
         if len(np.unique(these_events[:, 0])) != len(these_events):
             raise RuntimeError('Non-unique event samples found in %s'
-                                % (fname,))
+                               % (fname,))
         events.append(these_events)
     events = concatenate_events(events, raw._first_samps, raw._last_samps)
     if len(np.unique(events[:, 0])) != len(events):
         raise RuntimeError('Non-unique event samples found after '
-                            'concatenation')
+                           'concatenation')
     # do time adjustment
     t_adj = int(np.round(-p.t_adjust * raw.info['sfreq']))
     events[:, 0] += t_adj
@@ -1846,7 +1846,8 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
             temp_epochs = Epochs(
                 raw, events, event_id=None, tmin=rtmin, tmax=rtmax,
                 baseline=_get_baseline(p), proj=True, reject=None, flat=None,
-                preload=True, decim=decim[si], reject_by_annotation=p.reject_epochs_by_annot)
+                preload=True, decim=decim[si],
+                reject_by_annotation=p.reject_epochs_by_annot)
             kwargs = dict()
             if 'verbose' in get_args(get_rejection_threshold):
                 kwargs['verbose'] = False
@@ -2335,11 +2336,11 @@ def gen_covariances(p, subjects, run_indices, decim):
                     for eps in (epochs, epochs2):
                         eps = eps.get_data().transpose([1, 0, 2])
                         eps = eps.reshape(len(eps), -1)
-                        plt.plot(np.log10(np.maximum(linalg.svdvals(eps), 1e-50)))
+                        plt.plot(
+                            np.log10(np.maximum(linalg.svdvals(eps), 1e-50)))
                     epochs.plot()
                     epochs2.copy().crop(p.bmin, p.bmax).plot()
                     raise RuntimeError('Error computing rank')
-
 
             write_cov(cov_name, cov)
         print()
@@ -2521,9 +2522,9 @@ def do_preprocessing_combined(p, subjects, run_indices):
             picks = pick_types(raw.info, meg=meg, eeg=eeg, eog=False,
                                exclude=[])
             assert p.auto_bad_flat is None or isinstance(p.auto_bad_flat, dict)
-            assert p.auto_bad_reject is None or isinstance(p.auto_bad_reject,
-                                                           dict) or \
-                   p.auto_bad_reject == 'auto'
+            assert p.auto_bad_reject is None or \
+                isinstance(p.auto_bad_reject, dict) or \
+                p.auto_bad_reject == 'auto'
             if p.auto_bad_reject == 'auto':
                 print('    Auto bad channel selection active. '
                       'Will try using Autoreject module to '
@@ -3079,7 +3080,7 @@ def _head_pos_annot(p, subj, raw_fname, prefix='  '):
     if not op.isfile(annot_fname) and fit_data is not None:
         lims = [p.rotation_limit, p.translation_limit, p.coil_dist_limit,
                 p.coil_t_step_min, t_window, p.coil_bad_count_duration_limit]
-        if np.isfinite(lims[:3]).any() or np.isfinite(lims[5]) and disp:
+        if np.isfinite(lims[:3]).any() or np.isfinite(lims[5]):
             print(prefix.join(['', 'Annotating raw segments with:\n',
                                u'  rotation_limit    = %s °/s\n' % lims[0],
                                u'  translation_limit = %s m/s\n' % lims[1],
@@ -3110,7 +3111,7 @@ def _head_pos_annot(p, subj, raw_fname, prefix='  '):
         assert custom_annot.orig_time == orig_time
         if printed:  # only do this if we're recomputing something
             print(prefix + 'Using custom annotations: %s'
-                % (op.basename(custom_fname),))
+                  % (op.basename(custom_fname),))
     else:
         custom_annot = mne.Annotations([], [], [], orig_time=orig_time)
     assert custom_annot.orig_time == orig_time
@@ -3385,7 +3386,7 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics=None, show=True,
         print('Sampling frequency: %s Hz' % sfreq)
         print('Using line freqs: %s Hz' % linefreqs)
         print('Using buffers of %s samples = %s seconds\n'
-              % (buflen, buflen/sfreq))
+              % (buflen, buflen / sfreq))
 
     pick_meg = pick_types(raw.info, meg=True, exclude=[])
     pick_mag = pick_types(raw.info, meg='mag', exclude=[])
@@ -3397,7 +3398,7 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics=None, show=True,
 
     # create general linear model for the data
     t = np.arange(buflen) / float(sfreq)
-    model = np.empty((len(t), 2+2*(len(linefreqs)+len(cfreqs))))
+    model = np.empty((len(t), 2 + 2 * (len(linefreqs) + len(cfreqs))))
     model[:, 0] = t
     model[:, 1] = np.ones(t.shape)
     # add sine and cosine term for each freq
@@ -3408,21 +3409,21 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics=None, show=True,
 
     # drop last buffer to avoid overrun
     bufs = np.arange(0, raw.n_times, buflen)[:-1]
-    tvec = bufs/sfreq
+    tvec = bufs / sfreq
     snr_avg_grad = np.zeros([len(cfreqs), len(bufs)])
     hpi_pow_grad = np.zeros([len(cfreqs), len(bufs)])
     snr_avg_mag = np.zeros([len(cfreqs), len(bufs)])
     resid_vars = np.zeros([nchan, len(bufs)])
     for ind, buf0 in enumerate(bufs):
         if verbose:
-            print('Buffer %s/%s' % (ind+1, len(bufs)))
-        megbuf = raw[pick_meg, buf0:buf0+buflen][0].T
+            print('Buffer %s/%s' % (ind + 1, len(bufs)))
+        megbuf = raw[pick_meg, buf0:buf0 + buflen][0].T
         coeffs = np.dot(inv_model, megbuf)
-        coeffs_hpi = coeffs[2+2*len(linefreqs):]
-        resid_vars[:, ind] = np.var(megbuf-np.dot(model, coeffs), 0)
+        coeffs_hpi = coeffs[2 + 2 * len(linefreqs):]
+        resid_vars[:, ind] = np.var(megbuf - np.dot(model, coeffs), 0)
         # get total power by combining sine and cosine terms
         # sinusoidal of amplitude A has power of A**2/2
-        hpi_pow = (coeffs_hpi[0::2, :]**2 + coeffs_hpi[1::2, :]**2)/2
+        hpi_pow = (coeffs_hpi[0::2, :] ** 2 + coeffs_hpi[1::2, :] ** 2) / 2
         hpi_pow_grad[:, ind] = hpi_pow[:, pick_grad_].mean(1)
         # divide average HPI power by average variance
         snr_avg_grad[:, ind] = hpi_pow_grad[:, ind] / \
@@ -3445,7 +3446,7 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics=None, show=True,
                  fontsize=title_fontsize)
     ax.tick_params(axis='both', which='major', labelsize=tick_fontsize)
     ax = axs[1]
-    lines2 = ax.plot(tvec, 10*np.log10(snr_avg_mag.T))
+    lines2 = ax.plot(tvec, 10 * np.log10(snr_avg_mag.T))
     lines2_med = ax.plot(tvec, 10 * np.log10(np.median(snr_avg_mag, axis=0)),
                          lw=2, ls=':', color='k')
     ax.set_xlim([tvec.min(), tvec.max()])

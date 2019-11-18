@@ -206,6 +206,7 @@ def get_report_fnames(p, subj):
                       % (subj, p.lp_cut))]
     return fnames
 
+
 def get_proj_fnames(p, subj):
     """Get filenames of projections files."""
     proj_fnames = []

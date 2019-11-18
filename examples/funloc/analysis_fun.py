@@ -92,7 +92,7 @@ params.acq_dir = ['/sinuhe_data01/eric_non_space',
 # by adding a file ~/.mnefun/mnefun.json with contents like:
 #
 #     $ mkdir ~/.mnefun
-#     $ echo '{"sws_ssh":"kasga","sws_dir":"/data06/larsoner/sss_work","sws_port":22}' > ~/.mnefun/mnefun.json
+#     $ echo '{"sws_ssh":"kasga","sws_dir":"/data06/larsoner/sss_work","sws_port":22}' > ~/.mnefun/mnefun.json  # noqa
 #
 # This should be preferred to the old way, which was to set in each script
 # when running on your machine:
@@ -129,7 +129,7 @@ params.subject_run_indices = [None, [0]]
 params.proj_nums = dict(
     subj_01=[[2, 2, 0], [1, 1, 3], [0, 0, 0]],
     subj_02=[[2, 2, 0], [1, 1, 2], [0, 0, 0]],
-    )
+)
 params.proj_meg = 'combined'  # jointly estimate MEG projectors
 params.proj_ave = True  # better projections by averaging ECG/EOG epochs
 params.eog_f_lims = [1, 10]  # band-pass limits for the EOG detection+artifacts

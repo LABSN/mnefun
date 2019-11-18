@@ -3,31 +3,28 @@
 # caution: testing won't work on windows, see README
 
 PYTHON ?= python
-NOSETESTS ?= nosetests
-CTAGS ?= ctags
 
-all: clean inplace test test-doc
+all: clean inplace test
 
 clean-pyc:
 	find . -name "*.pyc" | xargs rm -f
 
-clean-so:
-	find . -name "*.so" | xargs rm -f
-	find . -name "*.pyd" | xargs rm -f
-
 clean-build:
 	rm -rf build
-
-clean-ctags:
-	rm -f tags
 
 clean-cache:
 	find . -name "__pycache__" | xargs rm -rf
 
-clean: clean-build clean-pyc clean-so clean-ctags clean-cache
+clean: clean-build clean-pyc clean-cache
 
-nosetests:
+pytest:
 	rm -f .coverage
-	$(NOSETESTS) mnefun
+	pytest mnefun
 
-test: clean nosetests flake
+flake:
+	flake8 --count mnefun examples setup.py
+
+pydocstyle:
+	pydocstyle mnefun
+
+test: clean pytest flake pydocstyle

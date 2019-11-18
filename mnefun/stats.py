@@ -215,7 +215,7 @@ def hotelling_t2(epochs, inv_op, src, baseline=(None, 0), update_interval=10,
 
 
 def partial_conjunction(p, alpha=0.05, method='fisher', fdr_method='indep'):
-    """Compute the partial conjunction map.
+    r"""Compute the partial conjunction map.
 
     Parameters
     ----------

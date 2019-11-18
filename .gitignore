@@ -1,4 +1,5 @@
 *.py[cod]
+junit-results.xml
 auto_examples
 generated
 .vscode
