@@ -10,10 +10,13 @@ python:
 
 install:
   # Install mnefun
-  - pip install numpy scipy matplotlib patsy pytest pytest-cov pytest-sugar https://api.github.com/repos/mne-tools/mne-python/zipball/master
+  - pip install numpy scipy matplotlib patsy pytest pytest-cov pytest-sugar codecov flake8 pydocstyle https://api.github.com/repos/mne-tools/mne-python/zipball/master
   - pip install -ve .
 
 script:
   - pytest mnefun
   - make flake
   # make pydocstyle  # someday, currently too bad
+
+after_script:
+  - codecov
