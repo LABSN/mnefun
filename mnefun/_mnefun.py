@@ -1441,7 +1441,7 @@ def _read_raw_prebad(p, subj, fname, disp=True, prefix=' ' * 6):
     if p.mf_autobad:
         maxbad_file = op.splitext(fname)[0] + '_maxbad.txt'
         _maxbad(p, subj, raw, maxbad_file)
-        _load_meg_bads(raw, maxbad_file, disp=True, prefix=prefix, append=True)
+        _load_meg_bads(raw, maxbad_file, disp=disp, prefix=prefix, append=True)
     return raw
 
 
