@@ -58,8 +58,7 @@ mnefun.do_processing(
     fetch_raw=default,     # Fetch raw recording files from acquisition machine
     do_score=default,      # Do scoring to slice data into trials
 
-    # Before running SSS, make SUBJ/raw_f
-    # if/SUBJ_prebad.txt file with
+    # Before running SSS, make SUBJ/raw_fif/SUBJ_prebad.txt file with
     # space-separated list of bad MEG channel numbers
     do_sss=default,        # Run SSS locally with MNE
     do_ch_fix=default,     # Fix channel ordering
@@ -75,6 +74,6 @@ mnefun.do_processing(
     # Make SUBJ/trans/SUBJ-trans.fif using mne_analyze; needed for fwd calc.
     gen_fwd=default,       # Generate forward solutions (and source space)
     gen_inv=default,       # Generate inverses
-    gen_report=True,    # Write mne report html of results to disk
+    gen_report=default,    # Write mne report html of results to disk
     print_status=default,  # Print completeness status update
 )
