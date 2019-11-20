@@ -7,9 +7,6 @@ from mnefun import _flat_params_read
 
 _EXCLUDED_KEYS = (
     # Should be defined per machine
-    'acq_dir',
-    'acq_ssh',
-    'acq_port',
     'sws_dir',
     'sws_ssh',
     'sws_port',

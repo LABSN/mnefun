@@ -7,6 +7,15 @@ paths:
   subject_run_indices: [null, [0]]
   subject_indices: [0, 1]
   disp_files: True
+  fetch_raw:
+    acq_ssh: minea
+    acq_dir:
+      - /sinuhe_data01/eric_non_space
+      - /data101/eric_non_space
+      - /sinuhe/data01/eric_non_space
+      - /sinuhe/data02/eric_non_space
+      - /sinuhe/data03/eric_non_space
+    acq_port: 22
   scoring:
     list_dir: lists
     on_process: null
@@ -21,7 +30,7 @@ paths:
     run_names: ['%s_funloc']
     runs_empty: ['%s_erm']
   preprocessing:
-    sss_dir: sss
+    sss_dir: sss_fif
     pca_dir: sss_pca_fif
   epochs:
     epochs_dir: epochs
@@ -54,19 +63,19 @@ preprocessing:
     n_jobs_resample: 1
   bads:
     mf_autobad: True
-    mf_badlimit: 7.
+    mf_badlimit: 7
     auto_bad: null
     auto_bad_reject: null
     auto_bad_flat: null
-    auto_bad_eeg_thresh: null
-    auto_bad_meg_thresh: null
+    auto_bad_eeg_thresh: 10
+    auto_bad_meg_thresh: 10
   head_position_estimation:
     coil_t_window: auto
     coil_t_step_min: 0.01
     coil_dist_limit: 0.005
   annotations:
     coil_bad_count_duration_limit: 0.1
-    rotation_limit: 0.02
+    rotation_limit: 0.2
     translation_limit: 0.0001
   sss:
     movecomp: inter
@@ -86,25 +95,25 @@ preprocessing:
     mf_args: ''
   filtering:
     hp_cut: null
-    hp_trans: auto
-    lp_cut: 40
-    lp_trans: auto
+    hp_trans: 0.5
+    lp_cut: 55
+    lp_trans: 0.5
     filter_length: auto
-    fir_design: firwin
+    fir_design: firwin2
     fir_window: hann
     phase: zero-double
   ssp:
-    proj_sfreq: 100
+    proj_sfreq: 200
     proj_meg: combined
-    drop_thresh: 0.
+    drop_thresh: 1
     plot_raw: False
-    ssp_eog_reject: null
-    ssp_ecg_reject: null
+    ssp_eog_reject: {grad: 2000.e-13, mag: 3000.e-15, eeg: 500.e-6, eog: .inf}
+    ssp_ecg_reject: {grad: 2000.e-13, mag: 3000.e-15, eeg: 50.e-6, eog: 250.e-6}
     eog_channel: null
     ecg_channel: null
     eog_t_lims: [-0.25, 0.25]
     ecg_t_lims: [-0.08, 0.08]
-    eog_f_lims: [0, 10]
+    eog_f_lims: [1, 10]
     ecg_f_lims: [5, 35]
     eog_thresh: null
     proj_ave: True
@@ -112,7 +121,7 @@ preprocessing:
                 subj_02: [[2, 2, 0], [1, 1, 2], [0, 0, 0]]}
     proj_extra: null
     get_projs_from: [0]
-    cont_lp: 5.
+    cont_lp: 5
     plot_drop_logs: False
 
 epoching:
@@ -120,19 +129,19 @@ epoching:
   tmax: 0.5
   t_adjust: -4.e-3
   baseline: individual
-  bmin: null
+  bmin: -0.2
   bmax : 0.
   decim: 5
-  epochs_type: fif
+  epochs_type: [fif]
   match_fun: null
   reject: {eog: .inf, grad: 1500.e-13, mag: 5000.e-15, eeg: 150.e-6}
-  flat: {eog: 0., grad: 1.e-13, mag: 1.e-15, eeg: 1.e-6}
+  flat: {eog: 0, grad: 1.e-13, mag: 1.e-15, eeg: 1.e-6}
   reject_tmin: null
   reject_tmax: null
   on_missing: error
   autoreject_thresholds: False
   autoreject_types: [mag, grad, eeg]
-  reject_epochs_by_annot:
+  reject_epochs_by_annot: True
   analyses: ['All', 'AV']
   in_names: &in_names
     - Auditory/Standard
@@ -152,14 +161,14 @@ forward:
   bem_type: 5120-5120-5120
   src: {subj_01: oct6, subj_02: vol5}
   src_pos: 7.
-  fwd_mindist: 0.005
+  fwd_mindist: 2.
 
 covariance:
   cov_method: shrunk
   compute_rank: True
   pick_events_cov: null
   cov_rank: null
-  cov_rank_tol: 1e-6
+  cov_rank_tol: 1.e-6
   force_erm_cov_rank_full: False
 
 report:

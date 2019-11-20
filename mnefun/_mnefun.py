@@ -149,6 +149,12 @@ class Params(Frozen):
         Subjects to run.
     disp_files : bool
         Display status.
+    acq_ssh : str
+        The acquisition machine SSH name.
+    acq_dir : list of str
+        Directories on the acquisition machine.
+    acq_port : int
+        Acquisition port.
     list_dir : str
         Directory for event lists, usually "lists".
     on_process : callable
@@ -449,7 +455,7 @@ class Params(Frozen):
         Default is 7 mm. Defines source grid spacing for volumetric source
         space.
     fwd_mindist : float
-        Minimum distance for sources in the brain from the skull in order
+        Minimum distance (mm) for sources in the brain from the skull in order
         for them to be included in the forward solution source space.
 
     cov_method : str
