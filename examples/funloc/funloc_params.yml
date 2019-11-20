@@ -1,138 +1,180 @@
-# Todo:
-# - complete doc of params
-# - nest/categorize here
-tmin: -0.2
-tmax: 0.5
-t_adjust: -4e-3
-bmin: None
-bmax : 0.
-n_jobs: 1
-lp_cut: 40
-decim: 5
-proj_sfreq: 100
-n_jobs_mkl: 1
-n_jobs_fir: 1
-n_jobs_resample: 1
-filter_length: 'auto'
-drop_thresh: 0.
-epochs_type: 'fif'
-fwd_mindist: 0.005
-bem_type: '5120-5120-5120'
-auto_bad: None
-auto_bad_reject: None
-ecg_channel: None
-eog_channel: None
-plot_raw: False
-match_fun: None
-hp_cut: None
-cov_method: 'empirical'
-ssp_eog_reject: None
-ssp_ecg_reject: None
-baseline: (None, 0)
-reject_tmin: None
-reject_tmax: None
-lp_trans: 'auto'
-hp_trans: 'auto'
-movecomp: 'inter'
-sss_type: 'python'
-int_order: 8
-ext_order : 3
-tsss_dur: 60.
-st_correlation: 0.98
-trans_to: 'median'
-sss_origin: 'auto'
-fir_design: 'firwin'
-autoreject_thresholds: False
-autoreject_types: ('mag', 'grad', 'eeg')
-mf_autobad: False
-mf_badlimit: 7.
-src_pos: 7.
-on_missing: 'error'
-compute_rank: True
-eog_t_lims: (-0.25, 0.25)
-ecg_t_lims: (-0.08, 0.08)
-eog_f_lims: (0, 2)
-ecg_f_lims: (5, 35)
-proj_nums: [[0, 0, 0], [0, 0, 0], [0, 0, 0]]
-proj_meg: 'combined'
-src: 'oct6'
-epochs_prefix : 'All'
-# XXX these need actual values
-keep_orig:
-eog_thresh:
-phase:
-in_names:
-freeze:
-pick_events_cov:
-coil_t_step_min:
-subjects:
-score:
-list_dir:
-inv_erm_tag:
-report_params:
-sss_regularize:
-subject_run_indices:
-inverse_dir:
-dig_with_eeg:
-fir_window:
-convert_subjects:
-force_erm_cov_rank_full:
-coil_t_window:
-raw_dir:
-proj_ave:
-runs_empty:
-reject_epochs_by_annot:
-pca_extra:
-auto_bad_eeg_thresh:
-translation_limit:
-unfreeze:
-inv_loose_tag:
-get_projs_from:
-structurals:
-eq_tag:
-on_process:
-dates:
-filter_chpi:
-cov_rank:
-inv_names:
-out_names:
-inv_runs:
-trans_dir:
-bad_dir:
-sss_dir:
-subjects_dir:
-cont_lp:
-cov_dir:
-reject:
-in_numbers:
-subject_indices:
-disp_files:
-out_numbers:
-flat:
-sss_format:
-epochs_tag:
-pca_fif_tag:
-rotation_limit:
-sss_fif_tag:
-raw_fif_tag:
-run_names:
-cal_file:
-cov_rank_tol:
-plot_drop_logs:
-work_dir:
-auto_bad_meg_thresh:
-mf_args:
-forward_dir:
-coil_dist_limit:
-pca_dir:
-must_match:
-inv_fixed_tag:
-bad_tag:
-analyses:
-coil_bad_count_duration_limit:
-inv_tag:
-auto_bad_flat:
-ct_file:
-inv_free_tag:
-proj_extra:
-epochs_dir:
+paths:
+  subjects: ['subj_01', 'subj_02']
+  structurals: ['AKCLEE_107_slim', 'AKCLEE_110_slim']
+  dates: [[2014, 2, 14], null]
+  work_dir: '.'
+  subjects_dir: null
+  subject_run_indices: [null, [0]]
+  subject_indices: [0, 1]
+  disp_files: True
+  scoring:
+    list_dir: lists
+    on_process: null
+  bads:
+    bad_dir: bads
+    bad_tag: _post-sss.txt
+  raw:
+    raw_dir: raw_fif
+    keep_orig: False
+    raw_fif_tag: _raw.fif
+    sss_fif_tag: _raw_sss.fif
+    run_names: ['%s_funloc']
+    runs_empty: ['%s_erm']
+  preprocessing:
+    sss_dir: sss
+    pca_dir: sss_pca_fif
+  epochs:
+    epochs_dir: epochs
+    epochs_prefix: All
+    epochs_tag: -epo
+    eq_tag: eq
+  covariance:
+    cov_dir: 'covariance'
+  forward:
+    forward_dir: forward
+    trans_dir: trans
+  inverse:
+    inverse_dir: inverse
+    inv_tag: -sss
+    inv_erm_tag: -erm
+    inv_fixed_tag: -fixed
+    inv_loose_tag: ''
+    inv_free_tag: -free
+    inv_names: ['%s']
+    inv_runs: [0]
+
+scoring:
+  score: null
+
+preprocessing:
+  multithreading:
+    n_jobs: 1
+    n_jobs_mkl: 1
+    n_jobs_fir: 1
+    n_jobs_resample: 1
+  bads:
+    mf_autobad: True
+    mf_badlimit: 7.
+    auto_bad: null
+    auto_bad_reject: null
+    auto_bad_flat: null
+    auto_bad_eeg_thresh: null
+    auto_bad_meg_thresh: null
+  head_position_estimation:
+    coil_t_window: auto
+    coil_t_step_min: 0.01
+    coil_dist_limit: 0.005
+  annotations:
+    coil_bad_count_duration_limit: 0.1
+    rotation_limit: 0.02
+    translation_limit: 0.0001
+  sss:
+    movecomp: inter
+    sss_type: python
+    int_order: 8
+    ext_order : 3
+    sss_regularize: in
+    tsss_dur: 60.
+    st_correlation: 0.98
+    filter_chpi: True
+    trans_to: twa
+    sss_origin: auto
+    dig_with_eeg: False
+    ct_file: uw
+    cal_file: uw
+    sss_format: float
+    mf_args: ''
+  filtering:
+    hp_cut: null
+    hp_trans: auto
+    lp_cut: 40
+    lp_trans: auto
+    filter_length: auto
+    fir_design: firwin
+    fir_window: hann
+    phase: zero-double
+  ssp:
+    proj_sfreq: 100
+    proj_meg: combined
+    drop_thresh: 0.
+    plot_raw: False
+    ssp_eog_reject: null
+    ssp_ecg_reject: null
+    eog_channel: null
+    ecg_channel: null
+    eog_t_lims: [-0.25, 0.25]
+    ecg_t_lims: [-0.08, 0.08]
+    eog_f_lims: [0, 10]
+    ecg_f_lims: [5, 35]
+    eog_thresh: null
+    proj_ave: True
+    proj_nums: {subj_01: [[2, 2, 0], [1, 1, 3], [0, 0, 0]],
+                subj_02: [[2, 2, 0], [1, 1, 2], [0, 0, 0]]}
+    proj_extra: null
+    get_projs_from: [0]
+    cont_lp: 5.
+    plot_drop_logs: False
+
+epoching:
+  tmin: -0.2
+  tmax: 0.5
+  t_adjust: -4.e-3
+  baseline: individual
+  bmin: null
+  bmax : 0.
+  decim: 5
+  epochs_type: fif
+  match_fun: null
+  reject: {eog: .inf, grad: 1500.e-13, mag: 5000.e-15, eeg: 150.e-6}
+  flat: {eog: 0., grad: 1.e-13, mag: 1.e-15, eeg: 1.e-6}
+  reject_tmin: null
+  reject_tmax: null
+  on_missing: error
+  autoreject_thresholds: False
+  autoreject_types: [mag, grad, eeg]
+  reject_epochs_by_annot:
+  analyses: ['All', 'AV']
+  in_names: &in_names
+    - Auditory/Standard
+    - Visual/Standard
+    - Auditory/Deviant
+    - Visual/Deviant
+  in_numbers: &in_numbers
+    - 10
+    - 11
+    - 20
+    - 21
+  out_names: [['All'], *in_names]
+  out_numbers: [[1, 1, 1, 1], *in_numbers]
+  must_match: [[], [0, 1]]
+
+forward:
+  bem_type: 5120-5120-5120
+  src: {subj_01: oct6, subj_02: vol5}
+  src_pos: 7.
+  fwd_mindist: 0.005
+
+covariance:
+  cov_method: shrunk
+  compute_rank: True
+  pick_events_cov: null
+  cov_rank: null
+  cov_rank_tol: 1e-6
+  force_erm_cov_rank_full: False
+
+report:
+  chpi_snr: True  # cHPI SNR (default True)
+  good_hpi_count: True  # Number of good HPI coils (default True)
+  head_movement: True  # head movement (default True)
+  raw_segments: True  # 10 evenly spaced raw data segments (default True)
+  psd: False  # often slow (default True)
+  ssp_topomaps: True  # SSP topomaps (default True)
+  source_alignment: True  # source alignment (default True)
+  drop_log: True  # plot the epochs drop log (default True)
+  bem: True
+  covariance: True  # covariance image and SVD plots
+  snr: {analysis: All, name: All, inv: '%s-55-sss-meg-eeg-free-inv.fif'}
+  whitening: {analysis: All, name: All, cov: '%s-55-sss-cov.fif'}
+  sensor: {analysis: All, name: All, times: [0.1, 0.2]}
+  source: {analysis: All, name: All, inv: '%s-55-sss-meg-eeg-free-inv.fif',
+           times: [0.09, 0.4], views: lat, size: [800, 400]}
