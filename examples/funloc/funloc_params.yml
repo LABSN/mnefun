@@ -16,9 +16,9 @@ fetch_raw:
     - /sinuhe/data02/eric_non_space
     - /sinuhe/data03/eric_non_space
   acq_port: 22
-  subject_run_indices: [null, [0]]
   run_names: ['%s_funloc']
   runs_empty: ['%s_erm']
+  subject_run_indices: [null, [0]]
 
 scoring:
   score: null

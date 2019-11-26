@@ -75,11 +75,11 @@ structurals : list of str
 dates : list of tuple or None
     Dates to use for anonymization. Use "None" to more fully anonymize.
 acq_ssh : str
-     The acquisition machine SSH name.
+    The acquisition machine SSH name.
 acq_dir : list of str
     List of paths to search and fetch raw data.
 acq_port : int
-     Acquisition port.
+    Acquisition port.
 run_names : list of str
     Run names for the paradigm.
 runs_empty : list of str
@@ -98,7 +98,7 @@ Do the scoring. This converts TTL triggers to meaningful events.
 ``scoring``: Scoring parameters
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 score : callable | None
-     Scoring function used to slice data into trials.
+    Scoring function used to slice data into trials.
 on_process : callable
     Called at each processing step.
 
@@ -478,8 +478,10 @@ source_alignment : bool
     Source alignment (default True).
 drop_log : bool
     Plot the epochs drop log (default True).
-bem : bool
+covariance : bool
     Covariance image and SVD plots.
+bem : bool
+    Plot the BEM.
 snr : dict
     SNR plots, with keys 'analysis', 'name', and 'inv'.
 whitening : dict

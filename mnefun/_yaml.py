@@ -23,7 +23,7 @@ def read_params(fname):
 
 
 _KEYS_TO_FLATTEN = {
-    'paths', 'fetch_raw', 'scoring', 'bads', 'raw', 'annotations',
+    'general', 'naming', 'fetch_raw', 'scoring', 'bads', 'raw', 'annotations',
     'multithreading',
     'preprocessing', 'head_position_estimation', 'sss', 'filtering', 'ssp',
     'epochs', 'epoching',

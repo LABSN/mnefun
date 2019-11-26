@@ -1,9 +1,7 @@
 import os.path as op
 import re
 
-from mnefun import Params
 from mnefun import _flat_params_read
-import yaml
 
 
 _EXCLUDED_KEYS = (
@@ -19,7 +17,7 @@ _EXCLUDED_KEYS = (
     'pca_extra',
     'pca_fif_tag',
 )
-_EXCLUDE_REPORT = {
+_REPORT_KEYS = {
     'chpi_snr', 'good_hpi_count', 'head_movement', 'raw_segments',
     'psd', 'ssp_topomaps', 'source_alignment', 'drop_log', 'bem', 'covariance',
     'snr', 'whitening', 'sensor', 'source',
@@ -35,8 +33,11 @@ def test_params(params):
     with open(fname, 'r') as fid:
         f = fid.read()
     attrs = re.findall('(\\S+) : .*\n(?:    \\S+.+\n)+', f, re.MULTILINE)
-    del f
-    assert set(attrs) - _EXCLUDE_REPORT == key_set
+    for key in _REPORT_KEYS:
+        assert key in attrs
+        attrs.pop(attrs.index(key))
+    attrs.append('report_params')
+    assert set(attrs) == key_set
 
     # funloc documented the same way
     fname = op.join(op.dirname(__file__), '..', '..', 'examples', 'funloc',
