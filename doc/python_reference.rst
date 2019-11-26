@@ -29,6 +29,7 @@ Functions:
    extract_expyfun_events
    get_fsaverage_medial_vertices
    get_raw_fnames
+   read_params
    run_sss_command
    run_sss_positions
    safe_inserter
