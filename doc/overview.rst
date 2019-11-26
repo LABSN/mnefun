@@ -447,6 +447,13 @@ fwd_mindist : float
 
 Generate inverses.
 
+``inverse``: Inverse parameters
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+inv_names : list of str
+    Inverse names to use.
+inv_runs : list of int
+    Runs to use for each inverse.
+
 
 11. gen_report
 --------------
@@ -534,7 +541,3 @@ inv_loose_tag : str
     Tag for loose inverse, usually "".
 inv_free_tag : str
     Tag for free orientation inverse, usually "-free".
-inv_names : list of str
-    Inverse names to use.
-inv_runs : list of int
-    Runs to use for each inverse.
