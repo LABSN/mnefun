@@ -41,8 +41,10 @@ if __name__ == "__main__":
         platforms='any',
         packages=setuptools.find_packages(),
         package_data={'mnefun': [
-            'run_sss.sh', os.path.join('data', 'sss_cal.dat'),
-            os.path.join('data', 'ct_sparse.fif')
+            'run_sss.sh',
+            os.path.join('data', 'sss_cal.dat'),
+            os.path.join('data', 'ct_sparse.fif'),
+            os.path.join('data', 'canonical.yml'),
         ]},
         entry_points={'console_scripts': [
             'simulate_movement = mnefun.bin:simulate_movement',

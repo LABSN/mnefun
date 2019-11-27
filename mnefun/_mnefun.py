@@ -196,7 +196,7 @@ class Params(Frozen):
         self.bem_type = bem_type
         self.match_fun = match_fun
         if isinstance(epochs_type, str):
-            epochs_type = (epochs_type,)
+            epochs_type = [epochs_type]
         if not all([t in ('mat', 'fif') for t in epochs_type]):
             raise ValueError('All entries in "epochs_type" must be "mat" '
                              'or "fif"')
@@ -284,7 +284,7 @@ class Params(Frozen):
         self.on_missing = 'error'  # for epochs
         self.subject_run_indices = None
         self.autoreject_thresholds = False
-        self.autoreject_types = ('mag', 'grad', 'eeg')
+        self.autoreject_types = ['mag', 'grad', 'eeg']
         self.subjects_dir = None
         self.src_pos = 7.
         self.report_params = dict(
@@ -330,6 +330,14 @@ class Params(Frozen):
                     setattr(self, key, cast(config[key]))
 
     @property
+    def report(self):  # wrapper
+        return self.report_params
+
+    @report.setter
+    def report(self, report_params):
+        self.report_params = report_params
+
+    @property
     def pca_extra(self):
         return '_allclean_fil%d' % self.lp_cut
 
@@ -364,6 +372,20 @@ class Params(Frozen):
         new = [fun(subj) for subj in self.subjects]
         assert all(isinstance(subj, str) for subj in new)
         self.subjects = new
+
+    def save(self, fname):
+        """Save to a YAML file.
+
+        Parameters
+        ----------
+        fname : str
+            The filename to use. Should end in '.yml'.
+        """
+        from ._yaml import _write_params
+        if not (isinstance(fname, str) and fname.endswith('.yml')):
+            raise ValueError('fname should be a str ending with .yml, got %r'
+                             % (fname,))
+        _write_params(fname, self)
 
 
 def _get_baseline(p):
@@ -2114,8 +2136,10 @@ def gen_covariances(p, subjects, run_indices, decim):
                 print('  Using %s/%s events for %s'
                       % (new_count, old_count, op.basename(cov_name)))
             use_reject, use_flat = _restrict_reject_flat(reject, flat, raw)
-            epochs = Epochs(raw, events, event_id=None, tmin=p.bmin,
-                            tmax=p.bmax, baseline=(None, None), proj=False,
+            baseline = _get_baseline(p)
+            epochs = Epochs(raw, events, event_id=None, tmin=baseline[0],
+                            tmax=baseline[1], baseline=(None, None),
+                            proj=False,
                             reject=use_reject, flat=use_flat, preload=True,
                             decim=decim[si],
                             verbose='error',  # ignore decim-related warnings
@@ -2151,7 +2175,8 @@ def gen_covariances(p, subjects, run_indices, decim):
                         plt.plot(
                             np.log10(np.maximum(linalg.svdvals(eps), 1e-50)))
                     epochs.plot()
-                    epochs2.copy().crop(p.bmin, p.bmax).plot()
+                    baseline = _get_baseline(p)
+                    epochs2.copy().crop(*baseline).plot()
                     raise RuntimeError('Error computing rank')
 
             write_cov(cov_name, cov)
