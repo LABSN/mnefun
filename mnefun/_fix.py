@@ -24,6 +24,49 @@ _1_ORDER = (1, 2, 3, 5, 6, 7, 9, 10,
             39, 29, 18, 4, 8, 28, 40, 59, 50, 53)  # 1-index based reordering
 
 
+def fix_eeg_files(p, subjects, structurals=None, dates=None, run_indices=None):
+    """Reorder EEG channels based on UW cap setup and params
+
+    Reorders only the SSS files based on params, to leave the raw files
+    in an unmodified state.
+
+    Parameters
+    ----------
+    p : instance of Parameters
+        Analysis parameters.
+    subjects : list of str
+        Subject names to analyze (e.g., ['Eric_SoP_001', ...]).
+    structurals : list of str
+        Subject structural names.
+    dates : list of tuple
+        Dates that each subject was run.
+    run_indices : array-like | None
+        Run indices to include.
+    """
+    if run_indices is None:
+        run_indices = [None] * len(subjects)
+    for si, subj in enumerate(subjects):
+        if p.disp_files:
+            print('  Fixing subject %g/%g.' % (si + 1, len(subjects)))
+        raw_names = get_raw_fnames(p, subj, 'sss', True, False,
+                                   run_indices[si])
+        # Now let's make sure we only run files that actually exist
+        names = [name for name in raw_names if op.isfile(name)]
+        # noinspection PyPep8
+        if structurals is not None and structurals[si] is not None and \
+                dates is not None:
+            assert isinstance(structurals[si], str)
+            assert dates[si] is None or (isinstance(dates[si], tuple) and
+                                         len(dates[si]) == 3)
+            assert dates[si] is None or all([isinstance(d, int)
+                                             for d in dates[si]])
+            anon = dict(first_name=subj, last_name=structurals[si],
+                        birthday=dates[si])
+        else:
+            anon = None
+        fix_eeg_channels(names, anon)
+
+
 def fix_eeg_channels(raw_files, anon=None, verbose=True):
     """Reorder EEG channels based on UW cap setup
 

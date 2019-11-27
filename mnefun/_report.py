@@ -20,6 +20,7 @@ from mne.utils import _pl
 
 from ._paths import (get_raw_fnames, get_proj_fnames, get_report_fnames,
                      get_bad_fname, get_epochs_evokeds_fnames)
+from ._viz import trim_bg
 
 
 @contextmanager
@@ -773,12 +774,3 @@ def _proj_fig(fname, info, proj_nums, proj_meg, kind):
     assert used.all() and (used <= 2).all()
     fig.subplots_adjust(0.1, 0.1, 0.95, 1, 0.3, 0.3)
     return fig
-
-
-def trim_bg(img, color=None):
-    """Trim background rows/cols from an image-like object."""
-    if color is None:
-        color = img[0, 0]
-    img = img[:, (img != color).any(0).any(-1)]
-    img = img[(img != color).any(1).any(-1)]
-    return img

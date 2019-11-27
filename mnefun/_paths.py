@@ -227,3 +227,16 @@ def get_bad_fname(p, subj, check_exists=True):
     if check_exists:
         bad_file = None if not op.isfile(bad_file) else bad_file
     return bad_file
+
+
+def _prebad(p, subj):
+    """File containing bad channels during acq."""
+    prebad_file = op.join(p.work_dir, subj, p.raw_dir, subj + '_prebad.txt')
+    if not op.isfile(prebad_file):  # SSS prebad file
+        raise RuntimeError('Could not find SSS prebad file: %s' % prebad_file)
+    return prebad_file
+
+
+def _is_dir(d):
+    """Safely check for a directory (allowing symlinks)"""
+    return op.isdir(op.abspath(d))
