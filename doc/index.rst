@@ -8,6 +8,11 @@
 
 Software to facilitate ILABS MEG data analysis.
 
+Requires:
+
+- mne
+- pyyaml
+
 .. raw:: html
 
    </div></div>

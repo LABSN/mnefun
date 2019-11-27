@@ -12,5 +12,6 @@ from ._mnefun import (
 from .misc import make_montage
 from .stats import anova_time
 from ._report import trim_bg
+from ._yaml import read_params
 
 __version__ = '0.1.0.dev0'

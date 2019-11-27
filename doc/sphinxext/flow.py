@@ -1,5 +1,5 @@
 import os.path as op
-from sphinx.util import logging
+from sphinx.util import logging, console
 from mnefun._flow import _create_flowchart
 logger = logging.getLogger(__name__)
 
@@ -15,4 +15,5 @@ def setup(app):
 def run(app):
     """Run the flowchart generation."""
     fname = op.join(op.dirname(__file__), '..', '_static', 'flow.dot')
+    logger.info(console.green(console.bold('creating flowchart')))
     _create_flowchart(fname)

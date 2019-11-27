@@ -127,205 +127,17 @@ class Frozen(object):
 
 # noinspection PyUnresolvedReferences
 class Params(Frozen):
-    """Make a parameter structure for use with `do_processing`
+    """Make a parameter structure for use with `do_processing`.
 
-    This is technically a class, but it doesn't currently have any methods
-    other than init.
+    See the :ref:`overview` for a description of the options.
 
-    Parameters
-    ----------
-    tmin : float
-        tmin for events.
-    tmax : float
-        tmax for events.
-    t_adjust : float
-        Adjustment for delays (e.g., -4e-3 compensates for a 4 ms delay
-        in the trigger.
-    bmin : float
-        Lower limit for baseline compensation.
-    bmax : float
-        Upper limit for baseline compensation.
-    n_jobs : int
-        Number of jobs to use in parallel operations.
-    lp_cut : float
-        Cutoff for lowpass filtering.
-    decim : int
-        Amount to decimate the data after filtering when epoching data
-        (e.g., a factor of 5 on 1000 Hz data yields 200 Hz data).
-    proj_sfreq : float | None
-        The sample freq to use for calculating projectors. Useful since
-        time points are not independent following low-pass. Also saves
-        computation to downsample.
-    n_jobs_mkl : int
-        Number of jobs to spawn in parallel for operations that can make
-        use of MKL threading. If Numpy/Scipy has been compiled with MKL
-        support, it is best to leave this at 1 or 2 since MKL will
-        automatically spawn threads. Otherwise, n_cpu is a good choice.
-    n_jobs_fir : int | str
-        Number of threads to use for FIR filtering. Can also be 'cuda'
-        if the system supports CUDA.
-    n_jobs_resample : int | str
-        Number of threads to use for resampling. Can also be 'cuda'
-        if the system supports CUDA.
-    filter_length : int
-        Filter length to use in FIR filtering. Longer filters generally
-        have better roll-off characteristics, but more ringing.
-    drop_thresh : float
-        The percentage threshold to use when deciding whether or not to
-        plot Epochs drop_log.
-    epochs_type : str | list
-        Can be 'fif', 'mat', or a list containing both.
-    fwd_mindist : float
-        Minimum distance for sources in the brain from the skull in order
-        for them to be included in the forward solution source space.
-    bem_type : str
-        Defaults to ``'5120-5120-5120'``, use ``'5120'`` for a
-        single-layer BEM.
-    auto_bad : float | None
-        If not None, bad channels will be automatically excluded if
-        they disqualify a proportion of events exceeding ``autobad``.
-    auto_bad_reject : str | dict | None
-        Default is None. Must be defined if using Autoreject module to
-        compute noisy sensor rejection criteria. Set to 'auto' to compute
-        criteria automatically, or dictionary of channel keys and amplitude
-        values e.g., dict(grad=1500e-13, mag=5000e-15, eeg=150e-6) to define
-        rejection threshold(s). See
-        http://autoreject.github.io/ for details.
-    ecg_channel : str | dict | None
-        The channel to use to detect ECG events. None will use ECG063.
-        In lieu of an ECG recording, MEG1531 may work.
-        Can be a dict that maps subject names to channels.
-    eog_channel : str | dict | None
-        The channel to use to detect EOG events. None will use EOG* channels.
-        In lieu of an EOG recording, MEG1411 may work.
-    plot_raw : bool
-        If True, plot the raw files with the ECG/EOG events overlaid.
-    match_fun : callable | None
-        If None, standard matching will be performed. If a function,
-        must_match will be ignored, and ``match_fun`` will be called
-        to equalize event counts.
-    hp_cut : float | None
-        Highpass cutoff in Hz. Use None for no highpassing.
-    cov_method : str
-        Covariance calculation method.
-    ssp_eog_reject : dict | None
-        Amplitude rejection criteria for EOG SSP computation. None will
-        use the mne-python default.
-    ssp_ecg_reject : dict | None
-        Amplitude rejection criteria for ECG SSP computation. None will
-        use the mne-python default.
-    baseline : tuple | None | str
-        Baseline to use. If "individual", use ``params.bmin`` and
-        ``params.bmax``, otherwise pass as the baseline parameter to
-        mne-python Epochs. ``params.bmin`` and ``params.bmax`` will always
-        be used for covariance calculation. This is useful e.g. when using
-        a high-pass filter and no baselining is desired (but evoked
-        covariances should still be calculated from the baseline period).
-    reject_tmin : float | None
-        Reject minimum time to use when epoching. None will use ``tmin``.
-    reject_tmax : float | None
-        Reject maximum time to use when epoching. None will use ``tmax``.
-    lp_trans : float
-        Low-pass transition band.
-    hp_trans : float
-        High-pass transition band.
-
-    Attributes
-    ----------
-    movecomp : str | None
-        Movement compensation to use. Can be 'inter' or None.
-    sss_type : str
-        signal space separation method. Must be either 'maxfilter' or 'python'
-    int_order : int
-        Order of internal component of spherical expansion. Default is 8.
-        Value of 6 recomended for infant data.
-    ext_order : int
-        Order of external component of spherical expansion. Default is 3.
-    tsss_dur : float | None
-        Buffer length (in seconds) fpr Spatiotemporal SSS. Default is 60.
-        however based on system specification a shorter buffer may be
-        appropriate. For data containing excessive head movements e.g. young
-        children a buffer size of 4s is recommended.
-    st_correlation : float
-        Correlation limit between inner and outer subspaces used to reject
-        ovwrlapping intersecting inner/outer signals during spatiotemporal SSS.
-        Default is .98 however a smaller value of .9 is recommended for infant/
-        child data.
-    trans_to : str | array-like, (3,) | None
-        The destination location for the head. Can be ``None``, which
-        will not change the head position, a string path to a FIF file
-        containing a MEG device to head transformation, or a 3-element
-        array giving the coordinates to translate to (with no rotations).
-        Default is median head position across runs.
-    sss_origin : array-like, shape (3,) | str
-        Origin of internal and external multipolar moment space in meters.
-        Default is center of sphere fit to digitized head points.
-    fir_design : str
-        Can be "firwin2" or "firwin".
-    autoreject_thresholds : bool | False
-        If True use autoreject module to compute global rejection thresholds
-        for epoching. Make sure autoreject module is installed. See
-        http://autoreject.github.io/ for instructions.
-    autoreject_types : tuple
-        Default is ('mag', 'grad', 'eeg'). Can set to ('mag', 'grad', 'eeg',
-        'eog) to use EOG channel rejection criterion from autoreject module to
-        reject trials on basis of EOG.
-    mf_autobad : bool
-        Default False. If True use Maxfilter to automatically mark bad
-        channels prior to SSS denoising.
-    mf_badlimit : int
-        Default Maxfilter threshold for noisy channel detection is 7.
-    src_pos : float
-        Default is 7 mm. Defines source grid spacing for volumetric source
-        space.
-    on_missing : string
-        Can set to ‘error’ | ‘warning’ | ‘ignore’. Default is 'error'.
-        Determine what to do if one or several event ids are not found in the
-        recording during epoching. See mne.Epochs docstring for further
-        details.
-    compute_rank : bool
-        Default is False. Set to True to compute rank of the noise covariance
-        matrix during inverse kernel computation.
-    eog_t_lims : tuple
-        The time limits for EOG calculation. Default (-0.25, 0.25).
-    ecg_t_lims : tuple
-        The time limits for ECG calculation. Default(-0.08, 0.08).
-    eog_f_lims : tuple
-        Band-pass limits for EOG detection and calculation. Default (0, 2).
-    ecg_f_lims : tuple
-        Band-pass limits for ECG detection and calculation. Default (5, 35).
-    proj_nums : list | dict
-        List of projector counts to use for ECG/EOG/ERM; each list contains
-        three values for grad/mag/eeg channels.
-        Can be a dict that maps subject names to projector counts to use.
-    proj_meg : str
-        Can be "separate" (default for backward compat) or "combined"
-        (should be better for SSS'ed data).
-    src : str | dict
-        Can start be:
-
-        - 'oct6' to use a surface source space decimated using the 6th
-          (or another integer) subdivision of an octahedron, or
-        - 'vol5' to use a volumetric grid source space with 5mm (or another
-          integer) spacing
-
-    epochs_prefix : str
-        The prefix to use for the ``-epo.fif`` file.
-
-    Returns
-    -------
-    params : instance of Params
-        The parameters to use.
+    Some params can be set on init, but it's better to set them in
+    a YAML file.
 
     See also
     --------
     do_processing
-    mne.preprocessing.maxwell_filter
-
-    Notes
-    -----
-    Params has additional properties. Use ``dir(params)`` to see
-    all the possible options.
+    read_params
     """
 
     def __init__(self, tmin=None, tmax=None, t_adjust=0, bmin=-0.2, bmax=0.0,
@@ -359,16 +171,16 @@ class Params(Frozen):
         self.baseline = baseline
         self.bmin = bmin
         self.bmax = bmax
-        self.run_names = None
-        self.inv_names = None
-        self.inv_runs = None
+        self.run_names = []
+        self.inv_names = []
+        self.inv_runs = []
         self.work_dir = os.getcwd()
         self.n_jobs = n_jobs
         self.n_jobs_mkl = n_jobs_mkl
         self.n_jobs_fir = n_jobs_fir  # Jobs when using method='fir'
         self.n_jobs_resample = n_jobs_resample
         self.filter_length = filter_length
-        self.cont_lp = 5
+        self.cont_lp = 5.
         self.lp_cut = lp_cut
         self.hp_cut = hp_cut
         self.lp_trans = lp_trans
@@ -384,7 +196,7 @@ class Params(Frozen):
         self.bem_type = bem_type
         self.match_fun = match_fun
         if isinstance(epochs_type, str):
-            epochs_type = (epochs_type,)
+            epochs_type = [epochs_type]
         if not all([t in ('mat', 'fif') for t in epochs_type]):
             raise ValueError('All entries in "epochs_type" must be "mat" '
                              'or "fif"')
@@ -472,7 +284,7 @@ class Params(Frozen):
         self.on_missing = 'error'  # for epochs
         self.subject_run_indices = None
         self.autoreject_thresholds = False
-        self.autoreject_types = ('mag', 'grad', 'eeg')
+        self.autoreject_types = ['mag', 'grad', 'eeg']
         self.subjects_dir = None
         self.src_pos = 7.
         self.report_params = dict(
@@ -518,6 +330,14 @@ class Params(Frozen):
                     setattr(self, key, cast(config[key]))
 
     @property
+    def report(self):  # wrapper
+        return self.report_params
+
+    @report.setter
+    def report(self, report_params):
+        self.report_params = report_params
+
+    @property
     def pca_extra(self):
         return '_allclean_fil%d' % self.lp_cut
 
@@ -552,6 +372,20 @@ class Params(Frozen):
         new = [fun(subj) for subj in self.subjects]
         assert all(isinstance(subj, str) for subj in new)
         self.subjects = new
+
+    def save(self, fname):
+        """Save to a YAML file.
+
+        Parameters
+        ----------
+        fname : str
+            The filename to use. Should end in '.yml'.
+        """
+        from ._yaml import _write_params
+        if not (isinstance(fname, str) and fname.endswith('.yml')):
+            raise ValueError('fname should be a str ending with .yml, got %r'
+                             % (fname,))
+        _write_params(fname, self)
 
 
 def _get_baseline(p):
@@ -1282,7 +1116,7 @@ def _read_raw_prebad(p, subj, fname, disp=True, prefix=' ' * 6):
     if p.mf_autobad:
         maxbad_file = op.splitext(fname)[0] + '_maxbad.txt'
         _maxbad(p, subj, raw, maxbad_file)
-        _load_meg_bads(raw, maxbad_file, disp=True, prefix=prefix, append=True)
+        _load_meg_bads(raw, maxbad_file, disp=disp, prefix=prefix, append=True)
     return raw
 
 
@@ -2302,8 +2136,10 @@ def gen_covariances(p, subjects, run_indices, decim):
                 print('  Using %s/%s events for %s'
                       % (new_count, old_count, op.basename(cov_name)))
             use_reject, use_flat = _restrict_reject_flat(reject, flat, raw)
-            epochs = Epochs(raw, events, event_id=None, tmin=p.bmin,
-                            tmax=p.bmax, baseline=(None, None), proj=False,
+            baseline = _get_baseline(p)
+            epochs = Epochs(raw, events, event_id=None, tmin=baseline[0],
+                            tmax=baseline[1], baseline=(None, None),
+                            proj=False,
                             reject=use_reject, flat=use_flat, preload=True,
                             decim=decim[si],
                             verbose='error',  # ignore decim-related warnings
@@ -2339,7 +2175,8 @@ def gen_covariances(p, subjects, run_indices, decim):
                         plt.plot(
                             np.log10(np.maximum(linalg.svdvals(eps), 1e-50)))
                     epochs.plot()
-                    epochs2.copy().crop(p.bmin, p.bmax).plot()
+                    baseline = _get_baseline(p)
+                    epochs2.copy().crop(*baseline).plot()
                     raise RuntimeError('Error computing rank')
 
             write_cov(cov_name, cov)
