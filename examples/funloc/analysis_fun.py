@@ -52,11 +52,11 @@ params.score = score
 params.subject_indices = [0, 1]
 
 # Set what processing steps will execute
-default = True
+default = False
 mnefun.do_processing(
     params,
-    fetch_raw=False,     # Fetch raw recording files from acquisition machine
-    do_score=False,      # Do scoring to slice data into trials
+    fetch_raw=default,     # Fetch raw recording files from acquisition machine
+    do_score=default,      # Do scoring to slice data into trials
 
     # Before running SSS, make SUBJ/raw_fif/SUBJ_prebad.txt file with
     # space-separated list of bad MEG channel numbers

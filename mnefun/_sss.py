@@ -159,9 +159,10 @@ def run_sss_command(fname_in, options, fname_out, host='kasga', port=22,
     return output
 
 
+@verbose
 def run_sss_positions(fname_in, fname_out, host='kasga', opts='-force',
                       port=22, prefix='  ', work_dir='~/', t_window=None,
-                      t_step_min=None, dist_limit=None):
+                      t_step_min=None, dist_limit=None, verbose='error'):
     """Run Maxfilter remotely and fetch resulting file
 
     Parameters
@@ -186,6 +187,9 @@ def run_sss_positions(fname_in, fname_out, host='kasga', opts='-force',
         Time window (sec) to use.
     dist_limit : float | None
         Distance limit (m) to use.
+    verbose : str
+        MNE verbose level, effectively controls whether or not the
+        stdout/stderr is printed while running.
     """
     # let's make sure we can actually write where we want
     if not op.isfile(fname_in):
@@ -231,8 +235,7 @@ def run_sss_positions(fname_in, fname_out, host='kasga', opts='-force',
                '/neuro/bin/util/maxfilter -f ' + remote_ins[fi] + ' -o ' +
                remote_out +
                ' -headpos -format short -hp ' + remote_hp + ' ' + opts]
-        run_subprocess(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                       verbose='error')
+        run_subprocess(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
         print(', copying', end='')
         _pull_remote(host, port, remote_hp, op.join(pout, file_out))
