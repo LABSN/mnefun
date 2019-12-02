@@ -56,6 +56,10 @@ def _get_baseline(p):
     # XXX this and some downstream stuff (e.g., tmin=-baseline[0]) won't work
     # for baseline=None, but we can fix that when someone needs it
     baseline = tuple(baseline)
+    if baseline[0] is None:
+        baseline = (p.tmin, baseline[1])
+    if baseline[1] is None:
+        baseline = (baseline[0], p.tmax)
     return baseline
 
 

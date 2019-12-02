@@ -18,9 +18,13 @@ from mne.viz._3d import plot_head_positions
 from mne.report import Report
 from mne.utils import _pl
 
+from ._forward import _get_bem_src_trans
 from ._paths import (get_raw_fnames, get_proj_fnames, get_report_fnames,
-                     get_bad_fname, get_epochs_evokeds_fnames)
-from ._viz import trim_bg
+                     get_bad_fname, get_epochs_evokeds_fnames, safe_inserter)
+from ._sss import (_load_trans_to, _head_pos_annot, _read_raw_prebad,
+                   _get_t_window)
+from ._viz import plot_good_coils, plot_chpi_snr_raw, trim_bg, mlab_offscreen
+from ._utils import _fix_raw_eog_cals, _handle_dict
 
 
 @contextmanager
@@ -45,10 +49,6 @@ def report_context():
 def gen_html_report(p, subjects, structurals, run_indices=None):
     """Generate HTML reports."""
     import matplotlib.pyplot as plt
-    from ._mnefun import (_load_trans_to, plot_good_coils, _head_pos_annot,
-                          _get_bem_src_trans, safe_inserter,
-                          _read_raw_prebad, mlab_offscreen, _fix_raw_eog_cals,
-                          _handle_dict, _get_t_window, plot_chpi_snr_raw)
     if run_indices is None:
         run_indices = [None] * len(subjects)
     time_kwargs = dict()

@@ -22,7 +22,6 @@ from ._cov import gen_covariances
 from ._forward import gen_forwards
 from ._inverse import gen_inverses
 from ._status import print_proc_status
-from ._report import gen_html_report
 from ._utils import timestring
 
 
@@ -352,6 +351,7 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
     print_status : bool
         Print status (determined from file structure).
     """
+    from ._report import gen_html_report
     # Generate requested things
     if p.sss_type == 'python':
         push_raw = False
