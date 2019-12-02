@@ -28,6 +28,7 @@ Functions:
    do_processing
    extract_expyfun_events
    get_atlas_mapping
+   get_atlas_roi_mask
    get_fsaverage_medial_vertices
    get_raw_fnames
    read_params
