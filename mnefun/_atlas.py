@@ -186,7 +186,7 @@ def get_atlas_roi_mask(stc, roi, atlas='IXI', atlas_subject=None,
 
     Parameters
     ----------
-    stc : instance of SourceEstimate or VectorSourceEstimate
+    stc : instance of mne.SourceEstimate or mne.VectorSourceEstimate
         The source estimate.
     roi : str
         The ROI to obtain a mask for.
