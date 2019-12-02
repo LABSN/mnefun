@@ -373,8 +373,9 @@ def run_sss_locally(p, subjects, run_indices):
                     raw_annot = annot
                     raw_info = raw.info.copy()
 
+            emit_warning = r not in erm_files
             try:
-                raw.set_annotations(annot)
+                raw.set_annotations(annot, emit_warning=emit_warning)
             except AttributeError:
                 raw.annotations = annot
 
