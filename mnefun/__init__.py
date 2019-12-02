@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+from ._atlas import get_atlas_mapping
 from ._paths import get_raw_fnames, get_event_fnames
 from ._fix import ch_names_uw_60, ch_names_uw_70, fix_eeg_channels
 from ._mnefun import Params, do_processing
