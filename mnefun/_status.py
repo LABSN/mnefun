@@ -7,7 +7,7 @@ from os import path as op
 from .externals import tabulate
 from ._paths import (get_raw_fnames, get_event_fnames, get_cov_fwd_inv_fnames,
                      get_epochs_evokeds_fnames, get_report_fnames)
-from ._reorder import _all_files_fixed
+from ._fix import _all_files_fixed
 
 # make our table tighter
 tabulate.MIN_PADDING = 0

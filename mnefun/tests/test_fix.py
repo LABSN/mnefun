@@ -1,8 +1,8 @@
 import pytest
 
-from mnefun._reorder import (ch_names_mgh60, ch_names_mgh70,
-                             ch_names_uw_70, ch_names_uw_60,
-                             ch_names_1020, ch_names_32)
+from mnefun._fix import (ch_names_mgh60, ch_names_mgh70,
+                         ch_names_uw_70, ch_names_uw_60,
+                         ch_names_1020, ch_names_32)
 
 
 @pytest.mark.parametrize(

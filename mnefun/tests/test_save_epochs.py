@@ -18,11 +18,11 @@ def test_exits_with_warning_if_all_epochs_autorejected(params):
     params.out_numbers = [[]]
     params.must_match = [[]]
     os.makedirs(op.join(params.work_dir, params.subjects[0], 'sss_pca_fif'))
-    with patch('mnefun._mnefun.read_raw_fif'), \
-            patch('mnefun._mnefun.concatenate_events'), \
-            patch('mnefun._mnefun._fix_raw_eog_cals'), \
-            patch('mnefun._mnefun.get_event_fnames'), \
-            patch('mnefun._mnefun.Epochs') as Epochs:
+    with patch('mnefun._epoching.read_raw_fif'), \
+            patch('mnefun._scoring.concatenate_events'), \
+            patch('mnefun._epoching._fix_raw_eog_cals'), \
+            patch('mnefun._scoring.get_event_fnames'), \
+            patch('mnefun._epoching.Epochs') as Epochs:
         epochs = Mock()
         epochs.info = {'sfreq': 1000}
         epochs.events = np.zeros((0, 3))

@@ -6,13 +6,11 @@ fetch_raw:
   subjects: ['subj_01', 'subj_02']
   structurals: ['AKCLEE_107_slim', 'AKCLEE_110_slim']
   dates: [[2014, 2, 14], null]
-  acq_ssh: minea
+  acq_ssh: sinuhe.ilabs.uw.edu
   acq_dir:
-    - /sinuhe_data01/eric_non_space
-    - /data101/eric_non_space
-    - /sinuhe/data01/eric_non_space
-    - /sinuhe/data02/eric_non_space
-    - /sinuhe/data03/eric_non_space
+    - /data01/eric_non_space
+    - /data02/eric_non_space
+    - /data03/eric_non_space
   run_names: ['%s_funloc']
   runs_empty: ['%s_erm']
   subject_run_indices: [null, [0]]
@@ -94,8 +92,8 @@ inverse:
   inv_runs: [0]
 
 report:
-  snr: {analysis: All, name: All, inv: '%s-55-sss-meg-eeg-free-inv.fif'}
-  whitening: {analysis: All, name: All, cov: '%s-55-sss-cov.fif'}
+  snr: {analysis: All, name: All, inv: '%s-50-sss-meg-eeg-free-inv.fif'}
+  whitening: {analysis: All, name: All, cov: '%s-50-sss-cov.fif'}
   sensor: {analysis: All, name: All, times: [0.1, 0.2]}
-  source: {analysis: All, name: All, inv: '%s-55-sss-meg-eeg-free-inv.fif',
+  source: {analysis: All, name: All, inv: '%s-50-sss-meg-eeg-free-inv.fif',
            times: [0.09, 0.4], views: lat, size: [800, 400]}
