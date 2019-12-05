@@ -498,10 +498,17 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                 print(('    %s ... ' % section).ljust(ljust), end='')
                 cov_dir = op.join(p.work_dir, subj, p.cov_dir)
                 # just the first for now
-                inv_name = p.inv_names[0]
-                cov_name = op.join(cov_dir, safe_inserter(inv_name, subj) +
-                                   ('-%d' % p.lp_cut) + p.inv_tag + '-cov.fif')
-                if not op.isfile(cov_name):
+                cov_name = ''
+                if p.inv_names:
+                    inv_name = p.inv_names[0]
+                    cov_name = op.join(
+                        cov_dir, safe_inserter(inv_name, subj) +
+                        ('-%d' % p.lp_cut) + p.inv_tag + '-cov.fif')
+                elif p.runs_empty:  # erm cov
+                    new_run = safe_inserter(p.runs_empty[0], subj)
+                    cov_name = op.join(cov_dir, new_run + p.pca_extra +
+                                       p.inv_tag + '-cov.fif')
+                if not cov_name or not op.isfile(cov_name):
                     print('    Missing covariance: %s'
                           % op.basename(cov_name), end='')
                 else:
