@@ -75,42 +75,47 @@ def gen_inverses(p, subjects, run_indices):
             if p.force_erm_cov_rank_full and p.cov_method == 'empirical':
                 empty_cov = regularize(
                     empty_cov, epochs.info, rank='full')
-        for name in p.inv_names:
-            s_name = safe_inserter(name, subj)
-            temp_name = s_name + ('-%d' % p.lp_cut) + p.inv_tag
-            fwd_name = op.join(fwd_dir, s_name + p.inv_tag + '-fwd.fif')
-            fwd = read_forward_solution(fwd_name)
-            fwd = convert_forward_solution(fwd, surf_ori=True)
-            looses = [1]
-            tags = [p.inv_free_tag]
-            fixeds = [False]
-            depths = [0.8]
-            if fwd['src'].kind == 'surface':
-                looses += [0, 0.2]
-                tags += [p.inv_fixed_tag, p.inv_loose_tag]
-                fixeds += [True, False]
-                depths += [0.8, 0.8]
+        fwd_name = op.join(fwd_dir, subj + p.inv_tag + '-fwd.fif')
+        fwd = read_forward_solution(fwd_name)
+        fwd = convert_forward_solution(fwd, surf_ori=True)
+        looses = [1]
+        tags = [p.inv_free_tag]
+        fixeds = [False]
+        depths = [0.8]
+        if fwd['src'].kind == 'surface':
+            looses += [0, 0.2]
+            tags += [p.inv_fixed_tag, p.inv_loose_tag]
+            fixeds += [True, False]
+            depths += [0.8, 0.8]
+        else:
+            assert fwd['src'].kind == 'volume'
+
+        for name in p.inv_names + ([make_erm_inv] if make_erm_inv else []):
+            if name is True:  # meaning: make empty-room one
+                temp_name = subj
+                cov = empty_cov
+                tag = p.inv_erm_tag
             else:
-                assert fwd['src'].kind == 'volume'
-            cov_name = op.join(cov_dir, safe_inserter(name, subj) +
-                               ('-%d' % p.lp_cut) + p.inv_tag + '-cov.fif')
-            cov = read_cov(cov_name)
-            if cov.get('method', 'empirical') == 'empirical':
-                cov = regularize(cov, epochs.info, rank=rank)
+                s_name = safe_inserter(name, subj)
+                temp_name = s_name + ('-%d' % p.lp_cut) + p.inv_tag
+                cov_name = op.join(cov_dir, safe_inserter(name, subj) +
+                                ('-%d' % p.lp_cut) + p.inv_tag + '-cov.fif')
+                cov = read_cov(cov_name)
+                if cov.get('method', 'empirical') == 'empirical':
+                    cov = regularize(cov, epochs.info, rank=rank)
+                tag = ''
+                del s_name
             for f, m, e in zip(out_flags, meg_bools, eeg_bools):
                 fwd_restricted = pick_types_forward(fwd, meg=m, eeg=e)
                 for l, s, x, d in zip(looses, tags, fixeds, depths):
-                    inv_name = op.join(inv_dir, temp_name + f + s + '-inv.fif')
+                    inv_name = op.join(
+                        inv_dir, temp_name + f + tag + s + '-inv.fif')
                     kwargs = dict(loose=l, depth=d, fixed=x, use_cps=True,
                                   verbose='error')
-                    inv = make_inverse_operator(
-                        epochs.info, fwd_restricted, cov, rank=rank, **kwargs)
-                    write_inverse_operator(inv_name, inv)
-                    if (not e) and make_erm_inv:
-                        inv_name = op.join(inv_dir, temp_name + f +
-                                           p.inv_erm_tag + s + '-inv.fif')
+                    if name is not True or not e:
                         inv = make_inverse_operator(
-                            epochs.info, fwd_restricted, empty_cov, **kwargs)
+                            epochs.info, fwd_restricted, cov, rank=rank,
+                            **kwargs)
                         write_inverse_operator(inv_name, inv)
         if p.disp_files:
             print()
