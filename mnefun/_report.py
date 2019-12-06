@@ -496,19 +496,8 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
             if p.report_params.get('covariance', True):
                 t0 = time.time()
                 print(('    %s ... ' % section).ljust(ljust), end='')
-                cov_dir = op.join(p.work_dir, subj, p.cov_dir)
-                # just the first for now
-                cov_name = ''
-                if p.inv_names:
-                    inv_name = p.inv_names[0]
-                    cov_name = op.join(
-                        cov_dir, safe_inserter(inv_name, subj) +
-                        ('-%d' % p.lp_cut) + p.inv_tag + '-cov.fif')
-                elif p.runs_empty:  # erm cov
-                    new_run = safe_inserter(p.runs_empty[0], subj)
-                    cov_name = op.join(cov_dir, new_run + p.pca_extra +
-                                       p.inv_tag + '-cov.fif')
-                if not cov_name or not op.isfile(cov_name):
+                cov_name = _get_cov_name(p, subj)
+                if cov_name is None:
                     print('    Missing covariance: %s'
                           % op.basename(cov_name), end='')
                 else:
@@ -536,13 +525,12 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                     assert isinstance(whitening, dict)
                     analysis = whitening['analysis']
                     name = whitening['name']
-                    cov_name = op.join(p.work_dir, subj, p.cov_dir,
-                                       safe_inserter(whitening['cov'], subj))
+                    cov_name = _get_cov_name(p, subj, whitening.get('cov'))
                     # Load the inverse
                     fname_evoked = op.join(inv_dir, '%s_%d%s_%s_%s-ave.fif'
                                            % (analysis, p.lp_cut, p.inv_tag,
                                               p.eq_tag, subj))
-                    if not op.isfile(cov_name):
+                    if cov_name is None:
                         print('    Missing cov: %s'
                               % op.basename(cov_name), end='')
                     elif not op.isfile(fname_evoked):
@@ -781,3 +769,20 @@ def _proj_fig(fname, info, proj_nums, proj_meg, kind):
     assert used.all() and (used <= 2).all()
     fig.subplots_adjust(0.1, 0.1, 0.95, 1, 0.3, 0.3)
     return fig
+
+
+def _get_cov_name(p, subj, cov_name=None):
+    # just the first for now
+    if cov_name is None:
+        if p.inv_names:
+            cov_name = (safe_inserter(p.inv_names[0], subj) +
+                        ('-%d' % p.lp_cut) + p.inv_tag + '-cov.fif')
+        elif p.runs_empty:  # erm cov
+            new_run = safe_inserter(p.runs_empty[0], subj)
+            cov_name = new_run + p.pca_extra + p.inv_tag + '-cov.fif'
+    if cov_name is not None:
+        cov_dir = op.join(p.work_dir, subj, p.cov_dir)
+        cov_name = op.join(cov_dir, cov_name)
+        if not op.isfile(cov_name):
+            cov_name = None
+    return cov_name
