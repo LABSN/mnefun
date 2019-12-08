@@ -531,8 +531,11 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                                            % (analysis, p.lp_cut, p.inv_tag,
                                               p.eq_tag, subj))
                     if cov_name is None:
-                        print('    Missing cov: %s'
-                              % op.basename(cov_name), end='')
+                        if whitening.get('cov') is not None:
+                            extra = ': %s' % op.basename(whitening['cov'])
+                        else:
+                            extra = ''
+                        print('    Missing cov%s' % extra, end='')
                     elif not op.isfile(fname_evoked):
                         print('    Missing evoked: %s'
                               % op.basename(fname_evoked), end='')
