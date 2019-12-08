@@ -93,7 +93,7 @@ inverse:
 
 report:
   snr: {analysis: All, name: All, inv: '%s-50-sss-meg-eeg-free-inv.fif'}
-  whitening: {analysis: All, name: All, cov: '%s-50-sss-cov.fif'}
+  whitening: {analysis: All, name: All}
   sensor: {analysis: All, name: All, times: [0.1, 0.2]}
   source: {analysis: All, name: All, inv: '%s-50-sss-meg-eeg-free-inv.fif',
            times: [0.09, 0.4], views: lat, size: [800, 400]}
