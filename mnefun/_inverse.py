@@ -99,7 +99,7 @@ def gen_inverses(p, subjects, run_indices):
                 s_name = safe_inserter(name, subj)
                 temp_name = s_name + ('-%d' % p.lp_cut) + p.inv_tag
                 cov_name = op.join(cov_dir, safe_inserter(name, subj) +
-                                ('-%d' % p.lp_cut) + p.inv_tag + '-cov.fif')
+                                   ('-%d' % p.lp_cut) + p.inv_tag + '-cov.fif')
                 cov = read_cov(cov_name)
                 if cov.get('method', 'empirical') == 'empirical':
                     cov = regularize(cov, epochs.info, rank=rank)
