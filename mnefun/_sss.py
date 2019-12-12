@@ -358,8 +358,11 @@ def run_sss_locally(p, subjects, run_indices):
                     raw_head_pos[:, 0] -= raw_head_pos[0, 0]
                     raw_head_pos[:, 0] += raw.first_samp / raw.info['sfreq']
                 if raw_annot is not None:
-                    raw_annot.orig_time = _handle_meas_date(
-                        raw.info['meas_date'])
+                    meas_date = _handle_meas_date(raw.info['meas_date'])
+                    try:
+                        raw_annot.orig_time = meas_date
+                    except AttributeError:
+                        raw_annot._orig_time = meas_date
                 head_pos, annot = raw_head_pos, raw_annot
             else:
                 # estimate head position for movement compensation
@@ -540,6 +543,7 @@ def _maxbad(p, subj, raw, bad_file):
 def _head_pos_annot(p, subj, raw_fname, prefix='  '):
     """Locate head position estimation file and do annotations."""
     raw = _read_raw_prebad(p, subj, raw_fname, disp=False)
+    from mne.annotations import _handle_meas_date
     printed = False
     if p.movecomp is None:
         head_pos = None
@@ -612,14 +616,17 @@ def _head_pos_annot(p, subj, raw_fname, prefix='  '):
         if annot is not None:
             annot.save(annot_fname)
         printed = True
-    orig_time = raw.info['meas_date'][0] + raw.info['meas_date'][1] / 1000000.
-    try:
+    orig_time = _handle_meas_date(raw.info['meas_date'])
+    if op.isfile(annot_fname):
         annot = read_annotations(annot_fname)
         assert annot.orig_time is None  # relative to start of raw data
         annot.onset += raw.first_samp / raw.info['sfreq']
-        annot.orig_time = orig_time
-    except IOError:  # no annotations requested
-        annot = Annotations([], [], [], orig_time=raw.info['meas_date'])
+        try:
+            annot.orig_time = orig_time
+        except AttributeError:
+            annot._orig_time = orig_time
+    else:
+        annot = Annotations([], [], [], orig_time=orig_time)
 
     # Append custom annotations (probably needs some tweaking due to meas_date)
     custom_fname = raw_fname[:-4] + '-custom-annot.fif'

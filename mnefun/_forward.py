@@ -12,7 +12,7 @@ from mne import (read_bem_solution, dig_mri_distances,
 from mne.io import read_info
 from mne.utils import get_subjects_dir
 
-from ._paths import get_raw_fnames, safe_inserter
+from ._paths import get_raw_fnames, get_cov_fwd_inv_fnames
 from ._utils import _handle_dict
 
 
@@ -67,13 +67,10 @@ def gen_forwards(p, subjects, structurals, run_indices):
                     '%s dig<->MRI distance %0.1f mm could indicate a problem '
                     'with coregistration, check coreg'
                     % (subject, 1000 * dist))
-        for ii, (inv_name, inv_run) in enumerate(zip(p.inv_names,
-                                                     p.inv_runs)):
-            fwd_name = op.join(fwd_dir, safe_inserter(inv_name, subj) +
-                               p.inv_tag + '-fwd.fif')
-            fwd = make_forward_solution(
-                info, trans, src, bem, n_jobs=p.n_jobs, mindist=p.fwd_mindist)
-            write_forward_solution(fwd_name, fwd, overwrite=True)
+        fwd_name = get_cov_fwd_inv_fnames(p, subj, run_indices[si])[1][0]
+        fwd = make_forward_solution(
+            info, trans, src, bem, n_jobs=p.n_jobs, mindist=p.fwd_mindist)
+        write_forward_solution(fwd_name, fwd, overwrite=True)
 
 
 def _get_bem_src_trans(p, info, subj, struc):
