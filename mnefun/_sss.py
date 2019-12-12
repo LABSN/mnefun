@@ -358,8 +358,11 @@ def run_sss_locally(p, subjects, run_indices):
                     raw_head_pos[:, 0] -= raw_head_pos[0, 0]
                     raw_head_pos[:, 0] += raw.first_samp / raw.info['sfreq']
                 if raw_annot is not None:
-                    raw_annot.orig_time = _handle_meas_date(
-                        raw.info['meas_date'])
+                    meas_date = _handle_meas_date(raw.info['meas_date'])
+                    try:
+                        raw_annot.orig_time = meas_date
+                    except AttributeError:
+                        raw_annot._orig_time = meas_date
                 head_pos, annot = raw_head_pos, raw_annot
             else:
                 # estimate head position for movement compensation
@@ -618,7 +621,10 @@ def _head_pos_annot(p, subj, raw_fname, prefix='  '):
         annot = read_annotations(annot_fname)
         assert annot.orig_time is None  # relative to start of raw data
         annot.onset += raw.first_samp / raw.info['sfreq']
-        annot.orig_time = orig_time
+        try:
+            annot.orig_time = orig_time
+        except AttributeError:
+            annot._orig_time = orig_time
     else:
         annot = Annotations([], [], [], orig_time=orig_time)
 
