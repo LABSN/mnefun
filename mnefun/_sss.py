@@ -66,9 +66,11 @@ def run_sss(p, subjects, run_indices):
             print('-' * 70, end='\n\n')
 
 
+@verbose
 def run_sss_command(fname_in, options, fname_out, host='kasga', port=22,
                     fname_pos=None, stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE, prefix='', work_dir='~/'):
+                    stderr=subprocess.PIPE, prefix='', work_dir='~/',
+                    verbose=None):
     """Run Maxfilter remotely and fetch resulting file.
 
     Parameters
@@ -526,7 +528,7 @@ def _maxbad(p, subj, raw, bad_file):
         # print(' (using %s)' % (opts,))
         output = run_sss_command(raw, opts, None, host=p.sws_ssh,
                                  work_dir=p.sws_dir, port=p.sws_port,
-                                 prefix=' ' * 10)[0]
+                                 prefix=' ' * 10, verbose='error')[0]
         output = output.splitlines()
         # Parse output for bad channels
         bads = set()
