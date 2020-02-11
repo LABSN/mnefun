@@ -133,7 +133,7 @@ def source_script(script_name):
 
 def make_montage(info, kind, check=False):
     from mne.utils import _clean_names
-    from . import _reorder
+    import mnefun
     assert kind in ('mgh60', 'mgh70', 'uw_70', 'uw_60')
     picks = pick_types(info, meg=False, eeg=True, exclude=())
     sphere = make_sphere_model('auto', 'auto', info)
@@ -149,7 +149,7 @@ def make_montage(info, kind, check=False):
         from_names = _clean_names(to_names, remove_whitespace=True)
     else:
         assert len(to_names) == 60
-        from_names = getattr(_reorder, 'ch_names_' + kind)
+        from_names = getattr(mnefun, 'ch_names_' + kind)
         montage = make_standard_montage(
             'standard_1020', head_size=sphere.radius)
     assert len(from_names) == len(to_names)

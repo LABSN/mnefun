@@ -242,15 +242,7 @@ class Params(Frozen):
         self.reject_epochs_by_annot = True
         self.freeze()
         # Read static-able paraws from config file
-        config_file = op.expanduser(op.join('~', '.mnefun', 'mnefun.json'))
-        if op.isfile(config_file):
-            with open(config_file, 'rb') as fid:
-                config = json.load(fid)
-            for key, cast in (('sws_dir', str),
-                              ('sws_ssh', str),
-                              ('sws_port', int)):
-                if key in config:
-                    setattr(self, key, cast(config[key]))
+        _set_static(self)
 
     @property
     def report(self):  # wrapper
@@ -309,6 +301,18 @@ class Params(Frozen):
             raise ValueError('fname should be a str ending with .yml, got %r'
                              % (fname,))
         _write_params(fname, self)
+
+
+def _set_static(p):
+    config_file = op.expanduser(op.join('~', '.mnefun', 'mnefun.json'))
+    if op.isfile(config_file):
+        with open(config_file, 'rb') as fid:
+            config = json.load(fid)
+        for key, cast in (('sws_dir', str),
+                          ('sws_ssh', str),
+                          ('sws_port', int)):
+            if key in config:
+                setattr(p, key, cast(config[key]))
 
 
 def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,

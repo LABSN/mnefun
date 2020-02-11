@@ -22,13 +22,16 @@ from ._forward import _get_bem_src_trans
 from ._paths import (get_raw_fnames, get_proj_fnames, get_report_fnames,
                      get_bad_fname, get_epochs_evokeds_fnames, safe_inserter)
 from ._sss import (_load_trans_to, _head_pos_annot, _read_raw_prebad,
-                   _get_t_window)
+                   _get_t_window, _get_fit_data)
 from ._viz import plot_good_coils, plot_chpi_snr_raw, trim_bg, mlab_offscreen
 from ._utils import _fix_raw_eog_cals, _handle_dict
+
+LJUST = 25
 
 
 @contextmanager
 def report_context():
+    """Create a context for making plt and mlab figures."""
     import matplotlib
     import matplotlib.pyplot as plt
     style = {'axes.spines.right': 'off', 'axes.spines.top': 'off',
@@ -44,6 +47,129 @@ def report_context():
         matplotlib.use(old_backend, force=True)
         plt.interactive(is_interactive)
         raise
+
+
+def _report_good_hpi(report, fnames, raws, p, subj=None):
+    t0 = time.time()
+    section = 'Good HPI count'
+    print(('    %s ... ' % section).ljust(LJUST), end='')
+    figs = list()
+    captions = list()
+    for fname, raw in zip(fnames, raws):
+        fit_data = _get_fit_data(fname, raw, p, subj, prefix='      ')
+        if fit_data is None:
+            print('%s skipped, HPI count data not found (possibly '
+                  'no params.*_limit values set?)' % (section,))
+            break
+        fig = plot_good_coils(fit_data, show=False)
+        fig.set_size_inches(10, 2)
+        fig.tight_layout()
+        figs.append(fig)
+        captions.append('%s: %s' % (section, op.split(fname)[-1]))
+    report.add_figs_to_section(figs, captions, section,
+                               image_format='svg')
+    print('%5.1f sec' % ((time.time() - t0),))
+
+
+def _report_chpi_snr(report, fnames, p=None):
+    t0 = time.time()
+    section = 'cHPI SNR'
+    print(('    %s ... ' % section).ljust(LJUST), end='')
+    figs = list()
+    captions = list()
+    for fname in fnames:
+        raw = mne.io.read_raw_fif(fname, allow_maxshield='yes')
+        t_window = _get_t_window(p, raw)
+        fig = plot_chpi_snr_raw(raw, t_window, show=False,
+                                verbose=False)
+        fig.set_size_inches(10, 5)
+        fig.subplots_adjust(0.1, 0.1, 0.8, 0.95,
+                            wspace=0, hspace=0.5)
+        figs.append(fig)
+        captions.append('%s: %s' % (section, op.split(fname)[-1]))
+    report.add_figs_to_section(figs, captions, section,
+                               image_format='png')  # svd too slow
+    print('%5.1f sec' % ((time.time() - t0),))
+
+
+def _report_raw_segments(report, raw, lowpass=None):
+    section = 'Raw segments'
+    print(('    %s ... ' % section).ljust(LJUST), end='')
+    times = np.linspace(raw.times[0], raw.times[-1], 12)[1:-1]
+    raw_plot = list()
+    for t in times:
+        this_raw = raw.copy().crop(t - 0.5, t + 0.5)
+        this_raw.load_data()
+        this_raw._data[:] -= np.mean(this_raw._data, axis=-1,
+                                     keepdims=True)
+        raw_plot.append(this_raw)
+    raw_plot = mne.concatenate_raws(raw_plot)
+    for key in ('BAD boundary', 'EDGE boundary'):
+        raw_plot.annotations.delete(
+            np.where(raw_plot.annotations.description == key)[0])
+    new_events = np.linspace(
+        0, int(round(10 * raw.info['sfreq'])) - 1, 11).astype(int)
+    new_events += raw_plot.first_samp
+    new_events = np.array([new_events,
+                           np.zeros_like(new_events),
+                           np.ones_like(new_events)]).T
+    fig = raw_plot.plot(group_by='selection', butterfly=True,
+                        events=new_events, lowpass=lowpass)
+    fig.axes[0].lines[-1].set_zorder(10)  # events
+    fig.axes[0].set(xticks=np.arange(0, len(times)) + 0.5)
+    xticklabels = ['%0.1f' % t for t in times]
+    fig.axes[0].set(xticklabels=xticklabels)
+    fig.axes[0].set(xlabel='Center of 1-second segments')
+    fig.axes[0].grid(False)
+    for _ in range(len(fig.axes) - 1):
+        fig.delaxes(fig.axes[-1])
+    fig.set(figheight=(fig.axes[0].get_yticks() != 0).sum(),
+            figwidth=12)
+    fig.subplots_adjust(0.0, 0.0, 1, 1, 0, 0)
+    report.add_figs_to_section(fig, section, section, image_format='png')
+
+
+def _report_raw_psd(report, raw, raw_pca=None, p=None):
+    t0 = time.time()
+    section = 'PSD'
+    print(('    %s ... ' % section).ljust(LJUST), end='')
+    if p is None:
+        lp_trans = 10
+        lp_cut = 40
+    else:
+        if p.lp_trans == 'auto':
+            lp_trans = 0.25 * p.lp_cut
+        else:
+            lp_trans = p.lp_trans
+        lp_cut = p.lp_cut
+    del p
+    n_fft = 8192
+    fmax = raw.info['lowpass']
+    figs = [raw.plot_psd(fmax=fmax, n_fft=n_fft, show=False)]
+    captions = ['%s: Raw' % section]
+    fmax = lp_cut + 2 * lp_trans
+    figs.append(raw.plot_psd(fmax=fmax, n_fft=n_fft, show=False))
+    captions.append('%s: Raw (zoomed)' % section)
+    if raw_pca is not None:
+        figs.append(raw_pca.plot_psd(fmax=fmax, n_fft=n_fft,
+                                     show=False))
+        captions.append('%s: Processed' % section)
+    # shared y limits
+    n = len(figs[0].axes) // 2
+    for ai, axes in enumerate(list(zip(
+            *[f.axes for f in figs]))[:n]):
+        ylims = np.array([ax.get_ylim() for ax in axes])
+        ylims = [np.min(ylims[:, 0]), np.max(ylims[:, 1])]
+        for ax in axes:
+            ax.set_ylim(ylims)
+            ax.set(title='')
+    for fig in figs:
+        fig.set_size_inches(8, 8)
+        with warnings.catch_warnings(record=True):
+            fig.tight_layout()
+    report.add_figs_to_section(figs, captions, section,
+                               image_format='svg')
+    print('%5.1f sec' % ((time.time() - t0),))
 
 
 def gen_html_report(p, subjects, structurals, run_indices=None):
@@ -85,7 +211,12 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
         # pca
         pca_fnames = get_raw_fnames(p, subj, 'pca', False, False,
                                     run_indices[si])
-        has_pca = all(op.isfile(fname) for fname in pca_fnames)
+        if all(op.isfile(fname) for fname in pca_fnames):
+            raw_pca = [mne.io.read_raw_fif(fname) for fname in pca_fnames]
+            _fix_raw_eog_cals(raw_pca, 'all')
+            raw_pca = mne.concatenate_raws(raw_pca)
+        else:
+            raw_pca = None
 
         # epochs
         epochs_fname, _ = get_epochs_evokeds_fnames(p, subj, p.analyses)
@@ -99,65 +230,28 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                                     subj + p.inv_tag + '-fwd.fif'))
 
         with report_context():
-            ljust = 25
             #
             # Head coils
             #
-            section = 'Good HPI count'
             if p.report_params.get('good_hpi_count', True) and p.movecomp:
-                t0 = time.time()
-                print(('    %s ... ' % section).ljust(ljust), end='')
-                figs = list()
-                captions = list()
-                for fname in fnames:
-                    _, _, fit_data = _head_pos_annot(
-                        p, subj, fname, prefix='      ')
-                    if fit_data is None:
-                        print('%s skipped, HPI count data not found (possibly '
-                              'no params.*_limit values set?)' % (section,))
-                        break
-                    fig = plot_good_coils(fit_data, show=False)
-                    fig.set_size_inches(10, 2)
-                    fig.tight_layout()
-                    figs.append(fig)
-                    captions.append('%s: %s' % (section, op.split(fname)[-1]))
-                report.add_figs_to_section(figs, captions, section,
-                                           image_format='svg')
-                print('%5.1f sec' % ((time.time() - t0),))
+                _report_good_hpi(report, fnames, [None] * len(fnames), p, subj)
             else:
-                print('    %s skipped' % section)
+                print('    HPI count skipped')
 
             #
             # cHPI SNR
             #
-            section = 'cHPI SNR'
             if p.report_params.get('chpi_snr', True) and p.movecomp:
-                t0 = time.time()
-                print(('    %s ... ' % section).ljust(ljust), end='')
-                figs = list()
-                captions = list()
-                for fname in fnames:
-                    raw = mne.io.read_raw_fif(fname, allow_maxshield='yes')
-                    t_window = _get_t_window(p, raw)
-                    fig = plot_chpi_snr_raw(raw, t_window, show=False,
-                                            verbose=False)
-                    fig.set_size_inches(10, 5)
-                    fig.subplots_adjust(0.1, 0.1, 0.8, 0.95,
-                                        wspace=0, hspace=0.5)
-                    figs.append(fig)
-                    captions.append('%s: %s' % (section, op.split(fname)[-1]))
-                report.add_figs_to_section(figs, captions, section,
-                                           image_format='png')  # svd too slow
-                print('%5.1f sec' % ((time.time() - t0),))
+                _report_chpi_snr(report, fnames, p)
             else:
-                print('    %s skipped' % section)
+                print('    cHPI SNR skipped')
 
             #
             # Head movement
             #
             section = 'Head movement'
             if p.report_params.get('head_movement', True) and p.movecomp:
-                print(('    %s ... ' % section).ljust(ljust), end='')
+                print(('    %s ... ' % section).ljust(LJUST), end='')
                 t0 = time.time()
                 trans_to = _load_trans_to(p, subj, run_indices[si], raw)
                 figs = list()
@@ -205,86 +299,17 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
             #
             # Raw segments
             #
-            if op.isfile(pca_fnames[0]):
-                raw_pca = [mne.io.read_raw_fif(fname) for fname in pca_fnames]
-                _fix_raw_eog_cals(raw_pca, 'all')
-                raw_pca = mne.concatenate_raws(raw_pca)
-            section = 'Raw segments'
-            if p.report_params.get('raw_segments', True) and has_pca:
-                times = np.linspace(raw.times[0], raw.times[-1], 12)[1:-1]
-                raw_plot = list()
-                for t in times:
-                    this_raw = raw_pca.copy().crop(t - 0.5, t + 0.5)
-                    this_raw.load_data()
-                    this_raw._data[:] -= np.mean(this_raw._data, axis=-1,
-                                                 keepdims=True)
-                    raw_plot.append(this_raw)
-                raw_plot = mne.concatenate_raws(raw_plot)
-                for key in ('BAD boundary', 'EDGE boundary'):
-                    raw_plot.annotations.delete(
-                        np.where(raw_plot.annotations.description == key)[0])
-                new_events = np.linspace(
-                    0, int(round(10 * raw.info['sfreq'])) - 1, 11).astype(int)
-                new_events += raw_plot.first_samp
-                new_events = np.array([new_events,
-                                       np.zeros_like(new_events),
-                                       np.ones_like(new_events)]).T
-                fig = raw_plot.plot(group_by='selection', butterfly=True,
-                                    events=new_events)
-                fig.axes[0].lines[-1].set_zorder(10)  # events
-                fig.axes[0].set(xticks=np.arange(0, len(times)) + 0.5)
-                xticklabels = ['%0.1f' % t for t in times]
-                fig.axes[0].set(xticklabels=xticklabels)
-                fig.axes[0].set(xlabel='Center of 1-second segments')
-                fig.axes[0].grid(False)
-                for _ in range(len(fig.axes) - 1):
-                    fig.delaxes(fig.axes[-1])
-                fig.set(figheight=(fig.axes[0].get_yticks() != 0).sum(),
-                        figwidth=12)
-                fig.subplots_adjust(0.0, 0.0, 1, 1, 0, 0)
-                report.add_figs_to_section(fig, section + ' (processed)',
-                                           section, image_format='png')
+            if p.report_params.get('raw_segments', True) and \
+                    raw_pca is not None:
+                _report_raw_segments(report, raw_pca)
 
             #
             # PSD
             #
-            section = 'PSD'
-            if p.report_params.get('psd', True) and has_pca:
-                t0 = time.time()
-                print(('    %s ... ' % section).ljust(ljust), end='')
-                if p.lp_trans == 'auto':
-                    lp_trans = 0.25 * p.lp_cut
-                else:
-                    lp_trans = p.lp_trans
-                n_fft = 8192
-                fmax = raw.info['lowpass']
-                figs = [raw.plot_psd(fmax=fmax, n_fft=n_fft, show=False)]
-                captions = ['%s: Raw' % section]
-                fmax = p.lp_cut + 2 * lp_trans
-                figs.append(raw.plot_psd(fmax=fmax, n_fft=n_fft, show=False))
-                captions.append('%s: Raw (zoomed)' % section)
-                if op.isfile(pca_fnames[0]):
-                    figs.append(raw_pca.plot_psd(fmax=fmax, n_fft=n_fft,
-                                                 show=False))
-                    captions.append('%s: Processed' % section)
-                # shared y limits
-                n = len(figs[0].axes) // 2
-                for ai, axes in enumerate(list(zip(
-                        *[f.axes for f in figs]))[:n]):
-                    ylims = np.array([ax.get_ylim() for ax in axes])
-                    ylims = [np.min(ylims[:, 0]), np.max(ylims[:, 1])]
-                    for ax in axes:
-                        ax.set_ylim(ylims)
-                        ax.set(title='')
-                for fig in figs:
-                    fig.set_size_inches(8, 8)
-                    with warnings.catch_warnings(record=True):
-                        fig.tight_layout()
-                report.add_figs_to_section(figs, captions, section,
-                                           image_format='svg')
-                print('%5.1f sec' % ((time.time() - t0),))
+            if p.report_params.get('psd', True):
+                _report_raw_psd(report, raw, raw_pca, p)
             else:
-                print('    %s skipped' % section)
+                print('    PSD skipped' % section)
 
             #
             # SSP
@@ -292,11 +317,11 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
             section = 'SSP topomaps'
 
             proj_nums = _handle_dict(p.proj_nums, subj)
-            if p.report_params.get('ssp_topomaps', True) and has_pca and \
-                    np.sum(proj_nums) > 0:
+            if p.report_params.get('ssp_topomaps', True) and \
+                    raw_pca is not None and np.sum(proj_nums) > 0:
                 assert sss_info is not None
                 t0 = time.time()
-                print(('    %s ... ' % section).ljust(ljust), end='')
+                print(('    %s ... ' % section).ljust(LJUST), end='')
                 figs = []
                 comments = []
                 proj_files = get_proj_fnames(p, subj)
@@ -350,7 +375,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                     assert source_alignment is True
                     kwargs = dict()
                 t0 = time.time()
-                print(('    %s ... ' % section).ljust(ljust), end='')
+                print(('    %s ... ' % section).ljust(LJUST), end='')
                 captions = [section]
                 try:
                     from mayavi import mlab
@@ -409,7 +434,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
             section = 'Drop log'
             if p.report_params.get('drop_log', True) and has_epochs:
                 t0 = time.time()
-                print(('    %s ... ' % section).ljust(ljust), end='')
+                print(('    %s ... ' % section).ljust(LJUST), end='')
                 epo = read_epochs(epochs_fname)
                 figs = [epo.plot_drop_log(subject=subj, show=False)]
                 captions = [repr(epo)]
@@ -425,7 +450,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
             section = 'SNR'
             if p.report_params.get('snr', None) is not None:
                 t0 = time.time()
-                print(('    %s ... ' % section).ljust(ljust), end='')
+                print(('    %s ... ' % section).ljust(LJUST), end='')
                 snrs = p.report_params['snr']
                 if not isinstance(snrs, (list, tuple)):
                     snrs = [snrs]
@@ -479,7 +504,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                             'this warning', stacklevel=2)
                     else:
                         t0 = time.time()
-                        print(('    %s ... ' % section).ljust(ljust), end='')
+                        print(('    %s ... ' % section).ljust(LJUST), end='')
                         report.add_bem_to_section(struc, caption, section,
                                                   decim=10, n_jobs=1,
                                                   subjects_dir=subjects_dir)
@@ -495,14 +520,14 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
             section = 'Covariance'
             if p.report_params.get('covariance', True):
                 t0 = time.time()
-                print(('    %s ... ' % section).ljust(ljust), end='')
+                print(('    %s ... ' % section).ljust(LJUST), end='')
                 cov_name = _get_cov_name(p, subj)
                 if cov_name is None:
                     print('    Missing covariance: %s'
                           % op.basename(cov_name), end='')
                 else:
                     noise_cov = mne.read_cov(cov_name)
-                    info = mne.io.read_info(pca_fnames[0])
+                    info = raw_pca.info
                     figs = plot_cov(
                         noise_cov, info, show=False, verbose='error')
                     captions = ['%s: %s' % (section, kind)
@@ -516,7 +541,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
             section = 'Whitening'
             if p.report_params.get('whitening', False):
                 t0 = time.time()
-                print(('    %s ... ' % section).ljust(ljust), end='')
+                print(('    %s ... ' % section).ljust(LJUST), end='')
 
                 whitenings = p.report_params['whitening']
                 if not isinstance(whitenings, (list, tuple)):
@@ -558,7 +583,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
             section = 'Responses'
             if p.report_params.get('sensor', False):
                 t0 = time.time()
-                print(('    %s ... ' % section).ljust(ljust), end='')
+                print(('    %s ... ' % section).ljust(LJUST), end='')
                 sensors = p.report_params['sensor']
                 if not isinstance(sensors, (list, tuple)):
                     sensors = [sensors]
@@ -595,7 +620,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
             section = 'Source estimation'
             if p.report_params.get('source', False):
                 t0 = time.time()
-                print(('    %s ... ' % section).ljust(ljust), end='')
+                print(('    %s ... ' % section).ljust(LJUST), end='')
                 sources = p.report_params['source']
                 if not isinstance(sources, (list, tuple)):
                     sources = [sources]

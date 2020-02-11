@@ -286,7 +286,7 @@ def _read_raw_prebad(p, subj, fname, disp=True, prefix=' ' * 6):
     # Next run Maxfilter for automatic bad channel selection
     if p.mf_autobad:
         maxbad_file = op.splitext(fname)[0] + '_maxbad.txt'
-        _maxbad(p, subj, raw, maxbad_file)
+        _maxbad(p, raw, maxbad_file)
         _load_meg_bads(raw, maxbad_file, disp=disp, prefix=prefix, append=True)
     return raw
 
@@ -498,7 +498,7 @@ def _pos_valid(pos, dist_limit, gof_limit):
 
 
 def _get_t_window(p, raw):
-    t_window = p.coil_t_window
+    t_window = p.coil_t_window if p is not None else 'auto'
     if t_window == 'auto':
         from mne.chpi import _get_hpi_info
         hpi_freqs, _, _ = _get_hpi_info(raw.info)
@@ -511,13 +511,16 @@ def _get_t_window(p, raw):
     return t_window
 
 
-def _maxbad(p, subj, raw, bad_file):
+def _maxbad(p, raw, bad_file):
     """Handle Maxfilter bad channels selection prior to SSS."""
     if not op.isfile(bad_file):
         print('        Generating MaxFilter bad file: %s'
               % (op.basename(bad_file),))
         skip_start = raw._first_time
-        skip_stop = skip_start + 30.
+        if raw.times[-1] > 45:
+            skip_stop = skip_start + 30.
+        else:
+            skip_stop = skip_start + 1
         opts = ('-v -force -badlimit %d -skip %d %d -autobad on'
                 % (p.mf_badlimit, skip_start, skip_stop))
         if len(raw.info['bads']) > 0:
@@ -542,12 +545,51 @@ def _maxbad(p, subj, raw, bad_file):
             f.write(bads)
 
 
+def _get_fit_data(raw_fname=None, raw=None, p=None, subj=None, prefix='    '):
+    if raw is None:
+        assert p is not None
+        raw = _read_raw_prebad(p, subj, raw_fname, disp=False)
+    if p is None:
+        coil_dist_limit = 0.005
+        coil_t_step_min = 0.01
+        tmpdir = _TempDir()
+        count_fname = op.join(tmpdir, 'temp-counts.h5')
+    else:
+        coil_dist_limit = p.coil_dist_limit
+        coil_t_step_min = p.coil_t_step_min
+        if any(x is None for x in (p.movecomp, coil_dist_limit)) or \
+                not np.isfinite(p.coil_bad_count_duration_limit):
+            return None
+        count_fname = raw_fname[:-4] + '-counts.h5'
+    t_window = _get_t_window(p, raw)
+    del raw_fname, p, subj
+
+    # Good to do the fits
+    if not op.isfile(count_fname):
+        fit_t, counts, n_coils = compute_good_coils(
+            raw, coil_t_step_min, t_window, coil_dist_limit,
+            prefix=prefix, verbose=True)
+        write_hdf5(count_fname,
+                   dict(fit_t=fit_t, counts=counts, n_coils=n_coils,
+                        t_step=coil_t_step_min, t_window=t_window,
+                        coil_dist_limit=coil_dist_limit), title='mnefun')
+    fit_data = read_hdf5(count_fname, 'mnefun')
+    for key, val in (('t_step', coil_t_step_min),
+                     ('t_window', t_window),
+                     ('coil_dist_limit', coil_dist_limit)):
+        if fit_data[key] != val:
+            raise RuntimeError('Data mismatch %s (%s != %s), set '
+                               'to match existing file or delete it:\n%s'
+                               % (key, val, fit_data[key], count_fname))
+    return fit_data
+
+
 def _head_pos_annot(p, subj, raw_fname, prefix='  '):
     """Locate head position estimation file and do annotations."""
     raw = _read_raw_prebad(p, subj, raw_fname, disp=False)
     from mne.annotations import _handle_meas_date
     printed = False
-    if p.movecomp is None:
+    if p is not None and p.movecomp is None:
         head_pos = None
     else:
         t_window = _get_t_window(p, raw)
@@ -576,27 +618,7 @@ def _head_pos_annot(p, subj, raw_fname, prefix='  '):
         assert _pos_valid(head_pos[0], p.coil_dist_limit, 0.98), pos_fname
 
     # do the coil counts
-    if any(x is None for x in (head_pos, p.coil_dist_limit)) or \
-            not np.isfinite(p.coil_bad_count_duration_limit):
-        fit_data = None
-    else:
-        count_fname = raw_fname[:-4] + '-counts.h5'
-        if not op.isfile(count_fname):
-            fit_t, counts, n_coils = compute_good_coils(
-                raw, p.coil_t_step_min, t_window, p.coil_dist_limit,
-                prefix=prefix, verbose=True)
-            write_hdf5(count_fname,
-                       dict(fit_t=fit_t, counts=counts, n_coils=n_coils,
-                            t_step=p.coil_t_step_min, t_window=t_window,
-                            coil_dist_limit=p.coil_dist_limit), title='mnefun')
-        fit_data = read_hdf5(count_fname, 'mnefun')
-        for key, val in (('t_step', p.coil_t_step_min),
-                         ('t_window', t_window),
-                         ('coil_dist_limit', p.coil_dist_limit)):
-            if fit_data[key] != val:
-                raise RuntimeError('Data mismatch %s (%s != %s), set '
-                                   'to match existing file or delete it:\n%s'
-                                   % (key, val, fit_data[key], count_fname))
+    fit_data = _get_fit_data(raw_fname, raw, p, subj, prefix)
 
     # do the annotations
     annot_fname = raw_fname[:-4] + '-annot.fif'

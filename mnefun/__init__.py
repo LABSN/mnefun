@@ -2,7 +2,8 @@
 
 from ._atlas import get_atlas_mapping, get_atlas_roi_mask
 from ._paths import get_raw_fnames, get_event_fnames
-from ._fix import ch_names_uw_60, ch_names_uw_70, fix_eeg_channels
+from ._fix import (ch_names_uw_60, ch_names_uw_70, fix_eeg_channels,
+                   ch_names_1020, ch_names_32, ch_names_mgh60, ch_names_mgh70)
 from ._mnefun import Params, do_processing
 from ._inverse import get_fsaverage_medial_vertices, \
     get_fsaverage_label_operator, combine_medial_labels, get_hcpmmp_mapping, \
