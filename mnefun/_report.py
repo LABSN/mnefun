@@ -13,6 +13,7 @@ import numpy as np
 
 import mne
 from mne import read_proj, read_epochs
+from mne.io import BaseRaw
 from mne.viz import plot_projs_topomap, plot_cov, plot_snr_estimate
 from mne.viz._3d import plot_head_positions
 from mne.report import Report
@@ -49,14 +50,24 @@ def report_context():
         raise
 
 
-def _report_good_hpi(report, fnames, raws, p, subj=None):
+def _check_fname_raw(fname, p, subj):
+    if isinstance(fname, str):
+        raw = _read_raw_prebad(p, subj, fname, disp=False)
+    else:
+        assert isinstance(fname, BaseRaw)
+        fname, raw = fname.filenames[0], fname
+    return fname, raw
+
+
+def _report_good_hpi(report, fnames, p=None, subj=None):
     t0 = time.time()
     section = 'Good HPI count'
     print(('    %s ... ' % section).ljust(LJUST), end='')
     figs = list()
     captions = list()
-    for fname, raw in zip(fnames, raws):
-        fit_data = _get_fit_data(fname, raw, p, subj, prefix='      ')
+    for fname in fnames:
+        fname, raw = _check_fname_raw(fname, p, subj)
+        fit_data = _get_fit_data(raw, p, prefix='      ')
         if fit_data is None:
             print('%s skipped, HPI count data not found (possibly '
                   'no params.*_limit values set?)' % (section,))
@@ -71,14 +82,16 @@ def _report_good_hpi(report, fnames, raws, p, subj=None):
     print('%5.1f sec' % ((time.time() - t0),))
 
 
-def _report_chpi_snr(report, fnames, p=None):
+def _report_chpi_snr(report, fnames, p=None, subj=None):
     t0 = time.time()
     section = 'cHPI SNR'
     print(('    %s ... ' % section).ljust(LJUST), end='')
     figs = list()
     captions = list()
     for fname in fnames:
-        raw = mne.io.read_raw_fif(fname, allow_maxshield='yes')
+        fname, raw = _check_fname_raw(fname, p, subj)
+        if raw is None:
+            raw = _read_raw_prebad(p, subj, fname, disp=False)
         t_window = _get_t_window(p, raw)
         fig = plot_chpi_snr_raw(raw, t_window, show=False,
                                 verbose=False)
@@ -125,13 +138,14 @@ def _report_raw_segments(report, raw, lowpass=None):
         fig.delaxes(fig.axes[-1])
     fig.set(figheight=(fig.axes[0].get_yticks() != 0).sum(),
             figwidth=12)
-    fig.subplots_adjust(0.0, 0.0, 1, 1, 0, 0)
+    fig.subplots_adjust(0.025, 0.0, 1, 1, 0, 0)
     report.add_figs_to_section(fig, section, section, image_format='png')
 
 
 def _report_raw_psd(report, raw, raw_pca=None, p=None):
     t0 = time.time()
     section = 'PSD'
+    import matplotlib.pyplot as plt
     print(('    %s ... ' % section).ljust(LJUST), end='')
     if p is None:
         lp_trans = 10
@@ -145,14 +159,18 @@ def _report_raw_psd(report, raw, raw_pca=None, p=None):
     del p
     n_fft = 8192
     fmax = raw.info['lowpass']
-    figs = [raw.plot_psd(fmax=fmax, n_fft=n_fft, show=False)]
+    n_ax = sum(key in raw for key in ('mag', 'grad', 'eeg'))
+    _, ax = plt.subplots(n_ax, figsize=(10, 8))
+    figs = [raw.plot_psd(fmax=fmax, n_fft=n_fft, show=False, ax=ax)]
     captions = ['%s: Raw' % section]
     fmax = lp_cut + 2 * lp_trans
-    figs.append(raw.plot_psd(fmax=fmax, n_fft=n_fft, show=False))
+    _, ax = plt.subplots(n_ax, figsize=(10, 8))
+    figs.append(raw.plot_psd(fmax=fmax, n_fft=n_fft, show=False, ax=ax))
     captions.append('%s: Raw (zoomed)' % section)
     if raw_pca is not None:
+        _, ax = plt.subplots(n_ax, figsize=(10, 8))
         figs.append(raw_pca.plot_psd(fmax=fmax, n_fft=n_fft,
-                                     show=False))
+                                     show=False, ax=ax))
         captions.append('%s: Processed' % section)
     # shared y limits
     n = len(figs[0].axes) // 2
@@ -163,10 +181,6 @@ def _report_raw_psd(report, raw, raw_pca=None, p=None):
         for ax in axes:
             ax.set_ylim(ylims)
             ax.set(title='')
-    for fig in figs:
-        fig.set_size_inches(8, 8)
-        with warnings.catch_warnings(record=True):
-            fig.tight_layout()
     report.add_figs_to_section(figs, captions, section,
                                image_format='svg')
     print('%5.1f sec' % ((time.time() - t0),))
@@ -234,7 +248,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
             # Head coils
             #
             if p.report_params.get('good_hpi_count', True) and p.movecomp:
-                _report_good_hpi(report, fnames, [None] * len(fnames), p, subj)
+                _report_good_hpi(report, fnames, p, subj)
             else:
                 print('    HPI count skipped')
 
@@ -242,7 +256,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
             # cHPI SNR
             #
             if p.report_params.get('chpi_snr', True) and p.movecomp:
-                _report_chpi_snr(report, fnames, p)
+                _report_chpi_snr(report, fnames, p, subj)
             else:
                 print('    cHPI SNR skipped')
 

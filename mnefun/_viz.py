@@ -214,7 +214,7 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics=None, show=True,
     from mne.chpi import _get_hpi_info
 
     # plotting parameters
-    legend_fontsize = 10
+    legend_fontsize = 6
     title_fontsize = 10
     tick_fontsize = 10
     label_fontsize = 10
@@ -337,9 +337,11 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics=None, show=True,
     handles.append(lines1_med[0])
     labels = [cfreqs_legend[i] for i in sind]
     labels.append('Median')
-    ax.legend(handles, labels,
-              prop={'size': legend_fontsize}, bbox_to_anchor=(1.02, 0.5, ),
-              loc='center left', borderpad=1)
+    leg_kwargs = dict(
+        prop={'size': legend_fontsize}, bbox_to_anchor=(1.02, 0.5, ),
+        loc='center left', borderpad=1, handlelength=1,
+    )
+    ax.legend(handles, labels, **leg_kwargs)
     ax = axs[1]
     box = ax.get_position()
     ax.set_position([box.x0, box.y0, box.width * 0.8, box.height])
@@ -348,9 +350,7 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics=None, show=True,
     handles.append(lines2_med[0])
     labels = [cfreqs_legend[i] for i in sind]
     labels.append('Median')
-    ax.legend(handles, labels,
-              prop={'size': legend_fontsize}, bbox_to_anchor=(1.02, 0.5, ),
-              loc='center left', borderpad=1)
+    ax.legend(handles, labels, **leg_kwargs)
     ax = axs[2]
     box = ax.get_position()
     ax.set_position([box.x0, box.y0, box.width * 0.8, box.height])
@@ -359,9 +359,7 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics=None, show=True,
     handles.append(lines3_med[0])
     labels = [cfreqs_legend[i] for i in sind]
     labels.append('Median')
-    ax.legend(handles, labels,
-              prop={'size': legend_fontsize}, bbox_to_anchor=(1.02, 0.5, ),
-              loc='center left', borderpad=1)
+    ax.legend(handles, labels, **leg_kwargs)
     ax = axs[3]
     box = ax.get_position()
     ax.set_position([box.x0, box.y0, box.width * 0.8, box.height])

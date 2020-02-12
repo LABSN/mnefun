@@ -545,10 +545,7 @@ def _maxbad(p, raw, bad_file):
             f.write(bads)
 
 
-def _get_fit_data(raw_fname=None, raw=None, p=None, subj=None, prefix='    '):
-    if raw is None:
-        assert p is not None
-        raw = _read_raw_prebad(p, subj, raw_fname, disp=False)
+def _get_fit_data(raw, p=None, prefix='    '):
     if p is None:
         coil_dist_limit = 0.005
         coil_t_step_min = 0.01
@@ -560,9 +557,9 @@ def _get_fit_data(raw_fname=None, raw=None, p=None, subj=None, prefix='    '):
         if any(x is None for x in (p.movecomp, coil_dist_limit)) or \
                 not np.isfinite(p.coil_bad_count_duration_limit):
             return None
-        count_fname = raw_fname[:-4] + '-counts.h5'
+        count_fname = raw.filenames[0][:-4] + '-counts.h5'
     t_window = _get_t_window(p, raw)
-    del raw_fname, p, subj
+    del p
 
     # Good to do the fits
     if not op.isfile(count_fname):
@@ -618,7 +615,7 @@ def _head_pos_annot(p, subj, raw_fname, prefix='  '):
         assert _pos_valid(head_pos[0], p.coil_dist_limit, 0.98), pos_fname
 
     # do the coil counts
-    fit_data = _get_fit_data(raw_fname, raw, p, subj, prefix)
+    fit_data = _get_fit_data(raw, p, prefix)
 
     # do the annotations
     annot_fname = raw_fname[:-4] + '-annot.fif'
