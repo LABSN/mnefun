@@ -116,29 +116,32 @@ def run_sss_command(fname_in, options, fname_out, host='kasga', port=22,
     remote_in = op.join(work_dir, 'temp_%s_raw.fif' % t0)
     remote_out = op.join(work_dir, 'temp_%s_raw_sss.fif' % t0)
     remote_pos = op.join(work_dir, 'temp_%s_raw_sss.pos' % t0)
-    print('%sOn %s: copying' % (prefix, host), end='')
+    print('%sOn %s: ' % (prefix, host), end='')
     if isinstance(fname_in, str):
         fname_in = op.realpath(fname_in)  # in case it's a symlink
-    else:
+    elif fname_in is not None:
         assert isinstance(fname_in, BaseRaw)
         tempdir = _TempDir()
         temp_fname = op.join(tempdir, 'temp_raw.fif')
         fname_in.save(temp_fname)
         fname_in = temp_fname
         del temp_fname
-
-    try:
-        _push_remote(fname_in, host, port, remote_in)
-    finally:
-        shutil.rmtree(tempdir)
-    del fname_in
+    if fname_in is not None:
+        print('copying, ', end='')
+        try:
+            _push_remote(fname_in, host, port, remote_in)
+        finally:
+            shutil.rmtree(tempdir)
+        in_out = '-f ' + remote_in + ' -o ' + remote_out + ' '
+    else:
+        in_out = ''
 
     if fname_pos is not None:
         options += ' -hp ' + remote_pos
 
-    print(', maxfilter %s' % (options,), end='')
+    print('maxfilter %s' % (options,), end='')
     cmd = ['ssh', '-p', port, host,
-           'maxfilter -f ' + remote_in + ' -o ' + remote_out + ' ' + options]
+           'maxfilter ' + in_out + options]
     try:
         output = run_subprocess(cmd, stdout=stdout, stderr=stderr)
         if fname_out is not None:
@@ -149,14 +152,17 @@ def run_sss_command(fname_in, options, fname_out, host='kasga', port=22,
             except Exception:
                 pass
     finally:
-        print(', cleaning', end='')
-        files = [remote_in, remote_out]
+        files = []
+        files += [remote_in, remote_out] if fname_in is not None else []
         files += [remote_pos] if fname_pos is not None else []
-        cmd = ['ssh', '-p', port, host, 'rm -f ' + ' '.join(files)]
-        try:
-            run_subprocess(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        except Exception:
-            pass
+        if files:
+            print(', cleaning', end='')
+            cmd = ['ssh', '-p', port, host, 'rm -f ' + ' '.join(files)]
+            try:
+                run_subprocess(
+                    cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            except Exception:
+                pass
         print(' (%i sec)' % (time.time() - t0,))
     return output
 
@@ -1043,3 +1049,17 @@ def annotate_head_pos(raw, head_pos, rotation_limit=45, translation_limit=0.1,
 
     # Annotate on distance from the sensors
     return annot
+
+
+def check_sws():
+    """Check if SSS workstation is configured correctly."""
+    from . import Params
+    p = Params()  # loads config
+    output = run_sss_command(None, '-version', None, host=p.sws_ssh,
+                             work_dir=p.sws_dir, port=p.sws_port,
+                             verbose=False)
+    output = [o.strip() for o in output]
+    if output[0]:
+        print('Output:\n%s' % (output[0],))
+    if output[1]:
+        print('ERRORS:\n%s' % (output[1],))

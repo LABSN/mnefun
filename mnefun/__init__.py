@@ -11,7 +11,7 @@ from ._inverse import get_fsaverage_medial_vertices, \
 from ._paths import safe_inserter
 from ._scoring import extract_expyfun_events
 from ._sss import run_sss_command, run_sss_positions, info_sss_basis, \
-    compute_good_coils
+    compute_good_coils, check_sws
 from ._viz import plot_reconstruction, plot_chpi_snr_raw, plot_good_coils, \
     clean_brain, plot_colorbar, discretize_cmap
 from ._utils import make_montage, compute_auc
