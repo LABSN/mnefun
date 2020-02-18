@@ -554,11 +554,13 @@ def _maxbad(p, raw, bad_file):
 def _get_fit_data(raw, p=None, prefix='    '):
     if p is None:
         coil_dist_limit = 0.005
+        coil_gof_limit = 0.98
         coil_t_step_min = 0.01
         tmpdir = _TempDir()
         count_fname = op.join(tmpdir, 'temp-counts.h5')
     else:
         coil_dist_limit = p.coil_dist_limit
+        coil_gof_limit = p.coil_gof_limit
         coil_t_step_min = p.coil_t_step_min
         if any(x is None for x in (p.movecomp, coil_dist_limit)) or \
                 not np.isfinite(p.coil_bad_count_duration_limit):
@@ -571,7 +573,7 @@ def _get_fit_data(raw, p=None, prefix='    '):
     if not op.isfile(count_fname):
         fit_t, counts, n_coils = compute_good_coils(
             raw, coil_t_step_min, t_window, coil_dist_limit,
-            prefix=prefix, verbose=True)
+            prefix=prefix, gof_limit=coil_gof_limit, verbose=True)
         write_hdf5(count_fname,
                    dict(fit_t=fit_t, counts=counts, n_coils=n_coils,
                         t_step=coil_t_step_min, t_window=t_window,
@@ -862,21 +864,17 @@ def calc_twa_hp(p, subj, out_file, ridx):
     write_info(out_file, info)
 
 
-@verbose
-def compute_good_coils(raw, t_step=0.01, t_window=0.2, dist_limit=0.005,
-                       prefix='', verbose=None):
-    """Comute time-varying coil distances."""
+def _old_chpi_locs(raw, t_step, t_window, dist_limit, prefix):
+    # XXX we can remove this once people are on 0.20+
     from mne.chpi import (_get_hpi_initial_fit, _setup_hpi_struct,
                           _fit_cHPI_amplitudes, _fit_magnetic_dipole)
     hpi_dig_head_rrs = _get_hpi_initial_fit(raw.info, verbose=False)
     n_window = (int(round(t_window * raw.info['sfreq'])) // 2) * 2 + 1
     del t_window
     hpi = _setup_hpi_struct(raw.info, n_window, verbose=False)
-    hpi_coil_dists = cdist(hpi_dig_head_rrs, hpi_dig_head_rrs)
     n_step = int(round(t_step * raw.info['sfreq']))
     del t_step
     starts = np.arange(0, len(raw.times) - n_window // 2, n_step)
-    counts = np.empty(len(starts), int)
     head_dev_t = invert_transform(
         raw.info['dev_head_t'])['trans']
     coil_dev_rrs = apply_trans(head_dev_t, hpi_dig_head_rrs)
@@ -885,6 +883,7 @@ def compute_good_coils(raw, t_step=0.01, t_window=0.2, dist_limit=0.005,
     logger.info('%sComputing %d coil fits in %0.1f ms steps over %0.1f sec'
                 % (prefix, len(starts), (n_step / raw.info['sfreq']) * 1000,
                    raw.times[-1]))
+    times, rrs, gofs = list(), list(), list()
     for ii, start in enumerate(starts):
         time_sl = slice(max(start - n_window // 2, 0), start + n_window // 2)
         t = start / raw.info['sfreq']
@@ -896,7 +895,6 @@ def compute_good_coils(raw, t_step=0.01, t_window=0.2, dist_limit=0.005,
         sin_fit = _fit_cHPI_amplitudes(raw, time_sl, hpi, t, verbose=False)
         # skip this window if it bad.
         if sin_fit is None:
-            counts[ii] = 0
             continue
 
         # check if data has sufficiently changed
@@ -908,7 +906,6 @@ def compute_good_coils(raw, t_step=0.01, t_window=0.2, dist_limit=0.005,
             # check to see if we need to continue
             if corr * corr > 0.98:
                 # don't need to refit data
-                counts[ii] = counts[ii - 1]
                 continue
 
         last_fit = sin_fit.copy()
@@ -921,15 +918,41 @@ def compute_good_coils(raw, t_step=0.01, t_window=0.2, dist_limit=0.005,
                                      hpi['method'], **kwargs)
                 for f, pos in zip(sin_fit, coil_dev_rrs)]
 
-        coil_dev_rrs = np.array([o[0] for o in outs])
+        rr, gof = zip(*outs)
+        rrs.append(rr)
+        gofs.append(gof)
+        times.append(t)
+    return dict(rrs=np.array(rrs, float), gofs=np.array(gofs, float),
+                times=np.array(times, float))
+
+
+@verbose
+def compute_good_coils(raw, t_step=0.01, t_window=0.2, dist_limit=0.005,
+                       prefix='', gof_limit=0.98, verbose=None):
+    """Comute time-varying coil distances."""
+    try:
+        from mne.chpi import compute_chpi_amplitudes, compute_chpi_locs
+    except ImportError:
+        chpi_locs = _old_chpi_locs(raw, t_step, t_window, dist_limit, prefix)
+    else:
+        chpi_amps = compute_chpi_amplitudes(
+            raw, t_step_min=t_step, t_window=t_window)
+        chpi_locs = compute_chpi_locs(raw.info, chpi_amps)
+    from mne.chpi import _get_hpi_initial_fit
+    hpi_dig_head_rrs = _get_hpi_initial_fit(raw.info, verbose=False)
+    hpi_coil_dists = cdist(hpi_dig_head_rrs, hpi_dig_head_rrs)
+
+    counts = np.empty(len(chpi_locs['times']), int)
+    for ii, (t, coil_dev_rrs, gof) in enumerate(zip(
+            chpi_locs['times'], chpi_locs['rrs'], chpi_locs['gofs'])):
         these_dists = cdist(coil_dev_rrs, coil_dev_rrs)
         these_dists = np.abs(hpi_coil_dists - these_dists)
         # there is probably a better algorithm for finding the bad ones...
-        use_mask = np.ones(hpi['n_freqs'], bool)
+        use_mask = np.ones(len(these_dists), bool)
         good = False
         while not good:
             d = these_dists[use_mask][:, use_mask]
-            d_bad = (d > dist_limit)
+            d_bad = (d > dist_limit) | (gof < gof_limit)
             good = not d_bad.any()
             if not good:
                 if use_mask.sum() == 2:
@@ -940,7 +963,7 @@ def compute_good_coils(raw, t_step=0.01, t_window=0.2, dist_limit=0.005,
                 exclude_coils = np.where(use_mask)[0][np.argmax(badness)]
                 use_mask[exclude_coils] = False
         counts[ii] = use_mask.sum()
-    t = (starts + n_window // 2) / raw.info['sfreq']
+    t = chpi_locs['times'] - raw.first_samp / raw.info['sfreq']
     return t, counts, len(hpi_dig_head_rrs)
 
 
