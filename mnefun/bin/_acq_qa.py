@@ -62,9 +62,9 @@ def acq_qa():
 
 def _walk_path(path, write_root):
     logger.debug('Traversing %s' % (path,))
-    for root, dirs, files in os.walk(path, topdown=True):
+    for root, dirs, files in sorted(os.walk(path, topdown=True)):
         logger.debug('  %s', root)
-        for fname in files:
+        for fname in sorted(files):
             # skip if wrong ext
             if not fname.endswith('_raw.fif'):
                 continue
