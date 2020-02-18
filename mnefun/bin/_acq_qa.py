@@ -87,7 +87,8 @@ def _walk_path(path, write_root):
                             delta, fname)
             # skip if not a raw instance
             try:
-                raw = mne.io.read_raw_fif(raw_fname, allow_maxshield='yes')
+                raw = mne.io.read_raw_fif(
+                    raw_fname, allow_maxshield='yes', verbose=False)
             except Exception:
                 err = traceback.format_exc()
                 logger.debug(
