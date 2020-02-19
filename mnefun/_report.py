@@ -12,9 +12,10 @@ import warnings
 import numpy as np
 
 import mne
-from mne import read_proj, read_epochs
+from mne import read_proj, read_epochs, find_events
 from mne.io import BaseRaw
-from mne.viz import plot_projs_topomap, plot_cov, plot_snr_estimate
+from mne.viz import (plot_projs_topomap, plot_cov, plot_snr_estimate,
+                     plot_events)
 from mne.viz._3d import plot_head_positions
 from mne.report import Report
 from mne.utils import _pl
@@ -22,7 +23,7 @@ from mne.utils import _pl
 from ._forward import _get_bem_src_trans
 from ._paths import (get_raw_fnames, get_proj_fnames, get_report_fnames,
                      get_bad_fname, get_epochs_evokeds_fnames, safe_inserter)
-from ._sss import (_load_trans_to, _head_pos_annot, _read_raw_prebad,
+from ._sss import (_load_trans_to, _read_raw_prebad,
                    _get_t_window, _get_fit_data)
 from ._viz import plot_good_coils, plot_chpi_snr_raw, trim_bg, mlab_offscreen
 from ._utils import _fix_raw_eog_cals, _handle_dict
@@ -67,7 +68,7 @@ def _report_good_hpi(report, fnames, p=None, subj=None):
     captions = list()
     for fname in fnames:
         fname, raw = _check_fname_raw(fname, p, subj)
-        fit_data = _get_fit_data(raw, p, prefix='      ')
+        fit_data, _ = _get_fit_data(raw, p, prefix='      ')
         if fit_data is None:
             print('%s skipped, HPI count data not found (possibly '
                   'no params.*_limit values set?)' % (section,))
@@ -76,7 +77,7 @@ def _report_good_hpi(report, fnames, p=None, subj=None):
         fig.set_size_inches(10, 2)
         fig.tight_layout()
         figs.append(fig)
-        captions.append('%s: %s' % (section, op.split(fname)[-1]))
+        captions.append('%s: %s' % (section, op.basename(fname)))
     report.add_figs_to_section(figs, captions, section,
                                image_format='svg')
     print('%5.1f sec' % ((time.time() - t0),))
@@ -99,9 +100,75 @@ def _report_chpi_snr(report, fnames, p=None, subj=None):
         fig.subplots_adjust(0.1, 0.1, 0.8, 0.95,
                             wspace=0, hspace=0.5)
         figs.append(fig)
-        captions.append('%s: %s' % (section, op.split(fname)[-1]))
+        captions.append('%s: %s' % (section, op.basename(fname)))
     report.add_figs_to_section(figs, captions, section,
                                image_format='png')  # svd too slow
+    print('%5.1f sec' % ((time.time() - t0),))
+
+
+def _report_head_movement(report, fnames, p=None, subj=None, run_indices=None):
+    section = 'Head movement'
+    print(('    %s ... ' % section).ljust(LJUST), end='')
+    t0 = time.time()
+    figs = list()
+    captions = list()
+    for fname in fnames:
+        fname, raw = _check_fname_raw(fname, p, subj)
+        _, pos = _get_fit_data(raw, p, prefix='      ')
+        trans_to = _load_trans_to(p, subj, run_indices, raw)
+        fig = plot_head_positions(pos=pos, destination=trans_to,
+                                  info=raw.info, show=False)
+        for ax in fig.axes[::2]:
+            """
+            # tighten to the sensor limits
+            assert ax.lines[0].get_color() == (0., 0., 0., 1.)
+            mn, mx = np.inf, -np.inf
+            for line in ax.lines:
+                ydata = line.get_ydata()
+                if np.isfinite(ydata).any():
+                    mn = min(np.nanmin(ydata), mn)
+                    mx = max(np.nanmax(line.get_ydata()), mx)
+            """
+            # always show at least 10cm span, and use tight limits
+            # if greater than that
+            coord = ax.lines[0].get_ydata()
+            for line in ax.lines:
+                if line.get_color() == 'r':
+                    extra = line.get_ydata()[0]
+            mn, mx = coord.min(), coord.max()
+            md = (mn + mx) / 2.
+            mn = min([mn, md - 50., extra])
+            mx = max([mx, md + 50., extra])
+            assert (mn <= coord).all()
+            assert (mx >= coord).all()
+            ax.set_ylim(mn, mx)
+        fig.set_size_inches(10, 6)
+        fig.tight_layout()
+        figs.append(fig)
+        captions.append('%s: %s' % (section, op.basename(fname)))
+    del trans_to
+    report.add_figs_to_section(figs, captions, section,
+                               image_format='svg')
+    print('%5.1f sec' % ((time.time() - t0),))
+
+
+def _report_events(report, fnames, p=None, subj=None):
+    t0 = time.time()
+    section = 'Events'
+    print(('    %s ... ' % section).ljust(LJUST), end='')
+    figs = list()
+    captions = list()
+    for fname in fnames:
+        fname, raw = _check_fname_raw(fname, p, subj)
+        events = find_events(raw, stim_channel='STI101', shortest_event=1)
+        if len(events) > 0:
+            fig = plot_events(events, raw.info['sfreq'], raw.first_samp)
+            fig.set_size_inches(10, 4)
+            fig.tight_layout()
+            figs.append(fig)
+            captions.append('%s: %s' % (section, op.basename(fname)))
+    if len(figs):
+        report.add_figs_to_section(figs, captions, section, image_format='svg')
     print('%5.1f sec' % ((time.time() - t0),))
 
 
@@ -111,7 +178,8 @@ def _report_raw_segments(report, raw, lowpass=None):
     times = np.linspace(raw.times[0], raw.times[-1], 12)[1:-1]
     raw_plot = list()
     for t in times:
-        this_raw = raw.copy().crop(t - 0.5, t + 0.5)
+        this_raw = raw.copy().crop(
+            max(t - 0.5, 0), min(t + 0.5, raw.times[-1]))
         this_raw.load_data()
         this_raw._data[:] -= np.mean(this_raw._data, axis=-1,
                                      keepdims=True)
@@ -147,17 +215,13 @@ def _report_raw_psd(report, raw, raw_pca=None, p=None):
     section = 'PSD'
     import matplotlib.pyplot as plt
     print(('    %s ... ' % section).ljust(LJUST), end='')
-    if p is None:
-        lp_trans = 10
-        lp_cut = 40
+    if p.lp_trans == 'auto':
+        lp_trans = 0.25 * p.lp_cut
     else:
-        if p.lp_trans == 'auto':
-            lp_trans = 0.25 * p.lp_cut
-        else:
-            lp_trans = p.lp_trans
-        lp_cut = p.lp_cut
+        lp_trans = p.lp_trans
+    lp_cut = p.lp_cut
     del p
-    n_fft = 8192
+    n_fft = min(8192, len(raw.times))
     fmax = raw.info['lowpass']
     n_ax = sum(key in raw for key in ('mag', 'grad', 'eeg'))
     _, ax = plt.subplots(n_ax, figsize=(10, 8))
@@ -263,52 +327,10 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
             #
             # Head movement
             #
-            section = 'Head movement'
             if p.report_params.get('head_movement', True) and p.movecomp:
-                print(('    %s ... ' % section).ljust(LJUST), end='')
-                t0 = time.time()
-                trans_to = _load_trans_to(p, subj, run_indices[si], raw)
-                figs = list()
-                captions = list()
-                for fname in fnames:
-                    pos, _, _ = _head_pos_annot(
-                        p, subj, fname, prefix='      ')
-                    fig = plot_head_positions(pos=pos, destination=trans_to,
-                                              info=raw.info, show=False)
-                    for ax in fig.axes[::2]:
-                        """
-                        # tighten to the sensor limits
-                        assert ax.lines[0].get_color() == (0., 0., 0., 1.)
-                        mn, mx = np.inf, -np.inf
-                        for line in ax.lines:
-                            ydata = line.get_ydata()
-                            if np.isfinite(ydata).any():
-                                mn = min(np.nanmin(ydata), mn)
-                                mx = max(np.nanmax(line.get_ydata()), mx)
-                        """
-                        # always show at least 10cm span, and use tight limits
-                        # if greater than that
-                        coord = ax.lines[0].get_ydata()
-                        for line in ax.lines:
-                            if line.get_color() == 'r':
-                                extra = line.get_ydata()[0]
-                        mn, mx = coord.min(), coord.max()
-                        md = (mn + mx) / 2.
-                        mn = min([mn, md - 50., extra])
-                        mx = max([mx, md + 50., extra])
-                        assert (mn <= coord).all()
-                        assert (mx >= coord).all()
-                        ax.set_ylim(mn, mx)
-                    fig.set_size_inches(10, 6)
-                    fig.tight_layout()
-                    figs.append(fig)
-                    captions.append('%s: %s' % (section, op.split(fname)[-1]))
-                del trans_to
-                report.add_figs_to_section(figs, captions, section,
-                                           image_format='svg')
-                print('%5.1f sec' % ((time.time() - t0),))
+                _report_head_movement(report, fnames, p, subj, run_indices[si])
             else:
-                print('    %s skipped' % section)
+                print('    Head movement skipped')
 
             #
             # Raw segments
@@ -323,7 +345,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
             if p.report_params.get('psd', True):
                 _report_raw_psd(report, raw, raw_pca, p)
             else:
-                print('    PSD skipped' % section)
+                print('    PSD skipped')
 
             #
             # SSP

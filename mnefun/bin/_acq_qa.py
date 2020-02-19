@@ -12,6 +12,8 @@ import os.path as op
 import time
 import traceback
 
+import numpy as np
+
 import mne
 
 logger = logging.getLogger('mnefun.acq_qa')
@@ -24,6 +26,9 @@ def acq_qa():
     parser.add_argument('path', nargs='+', help='Path(s) to monitor')
     parser.add_argument('--write-root', '-r', dest='write_root', default='/',
                         help='Root directory for writing the reports')
+    parser.add_argument('--quit', '-q', dest='quit_on_error',
+                        action="store_true", help="Quit on error",
+                        default=False)
     args = parser.parse_args()
     write_root = op.abspath(op.expanduser(args.write_root))
     full_paths = [os.path.join(os.getcwd(), path) for path in args.path]
@@ -48,19 +53,20 @@ def acq_qa():
     while True:  # this thing runs forever...
         try:
             for path in full_paths:
-                _walk_path(path, write_root)
+                _walk_path(path, write_root, args.quit_on_error)
             logger.debug('Sleeping for 10 seconds...')
             time.sleep(10.)
         except KeyboardInterrupt:
-            logger.info('Caught keyboard interrupt, exiting normally')
+            logger.info('%s\n\nCaught keyboard interrupt above, exiting '
+                        'normally', traceback.format_exc())
             return 0
         except:  # noqa
-            logger.error('Caught error, exiting with status 1:\n%s',
+            logger.error('%s\n\nCaught error above, exiting with status 1',
                          traceback.format_exc())
             return 1
 
 
-def _walk_path(path, write_root):
+def _walk_path(path, write_root, quit_on_error):
     logger.debug('Traversing %s' % (path,))
     for root, dirs, files in sorted(os.walk(path, topdown=True)):
         logger.debug('  %s', root)
@@ -100,36 +106,57 @@ def _walk_path(path, write_root):
             del raw_fname
             # actually generate the report!
             logger.info('Generating %s' % (report_fname,))
-            _generate_report(raw, report_fname)
+            _generate_report(raw, report_fname, quit_on_error)
             logger.info('Done with %s' % (report_fname,))
 
 
-def _generate_report(raw, report_fname):
-    # XXX eventually we should maybe add head position estimation
-    # and also add maxbads to the general one maybe
+_HTML_TEMPLATE = """
+<div style="text-align:center;"><h5>{title}</h5><p>{text}</p></div>
+"""
+
+
+def _generate_report(raw, report_fname, quit_on_error):
     from .._mnefun import _set_static
     from .._sss import _maxbad, _load_meg_bads
     from .._report import (report_context, _report_good_hpi, _report_chpi_snr,
-                           _report_raw_segments, _report_raw_psd)
+                           _report_head_movement, _report_raw_segments,
+                           _report_events, _report_raw_psd)
     report = mne.Report(verbose=False)
     raw.load_data()
     with report_context():
-        tmpdir = mne.utils._TempDir()
-        maxbad_file = op.join(tmpdir, 'maxbad.txt')
-        p = mne.utils.Bunch(mf_badlimit=7)
+        p = mne.utils.Bunch(
+            mf_badlimit=7, tmpdir=mne.utils._TempDir(),
+            coil_dist_limit=0.01, coil_t_window='auto', coil_gof_limit=0.95,
+            coil_t_step_min=0.01, lp_trans=10, lp_cut=40, movecomp=True,
+            hp_type='python', coil_bad_count_duration_limit=np.inf)
+        maxbad_file = op.join(p.tmpdir, 'maxbad.txt')
         _set_static(p)
         _maxbad(p, raw, maxbad_file)
+        # Maxbads
         _load_meg_bads(raw, maxbad_file, disp=False)
         section = 'MF Autobad'
-        htmls = (
-            '<div style="text-align:center;">'
-            '<h5>%d bad channel%s detected</h5><p>%s</p></div>'
-            % (len(raw.info['bads']), mne.utils._pl(raw.info['bads']),
-               ', '.join(raw.info['bads'],)))
+        htmls = _HTML_TEMPLATE.format(
+            title='%d bad channel%s detected' % (
+                len(raw.info['bads']), mne.utils._pl(raw.info['bads'])),
+            text=', '.join(raw.info['bads'],))
         report.add_htmls_to_section(htmls, section, section)
-        _report_good_hpi(report, [raw])
-        _report_chpi_snr(report, [raw])
-        _report_raw_segments(report, raw, lowpass=40)
-        _report_raw_psd(report, raw)
+        # HPI count, SNR, head position
+        for func, section in ([_report_good_hpi, 'Good HPI count'],
+                              [_report_chpi_snr, 'cHPI SNR'],
+                              [_report_head_movement, 'Head movement'],
+                              [_report_events, 'Events'],
+                              ):
+            try:
+                func(report, [raw], p=p)
+            except Exception as exp:
+                if quit_on_error:
+                    raise
+                htmls = _HTML_TEMPLATE.format(title='Error', text=str(exp))
+                report.add_htmls_to_section(htmls, section, section)
+        # Raw segments (ignoring warnings about dev_head_t)
+        with mne.utils.use_log_level('error'):
+            _report_raw_segments(report, raw, lowpass=p.lp_cut)
+        # Raw PSD
+        _report_raw_psd(report, raw, p=p)
     os.makedirs(op.dirname(report_fname), exist_ok=True)
     report.save(report_fname, open_browser=False)

@@ -180,7 +180,9 @@ translation_limit : float
 movecomp : str | None
     Movement compensation to use. Can be 'inter' or None.
 sss_type : str
-    signal space separation method. Must be either 'maxfilter' or 'python'
+    Signal space separation method. Must be either 'maxfilter' or 'python'
+hp_type : str
+    Head position estimation method. Must be either 'maxfilter' or 'python'
 int_order : int
     Order of internal component of spherical expansion. Default is 8.
     Value of 6 recomended for infant data.

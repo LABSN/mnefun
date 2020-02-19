@@ -165,6 +165,7 @@ class Params(Frozen):
         self.ct_file = 'uw'
         # SSS denoising params
         self.sss_type = 'maxfilter'
+        self.hp_type = 'maxfilter'
         self.mf_args = ''
         self.tsss_dur = 60.
         self.trans_to = 'median'  # where to transform head positions to
@@ -225,6 +226,7 @@ class Params(Frozen):
         self.translation_limit = np.inf
         self.coil_bad_count_duration_limit = np.inf  # for annotations
         self.coil_dist_limit = 0.005
+        self.coil_gof_limit = 0.98
         self.coil_t_window = 0.2  # default is same as MF
         self.coil_t_step_min = 0.01
         self.proj_ave = False

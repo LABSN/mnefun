@@ -37,6 +37,7 @@ preprocessing:
     coil_t_window:
     coil_t_step_min:
     coil_dist_limit:
+    coil_gof_limit:
   annotations:
     coil_bad_count_duration_limit:
     rotation_limit:
@@ -44,8 +45,9 @@ preprocessing:
   sss:
     movecomp:
     sss_type:
+    hp_type:
     int_order:
-    ext_order :
+    ext_order:
     sss_regularize:
     tsss_dur:
     st_correlation:
