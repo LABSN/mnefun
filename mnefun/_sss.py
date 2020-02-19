@@ -624,7 +624,6 @@ def _get_fit_data(raw, p=None, prefix='    '):
             head_pos = compute_head_pos(
                 raw.info, chpi_locs, coil_dist_limit, coil_gof_limit)
             write_head_pos(pos_fname, head_pos)
-            write_head_pos('/home/larsoner/Desktop/test.pos', head_pos)
     head_pos = read_head_pos(pos_fname)
 
     # otherwise we need to go back and fix!
