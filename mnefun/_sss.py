@@ -1102,6 +1102,6 @@ def check_sws():
                              verbose=False)
     output = [o.strip() for o in output]
     if output[0]:
-        print('Output:\n%s' % (output[0],))
+        print('Output:\n%s' % (output[0].strip('$').strip(),))
     if output[1]:
         print('ERRORS:\n%s' % (output[1],))

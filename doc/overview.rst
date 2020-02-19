@@ -15,18 +15,8 @@ Flow chart
 
 .. graphviz:: _static/flow.dot
 
-.. note::
-     At the very least, the following are missing from this flowchart:
-
-     - ``-annot.fif`` creation
-     - custom ``-annot.fif``
-     - maxbad bad-channel computation and output
-     - autoreject support
-     - references to :mod:`mne` functions used
-     - extra projectors
-
-Preparing your machine for head position estimation
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Preparing your machine for Maxwell autobad and head position estimation
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Parameters for remotely connecting to SSS workstation ('sws') can be set
 by adding a file ~/.mnefun/mnefun.json with contents like:
 
@@ -45,6 +35,19 @@ Using per-machine config files rather than per-script variables should
 help increase portability of scripts without hurting reproducibility
 (assuming we all use the same version of MaxFilter, which should be a
 safe assumption).
+
+To test that things are configured correctly, you can do:
+
+.. code-block:: console
+
+    $ python -c "import mnefun; mnefun.check_sws()"
+    On kasga: maxfilter -version (0 sec)
+    Output:
+    Revision: 2.2.15 Neuromag maxfilter Dec 11 2012 14:48:44
+
+If you get an error, ensure that your file is correctly set up in
+``~/.mnefun/mnefun.json``.
+
 
 Running parameters
 ------------------
@@ -107,15 +110,27 @@ on_process : callable
 3. do_sss
 ---------
 
-.. warning:: Before running SSS, make SUBJ/raw_fif/SUBJ_prebad.txt file with
-             space-separated list of bad MEG channel numbers.
+.. warning:: Before running SSS, make ``SUBJ/raw_fif/SUBJ_prebad.txt``
+             with space-separated list of bad MEG channel numbers.
+             Using ``p.mf_autobad=True`` can help fill in missed bad channels,
+             but is not as reliable as experienced analyst inspection.
 
 Run SSS processing. This will:
 
-1. Copy each file to the SSS workstation to estimate head positions.
-2. Copy the head positions to the local machine.
-3. Delete the file from the remote machine.
-4. Run SSS processing locally using :func:`mne.preprocessing.maxwell_filter`.
+1. Copy each file to the SSS workstation.
+2. Automatically determine bad channels (only if ``mf_autobad=True``)
+3. Estimate head positions (remotely if ``hp_type='maxwell'``, otherwise
+   locally), see :ref:`preprocessing_hpe`.
+4. Copy the head positions to the local machine.
+5. Delete the file from the remote machine.
+6. Annotate bad segments automatically, see :ref:`preprocessing_annotations`.
+7. Add any custom annotations (e.g., for segments that operators want to
+   manually mark as bad) that have been saved as ``FILENAME-custom-annot.fif``.
+8. Run SSS processing locally using :func:`mne.preprocessing.maxwell_filter`.
+
+The addition of annotations *before* SSS ensures that tSSS operations are not
+disrupted by bad segments of data, and also ensures that the output files
+have the annotations (as they are preserved by ``mnefun``).
 
 ``preprocessing: multithreading``: Multithreading parameters
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -133,15 +148,25 @@ n_jobs_resample : int | str
     Number of threads to use for resampling. Can also be 'cuda'
     if the system supports CUDA.
 
+.. _preprocessing_bads:
+
 ``preprocessing: bads``: Bad-channel parameters
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Before SSS
+^^^^^^^^^^
+
 mf_autobad : bool
     Default False. If True use Maxfilter to automatically mark bad
-    channels prior to SSS denoising.
+    channels *prior to SSS*.
 mf_badlimit : int
     MaxFilter threshold for noisy channel detection (default is 7).
+
+After SSS (during SSP computation)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
 auto_bad : float | None
-    If not None, bad channels will be automatically excluded if
+    If not None, bad channels will be automatically excluded after SSS if
     they disqualify a proportion of events exceeding ``autobad``.
 auto_bad_reject : str | dict | None
     Default is None. Must be defined if using Autoreject module to
@@ -157,6 +182,8 @@ auto_bad_eeg_thresh : float | None
 auto_bad_meg_thresh : float | None
     Threshold for auto_bad MEG detection.
 
+.. _preprocessing_hpe:
+
 ``preprocessing: head_position_estimation``: Head position estimation parameters
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 coil_t_window : float
@@ -167,6 +194,8 @@ coil_dist_limit : float
     Dist limit for coils.
 coil_gof_limit : float
     Goodness of fit limit for coils.
+
+.. _preprocessing_annotations:
 
 ``preprocessing: annotations``: Annotation parameters
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -181,10 +210,10 @@ translation_limit : float
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 movecomp : str | None
     Movement compensation to use. Can be 'inter' or None.
-sss_type : str
-    Signal space separation method. Must be either 'maxfilter' or 'python'
 hp_type : str
-    Head position estimation method. Must be either 'maxfilter' or 'python'
+    Head position estimation method. Must be either 'maxfilter' or 'python'.
+sss_type : str
+    Signal space separation method. Must be either 'maxfilter' or 'python'.
 int_order : int
     Order of internal component of spherical expansion. Default is 8.
     Value of 6 recomended for infant data.
@@ -207,15 +236,15 @@ filter_chpi : str
 trans_to : str | array-like, (3,) | None
     The destination location for the head. Can be:
 
-    'median' (default)
+    - 'median' (default)
         Median (across runs) of the starting head positions.
-    'twa'
+    - 'twa'
         Time-weighted average head position.
-    ``None``
+    - ``None``
         Will not change the head position.
-    str
+    - str
         Path to a FIF file containing a MEG device to head transformation.
-    array-like
+    - array-like
         First three elements are coordinates to translate to.
         An optional fourth element gives the x-axis rotation (e.g., -30 means
         a backward 30° rotation).
@@ -243,10 +272,15 @@ Fix EEG channel ordering, and also anonymize files.
 ----------
 
 .. warning:: Before running SSP, examine SSS'ed files and make
-             SUBJ/bads/bad_ch_SUBJ_post-sss.txt; usually, this should only
-             contain EEG channels.
+             ``SUBJ/bads/bad_ch_SUBJ_post-sss.txt``; usually, this should only
+             contain EEG channels. Alternatively, you can use
+             ``params.auto_bad = True`` to let the ``autoreject`` module
+             compute these for you, see :ref:`preprocessing_bads`.
 
-Generate SSP vectors.
+Generate SSP vectors. If additional projectors are required (e.g., to get
+rid of muscle movement artifacts in a verbal response paradigm), you can use
+``p.proj_extra``, which get applied before any other projectors are computed
+(e.g., ECG, blink).
 
 ``preprocessing: filtering``: Filtering parameters
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
