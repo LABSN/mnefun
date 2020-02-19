@@ -164,7 +164,7 @@ def _report_events(report, fnames, p=None, subj=None):
         if len(events) > 0:
             fig = plot_events(events, raw.info['sfreq'], raw.first_samp)
             fig.set_size_inches(10, 4)
-            fig.tight_layout()
+            fig.subplots_adjust(0.1, 0.1, 0.9, 0.99, wspace=0, hspace=0)
             figs.append(fig)
             captions.append('%s: %s' % (section, op.basename(fname)))
     if len(figs):
