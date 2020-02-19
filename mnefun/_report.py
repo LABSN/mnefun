@@ -748,10 +748,10 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                         report.add_slider_to_section(
                             imgs, captions=captions, section=section,
                             title=title, image_format='png')
-                        plt.close('all')
                 print('%5.1f sec' % ((time.time() - t0),))
             else:
                 print('    %s skipped' % section)
+            plt.close('all')
 
         report_fname = get_report_fnames(p, subj)[0]
         report.save(report_fname, open_browser=False, overwrite=True)

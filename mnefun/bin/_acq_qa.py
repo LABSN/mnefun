@@ -126,6 +126,7 @@ def _generate_report(raw, report_fname, quit_on_error):
     report = mne.Report(verbose=False)
     raw.load_data()
     with report_context():
+        import matplotlib.pyplot as plt
         p = mne.utils.Bunch(
             mf_badlimit=7, tmpdir=mne.utils._TempDir(),
             coil_dist_limit=0.01, coil_t_window='auto', coil_gof_limit=0.95,
@@ -164,5 +165,6 @@ def _generate_report(raw, report_fname, quit_on_error):
             _report_raw_segments(report, raw, lowpass=p.lp_cut)
         # Raw PSD
         _report_raw_psd(report, raw, p=p)
-    os.makedirs(op.dirname(report_fname), exist_ok=True)
-    report.save(report_fname, open_browser=False)
+        os.makedirs(op.dirname(report_fname), exist_ok=True)
+        report.save(report_fname, open_browser=False)
+        plt.close('all')
