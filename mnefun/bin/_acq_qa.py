@@ -69,7 +69,9 @@ def acq_qa():
 
 def _walk_path(path, write_root, quit_on_error):
     logger.debug('Traversing %s' % (path,))
-    for root, dirs, files in sorted(os.walk(path, topdown=True)):
+    # The [::-1] here helps ensure that we go in reverse chronological
+    # order for empty-room recordings (most recent first)
+    for root, dirs, files in sorted(os.walk(path, topdown=True))[::-1]:
         logger.debug('  %s', root)
         for fname in sorted(files):
             # skip if wrong ext

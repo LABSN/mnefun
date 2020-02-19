@@ -44,8 +44,8 @@ preprocessing:
     translation_limit:
   sss:
     movecomp:
-    sss_type:
     hp_type:
+    sss_type:
     int_order:
     ext_order:
     sss_regularize:
