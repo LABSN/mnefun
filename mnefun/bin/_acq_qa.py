@@ -6,6 +6,7 @@ Monitor acquisition paths for new files and generate reports for them.
 
 import argparse
 from datetime import datetime
+from functools import partial
 import logging
 import os
 import os.path as op
@@ -141,11 +142,15 @@ def _generate_report(raw, report_fname, quit_on_error):
             text=', '.join(raw.info['bads'],))
         report.add_htmls_to_section(htmls, section, section)
         # HPI count, SNR, head position
-        for func, section in ([_report_good_hpi, 'Good HPI count'],
-                              [_report_chpi_snr, 'cHPI SNR'],
-                              [_report_head_movement, 'Head movement'],
-                              [_report_events, 'Events'],
-                              ):
+        funcs = (
+            [_report_good_hpi, 'Good HPI count'],
+            [_report_chpi_snr, 'cHPI SNR'],
+            [_report_head_movement, 'Head movement'],
+            [_report_events, 'Events'],
+        )
+        if raw.info['dev_head_t'] is None:  # don't even try the first three
+            funcs = funcs[3:]
+        for func, section in funcs:
             try:
                 func(report, [raw], p=p)
             except Exception as exp:
