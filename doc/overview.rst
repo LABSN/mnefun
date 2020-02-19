@@ -165,6 +165,8 @@ coil_t_step_min : float
     Coil step min for head / cHPI coil position estimation.
 coil_dist_limit : float
     Dist limit for coils.
+coil_gof_limit : float
+    Goodness of fit limit for coils.
 
 ``preprocessing: annotations``: Annotation parameters
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
