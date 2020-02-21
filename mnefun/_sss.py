@@ -24,7 +24,7 @@ from mne.transforms import (quat_to_rot, rot_to_quat, invert_transform,
 from mne.utils import _TempDir, run_subprocess, _pl, verbose, logger
 
 
-from ._paths import get_raw_fnames, _prebad
+from ._paths import get_raw_fnames, _prebad, _get_config_file
 from ._utils import get_args
 
 
@@ -142,8 +142,11 @@ def run_sss_command(fname_in, options, fname_out, host='kasga', port=22,
     print('maxfilter %s' % (options,), end='')
     cmd = ['ssh', '-p', port, host,
            'maxfilter ' + in_out + options]
-    try:
-        output = run_subprocess(cmd, stdout=stdout, stderr=stderr)
+    output = run_subprocess(
+        cmd, return_code=True, stdout=stdout, stderr=stderr)
+    output, code = output[:2], output[2]
+    # pull files if things were good
+    if code == 0:
         if fname_out is not None:
             print(', copying to %s' % (op.basename(fname_out),), end='')
         if fname_pos is not None:
@@ -151,19 +154,29 @@ def run_sss_command(fname_in, options, fname_out, host='kasga', port=22,
                 _pull_remote(host, port, remote_pos, fname_pos)
             except Exception:
                 pass
-    finally:
-        files = []
-        files += [remote_in, remote_out] if fname_in is not None else []
-        files += [remote_pos] if fname_pos is not None else []
-        if files:
-            print(', cleaning', end='')
-            cmd = ['ssh', '-p', port, host, 'rm -f ' + ' '.join(files)]
-            try:
-                run_subprocess(
-                    cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            except Exception:
-                pass
-        print(' (%i sec)' % (time.time() - t0,))
+    # always clean up
+    files = []
+    files += [remote_in, remote_out] if fname_in is not None else []
+    files += [remote_pos] if fname_pos is not None else []
+    if files:
+        print(', cleaning', end='')
+        cmd = ['ssh', '-p', port, host, 'rm -f ' + ' '.join(files)]
+        try:
+            run_subprocess(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        except Exception:
+            pass
+    # now throw an error
+    if code != 0:
+        if 'maxfilter: command not' in output[1]:
+            raise RuntimeError(
+                '\nMaxFilter could not be run on the remote machine, '
+                'consider adding the following line to your ~/.bashrc on '
+                'the remote machine:\n\n'
+                'export PATH=${PATH}:/neuro/bin/util:/neuro/bin/X11\n')
+        print(output)
+        raise subprocess.CalledProcessError(code, cmd)
+    print(' (%i sec)' % (time.time() - t0,))
     return output
 
 
@@ -1097,6 +1110,9 @@ def check_sws():
     """Check if SSS workstation is configured correctly."""
     from . import Params
     p = Params()  # loads config
+    if p.sws_ssh is None:
+        raise RuntimeError('sws_ssh was not defined in mnefun config file %s'
+                           % (_get_config_file(),))
     output = run_sss_command(None, '-version', None, host=p.sws_ssh,
                              work_dir=p.sws_dir, port=p.sws_port,
                              verbose=False)

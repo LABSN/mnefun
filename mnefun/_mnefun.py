@@ -22,6 +22,7 @@ from ._cov import gen_covariances
 from ._forward import gen_forwards
 from ._inverse import gen_inverses
 from ._status import print_proc_status
+from ._paths import _get_config_file
 from ._utils import timestring
 
 
@@ -306,10 +307,15 @@ class Params(Frozen):
 
 
 def _set_static(p):
-    config_file = op.expanduser(op.join('~', '.mnefun', 'mnefun.json'))
+    config_file = _get_config_file()
     if op.isfile(config_file):
-        with open(config_file, 'rb') as fid:
-            config = json.load(fid)
+        try:
+            with open(config_file, 'rb') as fid:
+                config = json.load(fid)
+        except Exception as exp:
+            raise RuntimeError('Could not parse mnefun config file %s, got '
+                               'likely JSON syntax error:\n%s'
+                               % (config_file, exp))
         for key, cast in (('sws_dir', str),
                           ('sws_ssh', str),
                           ('sws_port', int)):

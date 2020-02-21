@@ -31,6 +31,10 @@ when running on your machine::
     params.sws_ssh = 'kasga'
     params.sws_dir = '/data06/larsoner/sss_work'
 
+.. note:: Head position estimation is now available using
+          ``hp_type='python'``. Automatic bad channel detection like
+          MaxFilter provides will also be available hopefully soon.
+
 Using per-machine config files rather than per-script variables should
 help increase portability of scripts without hurting reproducibility
 (assuming we all use the same version of MaxFilter, which should be a
@@ -45,8 +49,27 @@ To test that things are configured correctly, you can do:
     Output:
     Revision: 2.2.15 Neuromag maxfilter Dec 11 2012 14:48:44
 
-If you get an error, ensure that your file is correctly set up in
-``~/.mnefun/mnefun.json``.
+If you get an error:
+
+1. Ensure that your file is correctly set up in ``~/.mnefun/mnefun.json``.
+   It needs to use standard quotation marks like ``"``, not fancy ones like
+   ``”`` so ensure that your text editor (if you used one) did not use fancy
+   quotation marks.
+2. Ensure that ``maxwell_filter`` is accessible as a command on the remote
+   machine. Log into the remote machine and do:
+
+   .. code-block:: console
+
+       $ which maxfilter
+       /neuro/bin/util/maxfilter
+
+   If you get no output with this command, it means that MaxFilter is not
+   available on your PATH on the remote machine. To fix this, consider adding
+   the following line to the end of your ``~/.bashrc`` on the remote machine:
+
+   .. code-block:: bash
+
+       export PATH=${PATH}:/neuro/bin/util:/neuro/bin/X11
 
 
 Running parameters
