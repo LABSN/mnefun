@@ -102,6 +102,8 @@ def run_sss_command(fname_in, options, fname_out, host='kasga', port=22,
     stderr : str
         The standard error of the ``maxfilter`` call.
     """
+    if not isinstance(host, str):
+        raise ValueError('host must be a string, got %r' % (host,))
     # let's make sure we can actually write where we want
     if isinstance(fname_in, str) and not op.isfile(fname_in):
         raise IOError('input file not found: %s' % fname_in)
@@ -168,13 +170,13 @@ def run_sss_command(fname_in, options, fname_out, host='kasga', port=22,
             pass
     # now throw an error
     if code != 0:
+        print(output)
         if 'maxfilter: command not' in output[1]:
             raise RuntimeError(
                 '\nMaxFilter could not be run on the remote machine, '
                 'consider adding the following line to your ~/.bashrc on '
                 'the remote machine:\n\n'
                 'export PATH=${PATH}:/neuro/bin/util:/neuro/bin/X11\n')
-        print(output)
         raise subprocess.CalledProcessError(code, cmd)
     print(' (%i sec)' % (time.time() - t0,))
     return output

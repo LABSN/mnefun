@@ -6,6 +6,7 @@ import json
 import os
 import os.path as op
 import time
+import warnings
 
 import numpy as np
 
@@ -308,6 +309,11 @@ class Params(Frozen):
 
 def _set_static(p):
     config_file = _get_config_file()
+    key_cast = dict(
+        sws_dir=str,
+        sws_ssh=str,
+        sws_port=int,
+    )
     if op.isfile(config_file):
         try:
             with open(config_file, 'rb') as fid:
@@ -316,11 +322,17 @@ def _set_static(p):
             raise RuntimeError('Could not parse mnefun config file %s, got '
                                'likely JSON syntax error:\n%s'
                                % (config_file, exp))
-        for key, cast in (('sws_dir', str),
-                          ('sws_ssh', str),
-                          ('sws_port', int)):
+        for key, cast in key_cast.items():
             if key in config:
                 setattr(p, key, cast(config[key]))
+    else:
+        warnings.warn(
+            'Machine configuration file %s not found, for best compatibility '
+            'you should create this file.' % (config_file,))
+    for key in key_cast:
+        if getattr(p, key, None):
+            warnings.warn('Configuration value p.%s was None, remote MaxFilter'
+                          ' processing will fail.' % (key,))
 
 
 def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
@@ -328,7 +340,7 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
                   gen_ssp=False, apply_ssp=False,
                   write_epochs=False, gen_covs=False, gen_fwd=False,
                   gen_inv=False, gen_report=False, print_status=True):
-    """Do M/EEG data processing
+    """Do M/EEG data processing.
 
     Parameters
     ----------
