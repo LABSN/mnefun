@@ -86,6 +86,9 @@ def _walk_path(path, write_root, quit_on_error):
                 write_root + root, '.' + op.splitext(fname)[0] + '.html')
             if op.isfile(skip_report_fname):
                 continue
+            # skip if symlink
+            if op.islink(fname):
+                continue
             # skip if modified time is within the last 10 seconds
             raw_fname = op.join(root, fname)
             mtime = os.path.getmtime(raw_fname)
