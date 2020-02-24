@@ -111,8 +111,15 @@ def _walk_path(path, write_root, quit_on_error):
             del raw_fname
             # actually generate the report!
             logger.info('Generating %s' % (report_fname,))
+            _flush_log()
             _generate_report(raw, report_fname, quit_on_error)
             logger.info('Done with %s' % (report_fname,))
+            _flush_log()
+
+
+def _flush_log():
+    for lh in logger.handlers:
+        lh.flush()
 
 
 _HTML_TEMPLATE = """
