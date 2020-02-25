@@ -6,6 +6,7 @@ import json
 import os
 import os.path as op
 import time
+import warnings
 
 import numpy as np
 
@@ -22,6 +23,7 @@ from ._cov import gen_covariances
 from ._forward import gen_forwards
 from ._inverse import gen_inverses
 from ._status import print_proc_status
+from ._paths import _get_config_file
 from ._utils import timestring
 
 
@@ -165,6 +167,7 @@ class Params(Frozen):
         self.ct_file = 'uw'
         # SSS denoising params
         self.sss_type = 'maxfilter'
+        self.hp_type = 'maxfilter'
         self.mf_args = ''
         self.tsss_dur = 60.
         self.trans_to = 'median'  # where to transform head positions to
@@ -225,6 +228,7 @@ class Params(Frozen):
         self.translation_limit = np.inf
         self.coil_bad_count_duration_limit = np.inf  # for annotations
         self.coil_dist_limit = 0.005
+        self.coil_gof_limit = 0.98
         self.coil_t_window = 0.2  # default is same as MF
         self.coil_t_step_min = 0.01
         self.proj_ave = False
@@ -242,15 +246,7 @@ class Params(Frozen):
         self.reject_epochs_by_annot = True
         self.freeze()
         # Read static-able paraws from config file
-        config_file = op.expanduser(op.join('~', '.mnefun', 'mnefun.json'))
-        if op.isfile(config_file):
-            with open(config_file, 'rb') as fid:
-                config = json.load(fid)
-            for key, cast in (('sws_dir', str),
-                              ('sws_ssh', str),
-                              ('sws_port', int)):
-                if key in config:
-                    setattr(self, key, cast(config[key]))
+        _set_static(self)
 
     @property
     def report(self):  # wrapper
@@ -311,12 +307,40 @@ class Params(Frozen):
         _write_params(fname, self)
 
 
+def _set_static(p):
+    config_file = _get_config_file()
+    key_cast = dict(
+        sws_dir=str,
+        sws_ssh=str,
+        sws_port=int,
+    )
+    if op.isfile(config_file):
+        try:
+            with open(config_file, 'rb') as fid:
+                config = json.load(fid)
+        except Exception as exp:
+            raise RuntimeError('Could not parse mnefun config file %s, got '
+                               'likely JSON syntax error:\n%s'
+                               % (config_file, exp))
+        for key, cast in key_cast.items():
+            if key in config:
+                setattr(p, key, cast(config[key]))
+    else:
+        warnings.warn(
+            'Machine configuration file %s not found, for best compatibility '
+            'you should create this file.' % (config_file,))
+    for key in key_cast:
+        if getattr(p, key, None) is None:
+            warnings.warn('Configuration value p.%s was None, remote MaxFilter'
+                          ' processing will fail.' % (key,))
+
+
 def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
                   do_sss=False, fetch_sss=False, do_ch_fix=False,
                   gen_ssp=False, apply_ssp=False,
                   write_epochs=False, gen_covs=False, gen_fwd=False,
                   gen_inv=False, gen_report=False, print_status=True):
-    """Do M/EEG data processing
+    """Do M/EEG data processing.
 
     Parameters
     ----------

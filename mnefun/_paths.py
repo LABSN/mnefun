@@ -242,3 +242,7 @@ def _prebad(p, subj):
 def _is_dir(d):
     """Safely check for a directory (allowing symlinks)"""
     return op.isdir(op.abspath(d))
+
+
+def _get_config_file():
+    return op.expanduser(op.join('~', '.mnefun', 'mnefun.json'))

@@ -33,6 +33,7 @@ preprocessing:
     translation_limit: 0.0001
   sss:
     sss_type: python
+    hp_type: python
     int_order: 8
     ext_order: 3
     tsss_dur: 60.

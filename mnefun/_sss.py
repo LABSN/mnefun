@@ -24,7 +24,7 @@ from mne.transforms import (quat_to_rot, rot_to_quat, invert_transform,
 from mne.utils import _TempDir, run_subprocess, _pl, verbose, logger
 
 
-from ._paths import get_raw_fnames, _prebad
+from ._paths import get_raw_fnames, _prebad, _get_config_file
 from ._utils import get_args
 
 
@@ -102,6 +102,8 @@ def run_sss_command(fname_in, options, fname_out, host='kasga', port=22,
     stderr : str
         The standard error of the ``maxfilter`` call.
     """
+    if not isinstance(host, str):
+        raise ValueError('host must be a string, got %r' % (host,))
     # let's make sure we can actually write where we want
     if isinstance(fname_in, str) and not op.isfile(fname_in):
         raise IOError('input file not found: %s' % fname_in)
@@ -116,31 +118,37 @@ def run_sss_command(fname_in, options, fname_out, host='kasga', port=22,
     remote_in = op.join(work_dir, 'temp_%s_raw.fif' % t0)
     remote_out = op.join(work_dir, 'temp_%s_raw_sss.fif' % t0)
     remote_pos = op.join(work_dir, 'temp_%s_raw_sss.pos' % t0)
-    print('%sOn %s: copying' % (prefix, host), end='')
+    print('%sOn %s: ' % (prefix, host), end='')
     if isinstance(fname_in, str):
         fname_in = op.realpath(fname_in)  # in case it's a symlink
-    else:
+    elif fname_in is not None:
         assert isinstance(fname_in, BaseRaw)
         tempdir = _TempDir()
         temp_fname = op.join(tempdir, 'temp_raw.fif')
         fname_in.save(temp_fname)
         fname_in = temp_fname
         del temp_fname
-
-    try:
-        _push_remote(fname_in, host, port, remote_in)
-    finally:
-        shutil.rmtree(tempdir)
-    del fname_in
+    if fname_in is not None:
+        print('copying, ', end='')
+        try:
+            _push_remote(fname_in, host, port, remote_in)
+        finally:
+            shutil.rmtree(tempdir)
+        in_out = '-f ' + remote_in + ' -o ' + remote_out + ' '
+    else:
+        in_out = ''
 
     if fname_pos is not None:
         options += ' -hp ' + remote_pos
 
-    print(', maxfilter %s' % (options,), end='')
+    print('maxfilter %s' % (options,), end='')
     cmd = ['ssh', '-p', port, host,
-           'maxfilter -f ' + remote_in + ' -o ' + remote_out + ' ' + options]
-    try:
-        output = run_subprocess(cmd, stdout=stdout, stderr=stderr)
+           'maxfilter ' + in_out + options]
+    output = run_subprocess(
+        cmd, return_code=True, stdout=stdout, stderr=stderr)
+    output, code = output[:2], output[2]
+    # pull files if things were good
+    if code == 0:
         if fname_out is not None:
             print(', copying to %s' % (op.basename(fname_out),), end='')
         if fname_pos is not None:
@@ -148,23 +156,37 @@ def run_sss_command(fname_in, options, fname_out, host='kasga', port=22,
                 _pull_remote(host, port, remote_pos, fname_pos)
             except Exception:
                 pass
-    finally:
+    # always clean up
+    files = []
+    files += [remote_in, remote_out] if fname_in is not None else []
+    files += [remote_pos] if fname_pos is not None else []
+    if files:
         print(', cleaning', end='')
-        files = [remote_in, remote_out]
-        files += [remote_pos] if fname_pos is not None else []
         cmd = ['ssh', '-p', port, host, 'rm -f ' + ' '.join(files)]
         try:
-            run_subprocess(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            run_subprocess(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         except Exception:
             pass
-        print(' (%i sec)' % (time.time() - t0,))
+    # now throw an error
+    if code != 0:
+        print(output)
+        if 'maxfilter: command not' in output[1]:
+            raise RuntimeError(
+                '\nMaxFilter could not be run on the remote machine, '
+                'consider adding the following line to your ~/.bashrc on '
+                'the remote machine:\n\n'
+                'export PATH=${PATH}:/neuro/bin/util:/neuro/bin/X11\n')
+        raise subprocess.CalledProcessError(code, cmd)
+    print(' (%i sec)' % (time.time() - t0,))
     return output
 
 
 @verbose
 def run_sss_positions(fname_in, fname_out, host='kasga', opts='-force',
                       port=22, prefix='  ', work_dir='~/', t_window=None,
-                      t_step_min=None, dist_limit=None, verbose='error'):
+                      t_step_min=None, dist_limit=None, gof_limit=0.98,
+                      verbose='error'):
     """Run Maxfilter remotely and fetch resulting file
 
     Parameters
@@ -214,7 +236,8 @@ def run_sss_positions(fname_in, fname_out, host='kasga', opts='-force',
         opts += ' -hpie %d' % (round(1000 * dist_limit),)
     else:
         dist_limit = 0.005
-    gof_limit = 0.98
+    gof_limit = float(gof_limit)
+    opts += ' -hpig %f' % (gof_limit,)
 
     t0 = time.time()
     print('%sOn %s: copying' % (prefix, host), end='')
@@ -248,6 +271,7 @@ def run_sss_positions(fname_in, fname_out, host='kasga', opts='-force',
     # concatenate hp pos file for split raw files if any
     data = []
     next_pre = ', '
+    gof_limit = 0.98
     for f in fnames_out:
         this_pos = read_head_pos(op.join(pout, f))
         # sanitize the stupid thing; sometimes MaxFilter produces a line of all
@@ -286,7 +310,7 @@ def _read_raw_prebad(p, subj, fname, disp=True, prefix=' ' * 6):
     # Next run Maxfilter for automatic bad channel selection
     if p.mf_autobad:
         maxbad_file = op.splitext(fname)[0] + '_maxbad.txt'
-        _maxbad(p, subj, raw, maxbad_file)
+        _maxbad(p, raw, maxbad_file)
         _load_meg_bads(raw, maxbad_file, disp=disp, prefix=prefix, append=True)
     return raw
 
@@ -388,7 +412,7 @@ def run_sss_locally(p, subjects, run_indices):
             if p.filter_chpi:
                 t0 = time.time()
                 print('        Filtering cHPI signals ... ', end='')
-                raw = filter_chpi(raw)
+                raw = filter_chpi(raw, t_window=_get_t_window(p, raw))
                 print('%i sec' % (time.time() - t0,))
 
             # apply maxwell filter
@@ -405,9 +429,11 @@ def run_sss_locally(p, subjects, run_indices):
             raw_sss.save(o, overwrite=True, buffer_size_sec=None)
 
 
-def _load_trans_to(p, subj, run_indices, raw=None):
+def _load_trans_to(p, subj=None, run_indices=None, raw=None):
     from mne.transforms import _ensure_trans
-    if isinstance(p.trans_to, str):
+    if getattr(p, 'trans_to', None) is None:
+        trans_to = None if raw is None else raw.info['dev_head_t']
+    elif isinstance(p.trans_to, str):
         if p.trans_to == 'median':
             trans_to = op.join(p.work_dir, subj, p.raw_dir,
                                subj + '_median_pos.fif')
@@ -421,8 +447,6 @@ def _load_trans_to(p, subj, run_indices, raw=None):
         else:
             trans_to = p.trans_to
         trans_to = read_trans(trans_to)
-    elif p.trans_to is None:
-        trans_to = None if raw is None else raw.info['dev_head_t']
     else:
         trans_to = np.array(p.trans_to, float)
         t = np.eye(4)
@@ -489,16 +513,16 @@ def _load_meg_bads(raw, prebad_file, disp=True, prefix='     ',
 
 def _pos_valid(pos, dist_limit, gof_limit):
     """Check for a usable head position."""
-    return (
-        (np.abs(pos[..., 1:4]).max(axis=-1) <= 1) &  # all abs(quats) <= 1
-        (np.linalg.norm(pos[..., 4:7], axis=-1) <= 10) &  # all pos < 10 m
-        ((pos[..., 1:7] != 0).any(axis=-1)) &  # actual quat+pos
-        (pos[..., 7] >= gof_limit) &  # decent GOF
-        (pos[..., 8] <= dist_limit))  # decent dists
+    a = (np.abs(pos[..., 1:4]).max(axis=-1) <= 1)  # all abs(quats) <= 1
+    b = (np.linalg.norm(pos[..., 4:7], axis=-1) <= 10)  # all pos < 10 m
+    c = ((pos[..., 1:7] != 0).any(axis=-1))  # actual quat+pos
+    d = (pos[..., 7] >= gof_limit)  # decent GOF
+    e = (pos[..., 8] <= dist_limit)  # decent dists
+    return a & b & c & d & e
 
 
 def _get_t_window(p, raw):
-    t_window = p.coil_t_window
+    t_window = p.coil_t_window if p is not None else 'auto'
     if t_window == 'auto':
         from mne.chpi import _get_hpi_info
         hpi_freqs, _, _ = _get_hpi_info(raw.info)
@@ -511,15 +535,22 @@ def _get_t_window(p, raw):
     return t_window
 
 
-def _maxbad(p, subj, raw, bad_file):
+def _maxbad(p, raw, bad_file):
     """Handle Maxfilter bad channels selection prior to SSS."""
     if not op.isfile(bad_file):
         print('        Generating MaxFilter bad file: %s'
               % (op.basename(bad_file),))
         skip_start = raw._first_time
-        skip_stop = skip_start + 30.
-        opts = ('-v -force -badlimit %d -skip %d %d -autobad on'
-                % (p.mf_badlimit, skip_start, skip_stop))
+        opts = ('-v -force -badlimit %d -autobad on -format short'
+                % (p.mf_badlimit,))
+        if raw.times[-1] > 45:
+            skip_stop = skip_start + 30.
+        elif raw.times[-1] > 10:
+            skip_stop = skip_start + 1
+        else:
+            skip_stop = None
+        if skip_stop is not None:
+            opts += ' -skip %d %d' % (skip_start, skip_stop)
         if len(raw.info['bads']) > 0:
             bads = [bad.split('MEG')[1].strip()
                     for bad in raw.info['bads'] if bad.startswith('MEG')]
@@ -542,61 +573,92 @@ def _maxbad(p, subj, raw, bad_file):
             f.write(bads)
 
 
-def _head_pos_annot(p, subj, raw_fname, prefix='  '):
-    """Locate head position estimation file and do annotations."""
-    raw = _read_raw_prebad(p, subj, raw_fname, disp=False)
-    from mne.annotations import _handle_meas_date
-    printed = False
-    if p.movecomp is None:
-        head_pos = None
+def _get_fit_data(raw, p=None, prefix='    '):
+    if hasattr(p, 'tmpdir'):
+        # Make these more tolerant and less frequent for faster runs
+        count_fname = op.join(p.tmpdir, 'temp-counts.h5')
+        locs_fname = op.join(p.tmpdir, 'temp-chpi_locs.h5')
+        pos_fname = op.join(p.tmpdir, 'temp.pos')
     else:
-        t_window = _get_t_window(p, raw)
-        pos_fname = raw_fname[:-4] + '.pos'
-        if not op.isfile(pos_fname):
-            # XXX Someday we can do:
-            # head_pos = _calculate_chpi_positions(
-            #     raw, t_window=t_window, dist_limit=dist_limit)
-            # write_head_positions(pos_fname, head_pos)
-            print('%sEstimating position file %s'
-                  % (prefix, op.basename(pos_fname)))
-            printed = True
+        count_fname = raw.filenames[0][:-4] + '-counts.h5'
+        locs_fname = raw.filenames[0][:-4] + '-chpi_locs.h5'
+        pos_fname = raw.filenames[0][:-4] + '.pos'
+    coil_dist_limit = p.coil_dist_limit
+    coil_gof_limit = p.coil_gof_limit
+    coil_t_step_min = p.coil_t_step_min
+    if any(x is None for x in (p.movecomp, coil_dist_limit)):
+        return None, None
+    t_window = _get_t_window(p, raw)
+
+    # Good to do the fits
+    if not op.isfile(count_fname):
+        fit_t, counts, n_coils, chpi_locs = compute_good_coils(
+            raw, coil_t_step_min, t_window, coil_dist_limit,
+            prefix=prefix, gof_limit=coil_gof_limit, verbose=True)
+        write_hdf5(locs_fname, chpi_locs, title='mnefun')
+        write_hdf5(count_fname,
+                   dict(fit_t=fit_t, counts=counts, n_coils=n_coils,
+                        t_step=coil_t_step_min, t_window=t_window,
+                        coil_dist_limit=coil_dist_limit), title='mnefun')
+    fit_data = read_hdf5(count_fname, 'mnefun')
+    if op.isfile(locs_fname):
+        chpi_locs = read_hdf5(locs_fname, 'mnefun')
+    else:
+        chpi_locs = None
+    for key, val in (('t_step', coil_t_step_min),
+                     ('t_window', t_window),
+                     ('coil_dist_limit', coil_dist_limit)):
+        if fit_data[key] != val:
+            raise RuntimeError('Data mismatch %s (%s != %s), set '
+                               'to match existing file or delete it:\n%s'
+                               % (key, val, fit_data[key], count_fname))
+
+    # head positions
+    if not op.isfile(pos_fname):
+        print('%sEstimating position file %s using %s'
+              % (prefix, op.basename(pos_fname), p.hp_type))
+        if p.hp_type == 'maxfilter':
             opts = ' '.join(bad.strip('MEG').strip()
                             for bad in raw.info['bads']
                             if bad.startswith('MEG'))
             if opts:
                 opts = '-bad ' + opts + ' '
             opts += '-autobad off -force'
-            run_sss_positions(raw_fname, pos_fname,
+            run_sss_positions(raw.filenames[0], pos_fname,
                               host=p.sws_ssh, port=p.sws_port, prefix=prefix,
                               work_dir=p.sws_dir, t_window=t_window,
-                              t_step_min=p.coil_t_step_min, opts=opts,
-                              dist_limit=p.coil_dist_limit)
-        head_pos = read_head_pos(pos_fname)
-        # otherwise we need to go back and fix!
-        assert _pos_valid(head_pos[0], p.coil_dist_limit, 0.98), pos_fname
+                              t_step_min=coil_t_step_min, opts=opts,
+                              dist_limit=coil_dist_limit,
+                              gof_limit=coil_gof_limit)
+        else:
+            assert p.hp_type == 'python'
+            from mne.chpi import compute_head_pos
+            if chpi_locs is None:
+                raise RuntimeError('When using Python mode, delete existing '
+                                   '-annot.fif files so that coil locations '
+                                   'are recomputed')
+            head_pos = compute_head_pos(
+                raw.info, chpi_locs, coil_dist_limit, coil_gof_limit)
+            write_head_pos(pos_fname, head_pos)
+    head_pos = read_head_pos(pos_fname)
 
-    # do the coil counts
-    if any(x is None for x in (head_pos, p.coil_dist_limit)) or \
-            not np.isfinite(p.coil_bad_count_duration_limit):
-        fit_data = None
+    # otherwise we need to go back and fix!
+    assert _pos_valid(head_pos[0], coil_dist_limit, coil_gof_limit), pos_fname
+
+    return fit_data, head_pos
+
+
+def _head_pos_annot(p, subj, raw_fname, prefix='  '):
+    """Locate head position estimation file and do annotations."""
+    raw = _read_raw_prebad(p, subj, raw_fname, disp=False)
+    from mne.annotations import _handle_meas_date
+    printed = False
+    if p is not None and p.movecomp is None:
+        head_pos = fit_data = None
     else:
-        count_fname = raw_fname[:-4] + '-counts.h5'
-        if not op.isfile(count_fname):
-            fit_t, counts, n_coils = compute_good_coils(
-                raw, p.coil_t_step_min, t_window, p.coil_dist_limit,
-                prefix=prefix, verbose=True)
-            write_hdf5(count_fname,
-                       dict(fit_t=fit_t, counts=counts, n_coils=n_coils,
-                            t_step=p.coil_t_step_min, t_window=t_window,
-                            coil_dist_limit=p.coil_dist_limit), title='mnefun')
-        fit_data = read_hdf5(count_fname, 'mnefun')
-        for key, val in (('t_step', p.coil_t_step_min),
-                         ('t_window', t_window),
-                         ('coil_dist_limit', p.coil_dist_limit)):
-            if fit_data[key] != val:
-                raise RuntimeError('Data mismatch %s (%s != %s), set '
-                                   'to match existing file or delete it:\n%s'
-                                   % (key, val, fit_data[key], count_fname))
+        t_window = _get_t_window(p, raw)
+        # do the coil counts
+        fit_data, head_pos = _get_fit_data(raw, p, prefix)
 
     # do the annotations
     annot_fname = raw_fname[:-4] + '-annot.fif'
@@ -837,21 +899,17 @@ def calc_twa_hp(p, subj, out_file, ridx):
     write_info(out_file, info)
 
 
-@verbose
-def compute_good_coils(raw, t_step=0.01, t_window=0.2, dist_limit=0.005,
-                       prefix='', verbose=None):
-    """Comute time-varying coil distances."""
+def _old_chpi_locs(raw, t_step, t_window, prefix):
+    # XXX we can remove this once people are on 0.20+
     from mne.chpi import (_get_hpi_initial_fit, _setup_hpi_struct,
                           _fit_cHPI_amplitudes, _fit_magnetic_dipole)
     hpi_dig_head_rrs = _get_hpi_initial_fit(raw.info, verbose=False)
     n_window = (int(round(t_window * raw.info['sfreq'])) // 2) * 2 + 1
     del t_window
     hpi = _setup_hpi_struct(raw.info, n_window, verbose=False)
-    hpi_coil_dists = cdist(hpi_dig_head_rrs, hpi_dig_head_rrs)
     n_step = int(round(t_step * raw.info['sfreq']))
     del t_step
     starts = np.arange(0, len(raw.times) - n_window // 2, n_step)
-    counts = np.empty(len(starts), int)
     head_dev_t = invert_transform(
         raw.info['dev_head_t'])['trans']
     coil_dev_rrs = apply_trans(head_dev_t, hpi_dig_head_rrs)
@@ -860,6 +918,7 @@ def compute_good_coils(raw, t_step=0.01, t_window=0.2, dist_limit=0.005,
     logger.info('%sComputing %d coil fits in %0.1f ms steps over %0.1f sec'
                 % (prefix, len(starts), (n_step / raw.info['sfreq']) * 1000,
                    raw.times[-1]))
+    times, rrs, gofs = list(), list(), list()
     for ii, start in enumerate(starts):
         time_sl = slice(max(start - n_window // 2, 0), start + n_window // 2)
         t = start / raw.info['sfreq']
@@ -871,7 +930,6 @@ def compute_good_coils(raw, t_step=0.01, t_window=0.2, dist_limit=0.005,
         sin_fit = _fit_cHPI_amplitudes(raw, time_sl, hpi, t, verbose=False)
         # skip this window if it bad.
         if sin_fit is None:
-            counts[ii] = 0
             continue
 
         # check if data has sufficiently changed
@@ -883,7 +941,6 @@ def compute_good_coils(raw, t_step=0.01, t_window=0.2, dist_limit=0.005,
             # check to see if we need to continue
             if corr * corr > 0.98:
                 # don't need to refit data
-                counts[ii] = counts[ii - 1]
                 continue
 
         last_fit = sin_fit.copy()
@@ -896,15 +953,41 @@ def compute_good_coils(raw, t_step=0.01, t_window=0.2, dist_limit=0.005,
                                      hpi['method'], **kwargs)
                 for f, pos in zip(sin_fit, coil_dev_rrs)]
 
-        coil_dev_rrs = np.array([o[0] for o in outs])
+        rr, gof = zip(*outs)
+        rrs.append(rr)
+        gofs.append(gof)
+        times.append(t)
+    return dict(rrs=np.array(rrs, float), gofs=np.array(gofs, float),
+                times=np.array(times, float))
+
+
+@verbose
+def compute_good_coils(raw, t_step=0.01, t_window=0.2, dist_limit=0.005,
+                       prefix='', gof_limit=0.98, verbose=None):
+    """Comute time-varying coil distances."""
+    try:
+        from mne.chpi import compute_chpi_amplitudes, compute_chpi_locs
+    except ImportError:
+        chpi_locs = _old_chpi_locs(raw, t_step, t_window, prefix)
+    else:
+        chpi_amps = compute_chpi_amplitudes(
+            raw, t_step_min=t_step, t_window=t_window)
+        chpi_locs = compute_chpi_locs(raw.info, chpi_amps)
+    from mne.chpi import _get_hpi_initial_fit
+    hpi_dig_head_rrs = _get_hpi_initial_fit(raw.info, verbose=False)
+    hpi_coil_dists = cdist(hpi_dig_head_rrs, hpi_dig_head_rrs)
+
+    counts = np.empty(len(chpi_locs['times']), int)
+    for ii, (t, coil_dev_rrs, gof) in enumerate(zip(
+            chpi_locs['times'], chpi_locs['rrs'], chpi_locs['gofs'])):
         these_dists = cdist(coil_dev_rrs, coil_dev_rrs)
         these_dists = np.abs(hpi_coil_dists - these_dists)
         # there is probably a better algorithm for finding the bad ones...
-        use_mask = np.ones(hpi['n_freqs'], bool)
+        use_mask = gof >= gof_limit
         good = False
         while not good:
             d = these_dists[use_mask][:, use_mask]
-            d_bad = (d > dist_limit)
+            d_bad = d > dist_limit
             good = not d_bad.any()
             if not good:
                 if use_mask.sum() == 2:
@@ -915,8 +998,8 @@ def compute_good_coils(raw, t_step=0.01, t_window=0.2, dist_limit=0.005,
                 exclude_coils = np.where(use_mask)[0][np.argmax(badness)]
                 use_mask[exclude_coils] = False
         counts[ii] = use_mask.sum()
-    t = (starts + n_window // 2) / raw.info['sfreq']
-    return t, counts, len(hpi_dig_head_rrs)
+    t = chpi_locs['times'] - raw.first_samp / raw.info['sfreq']
+    return t, counts, len(hpi_dig_head_rrs), chpi_locs
 
 
 def annotate_head_pos(raw, head_pos, rotation_limit=45, translation_limit=0.1,
@@ -1024,3 +1107,20 @@ def annotate_head_pos(raw, head_pos, rotation_limit=45, translation_limit=0.1,
 
     # Annotate on distance from the sensors
     return annot
+
+
+def check_sws():
+    """Check if SSS workstation is configured correctly."""
+    from . import Params
+    p = Params()  # loads config
+    if p.sws_ssh is None:
+        raise RuntimeError('sws_ssh was not defined in mnefun config file %s'
+                           % (_get_config_file(),))
+    output = run_sss_command(None, '-version', None, host=p.sws_ssh,
+                             work_dir=p.sws_dir, port=p.sws_port,
+                             verbose=False)
+    output = [o.strip() for o in output]
+    if output[0]:
+        print('Output:\n%s' % (output[0].strip('$').strip(),))
+    if output[1]:
+        print('ERRORS:\n%s' % (output[1],))

@@ -46,6 +46,7 @@ numpydoc_xref_ignore = {
 html_favicon = "_static/favicon.ico"
 html_logo = "_static/ilabs.png"
 html_static_path = ['_static']
+html_css_files = ['default.css']
 html_last_updated_fmt = '%b %d, %Y'
 html_use_modindex = False
 html_use_index = False

@@ -49,5 +49,6 @@ if __name__ == "__main__":
         entry_points={'console_scripts': [
             'simulate_movement = mnefun.bin:simulate_movement',
             'plot_chpi_snr = mnefun.bin:plot_chpi_snr',
+            'acq_qa = mnefun.bin:acq_qa',
         ]},
     )
