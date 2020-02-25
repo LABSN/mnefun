@@ -160,7 +160,8 @@ def _report_events(report, fnames, p=None, subj=None):
     captions = list()
     for fname in fnames:
         fname, raw = _check_fname_raw(fname, p, subj)
-        events = find_events(raw, stim_channel='STI101', shortest_event=1)
+        events = find_events(raw, stim_channel='STI101', shortest_event=1,
+                             initial_event=True)
         if len(events) > 0:
             fig = plot_events(events, raw.info['sfreq'], raw.first_samp)
             fig.set_size_inches(10, 4)
