@@ -330,7 +330,7 @@ def _set_static(p):
             'Machine configuration file %s not found, for best compatibility '
             'you should create this file.' % (config_file,))
     for key in key_cast:
-        if getattr(p, key, None):
+        if getattr(p, key, None) is None:
             warnings.warn('Configuration value p.%s was None, remote MaxFilter'
                           ' processing will fail.' % (key,))
 
