@@ -541,7 +541,8 @@ def _maxbad(p, raw, bad_file):
         print('        Generating MaxFilter bad file: %s'
               % (op.basename(bad_file),))
         skip_start = raw._first_time
-        opts = '-v -force -badlimit %d -autobad on' % (p.mf_badlimit,)
+        opts = ('-v -force -badlimit %d -autobad on -format short'
+                % (p.mf_badlimit,))
         if raw.times[-1] > 45:
             skip_stop = skip_start + 30.
         elif raw.times[-1] > 10:
