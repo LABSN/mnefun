@@ -4,10 +4,11 @@
 def _create_flowchart(fname):
     """Run the flow chart generation."""
     import pygraphviz as pgv
-    font_face = 'Arial'
-    node_size = 9
-    node_small_size = 11
-    edge_size = 11
+    font_face = 'sans-serif'
+    node_size = 8
+    node_small_size = 10
+    edge_size = 10
+    margin = '0.1,0.05'
     # (background color, text color)
     acq_color = ('#4477AA', '#000000')
     sss_color = ('#CCBB44', '#000000')
@@ -31,34 +32,38 @@ def _create_flowchart(fname):
     nodes = dict(
         # Input files (presumed to be available / manually created)
         sco='./\nscore.py',
+        mri='structural/mri/T1.mgz',
         bem='structural/bem/\n*-bem-sol.fif',
-        pbd='./subj/raw_fif/\n*_prebad.txt',
-        bad='./subj/bads/\n*_post-sss.txt',
-        tra='./subj/trans/\n*-trans.fif',
+        pbd='./SUBJ/raw_fif/\n*_prebad.txt',
+        bad='./SUBJ/bads/\n*_post-sss.txt',
+        tra='./SUBJ/trans/\n*-trans.fif',
         acq='user@minea\n*_raw.fif',
-        can='./subj/raw_fif/*-custom-annot.fif',
-        pex='./subj/sss_pca_fif/\n*-extra-proj.fif',
+        can='./SUBJ/raw_fif/*-custom-annot.fif',
+        pex='./SUBJ/sss_pca_fif/\n*-extra-proj.fif',
 
         # Files created by various steps
-        mfp='user@kasga:/data00/user/subj/\n*_raw.pos, *_raw_maxbad.txt',
-        aan='./subj/raw_fif/*-annot.fif',
-        cov='./subj/cov/\n*-cov.fif',
-        lst='./subj/lists/\nALL_*-eve.lst',
-        raw='./subj/raw_fif/\n*_raw.fif',
-        sss='./subj/sss_fif/\n*_raw_sss.fif',
-        pca='./subj/sss_pca_fif/\n*_raw_sss.fif',
-        pro='./subj/sss_pca_fif/\n*-proj.fif',
-        evo='./subj/inverse/, ./subj/epochs/\n*-evo.fif, *-epo.fif',
+        mfp='user@kasga:/data00/user/SUBJ/\n*_raw.pos, *_raw_maxbad.txt',
+        aan='./SUBJ/raw_fif/*-annot.fif',
+        cov='./SUBJ/cov/\n*-cov.fif',
+        lst='./SUBJ/lists/\nALL_*-eve.lst',
+        raw='./SUBJ/raw_fif/\n*_raw.fif',
+        sss='./SUBJ/sss_fif/\n*_raw_sss.fif',
+        pca='./SUBJ/sss_pca_fif/\n*_raw_sss.fif',
+        pro='./SUBJ/sss_pca_fif/\n*-proj.fif',
+        evo='./SUBJ/inverse/, ./SUBJ/epochs/\n*-evo.fif, *-epo.fif',
 
-        # epo='./subj/epochs/\nsubj-All-epo.fif',
+        # epo='./SUBJ/epochs/\nsubj-All-epo.fif',
         src='structural/bem/\n*-src.fif',
-        fwd='./subj/forward/\n*-fwd.fif',
-        inv='./subj/inverse/\n*-inv.fif',
-        htm='./subj/\nsubj_fil*_report.html',
+        fwd='./SUBJ/forward/\n*-fwd.fif',
+        inv='./SUBJ/inverse/\n*-inv.fif',
+        htm='./SUBJ/\nsubj_fil*_report.html',
         legend=legend,
     )
 
     edges = (
+        ('mri', 'bem', 'Freesurfer'),
+        ('mri', 'src'),
+        ('mri', 'tra', 'mne coreg'),
         ('acq', 'raw', '1. fetch_raw'),
         ('raw', 'sco'),
         ('sco', 'lst', '2. do_score'),
@@ -89,9 +94,9 @@ def _create_flowchart(fname):
         ('src', 'fwd'),
         ('fwd', 'inv', '10. gen_inv'),
         ('cov', 'inv'),
-        # ('evo', 'htm', 'gen_report'),
-        # ('cov', 'htm', 'gen_report'),
-        # ('bem', 'htm', 'gen_report'),
+        ('evo', 'htm', 'gen_report'),
+        ('cov', 'htm'),
+        ('inv', 'htm'),
     )
 
     grouped_nodes = [
@@ -104,8 +109,10 @@ def _create_flowchart(fname):
                            if not any(node in x[0] for x in grouped_nodes) and
                            node != 'legend'], pipe_color])
 
-    g = pgv.AGraph(name='mnefun flow diagram', directed=True)
-    g.graph_attr['bgcolor'] = '#00000000'
+    g = pgv.AGraph(
+        name='mnefun flow diagram', directed=True,
+        ranksep=0.1, nodesep=0.2, bgcolor='#00000000',
+    )
     for key, label in nodes.items():
         label = label.split('\n')
         if len(label) > 1:
@@ -125,11 +132,13 @@ def _create_flowchart(fname):
         g.add_edge(*edge[:2])
         e = g.get_edge(*edge[:2])
         if len(edge) > 2:
-            e.attr['label'] = '<<B>%s</B>>' % edge[2]
+            e.attr['label'] = edge[2]
             e.attr['labeltooltip'] = edge[2]
-            anchor = edge[2].split(' ')[-1].replace('_', '-')
-            e.attr['URL'] = '../overview.html#' + anchor
-            e.attr['target'] = '_top'
+            if edge[2][0].isnumeric():
+                e.attr['label'] = '<<B>%s</B>>' % (e.attr['label'],)
+                anchor = edge[2].split(' ')[-1].replace('_', '-')
+                e.attr['URL'] = '../overview.html#' + anchor
+                e.attr['target'] = '_top'
         e.attr['fontsize'] = edge_size
 
     # Change colors
@@ -145,8 +154,10 @@ def _create_flowchart(fname):
             x['fontname'] = font_face
             x['fontsize'] = node_size
     g.node_attr['shape'] = 'box'
-    g.node_attr['margin'] = '0.2,0.1'
+    g.node_attr['margin'] = margin
     g.get_node('legend').attr.update(shape='plaintext', margin=0)
-
+    g.add_subgraph(['legend', 'htm'], rank='same')
+    # g.add_subgraph(['acq', 'raw'], rank='same')
+    # g.add_subgraph(['eve', 'aan'], rank='same')
     g.layout('dot')
     g.write(fname)

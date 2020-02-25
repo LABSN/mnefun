@@ -4,8 +4,44 @@
 Overview
 ========
 
-The processing pipeline steps and relationships are given below.
+``mnefun`` is designed to streamline ILABS data processing by automating and
+standardizing data retrieval, remote machine processing (MaxFilter),
+preprocessing steps, and inverse computation.
+
+A critical idea is that, once an experiment is complete, **you or another ILABS
+person should be able to run your analysis script once, from scratch, for all
+subjects**, and end up with all of the basic preprocessed files (evoked,
+epochs, inverse, etc.) you will need for your downstream scripts used for
+publication (stats, etc.).
+
+To achieve ``mnefun``'s reproducibility goal, **it is important
+not to run your processing script by changing parameters for different
+subjects as you process each of them, or by doing steps manually**.
+Where subject-specific values are needed, we can add functionality to allow
+subject-specific values in the script itself, such as ``proj_nums``
+(see below).
+
+.. note::
+
+    The one step that might (somewhat routinely) need to be "worked around" is
+    the data fetching step, which requires that the files on the acquisition
+    machine be named properly, which might not always be the case, for example
+    when:
+
+    - files are named incorrectly (typos, inconsistently) during acquisition
+    - runs are re-executed and saved with a different name
+        (e.g., ``_redo_raw.fif``).
+
+    But this should ideally be the exception and not the rule.
+
+Experiment parameters can be specified using a ``params = Params(...)`` call in
+a script (old way), or by specifying a YAML script with the experiment
+parameters (new way) and using :func:`mnefun.read_params` to load the
+parameters. The processing pipeline steps and relationships are given below.
 All YAML parameters are described in their appropriate sections.
+Consider looking at ``mnefun/examples/funloc`` directory for a canonical
+example of how to process data using mnefun.
+
 
 .. contents:: Contents
    :depth: 3
@@ -16,7 +52,7 @@ Flow chart
 .. graphviz:: _static/flow.dot
 
 Preparing your machine for Maxwell autobad and head position estimation
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-----------------------------------------------------------------------
 Parameters for remotely connecting to SSS workstation ('sws') can be set
 by adding a file ~/.mnefun/mnefun.json with contents like:
 
@@ -140,12 +176,12 @@ on_process : callable
 
 Run SSS processing. This will:
 
-1. Copy each file to the SSS workstation.
+1. Copy each raw file to the SSS workstation.
 2. Automatically determine bad channels (only if ``mf_autobad=True``)
 3. Estimate head positions (remotely if ``hp_type='maxwell'``, otherwise
    locally), see :ref:`preprocessing_hpe`.
 4. Copy the head positions to the local machine.
-5. Delete the file from the remote machine.
+5. Delete generated files from the remote machine.
 6. Annotate bad segments automatically, see :ref:`preprocessing_annotations`.
 7. Add any custom annotations (e.g., for segments that operators want to
    manually mark as bad) that have been saved as ``FILENAME-custom-annot.fif``.
@@ -171,39 +207,14 @@ n_jobs_resample : int | str
     Number of threads to use for resampling. Can also be 'cuda'
     if the system supports CUDA.
 
-.. _preprocessing_bads:
-
-``preprocessing: bads``: Bad-channel parameters
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-Before SSS
-^^^^^^^^^^
+``preprocessing: pre-SSS bads``: Automatic bad channel detection
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 mf_autobad : bool
     Default False. If True use Maxfilter to automatically mark bad
     channels *prior to SSS*.
 mf_badlimit : int
     MaxFilter threshold for noisy channel detection (default is 7).
-
-After SSS (during SSP computation)
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-auto_bad : float | None
-    If not None, bad channels will be automatically excluded after SSS if
-    they disqualify a proportion of events exceeding ``autobad``.
-auto_bad_reject : str | dict | None
-    Default is None. Must be defined if using Autoreject module to
-    compute noisy sensor rejection criteria. Set to 'auto' to compute
-    criteria automatically, or dictionary of channel keys and amplitude
-    values e.g., dict(grad=1500e-13, mag=5000e-15, eeg=150e-6) to define
-    rejection threshold(s). See
-    http://autoreject.github.io/ for details.
-auto_bad_flat : dict | None
-    Flat threshold for auto bad.
-auto_bad_eeg_thresh : float | None
-    Threshold for auto_bad EEG detection.
-auto_bad_meg_thresh : float | None
-    Threshold for auto_bad MEG detection.
 
 .. _preprocessing_hpe:
 
@@ -297,8 +308,8 @@ Fix EEG channel ordering, and also anonymize files.
 .. warning:: Before running SSP, examine SSS'ed files and make
              ``SUBJ/bads/bad_ch_SUBJ_post-sss.txt``; usually, this should only
              contain EEG channels. Alternatively, you can use
-             ``params.auto_bad = True`` to let the ``autoreject`` module
-             compute these for you, see :ref:`preprocessing_bads`.
+             ``params.auto_bad = some_float``, see
+             :ref:`preprocessing_auto_bads`.
 
 Generate SSP vectors. If additional projectors are required (e.g., to get
 rid of muscle movement artifacts in a verbal response paradigm), you can use
@@ -323,6 +334,30 @@ fir_window : str
     See :func:`mne.filter.create_filter`.
 phase : str
     See :func:`mne.filter.create_filter`.
+
+.. _preprocessing_auto_bads:
+
+``preprocessing: post-SSS bads``: Marking bad channels during SSP
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+auto_bad : float | None
+    If not None, bad channels will be automatically excluded after SSS if
+    they disqualify a proportion of events exceeding ``auto_bad``.
+    This does not require the autoreject module.
+auto_bad_reject : str | dict | None
+    Default is None. Must be defined if using Autoreject module to
+    compute noisy sensor rejection criteria. Set to 'auto' to compute
+    criteria automatically, or dictionary of channel keys and amplitude
+    values e.g., dict(grad=1500e-13, mag=5000e-15, eeg=150e-6) to define
+    rejection threshold(s). See
+    http://autoreject.github.io/ for details.
+auto_bad_flat : dict | None
+    Flat threshold for auto bad.
+auto_bad_eeg_thresh : float | None
+    If more than this proportian of EEG channels is automatically marked bad,
+    an error will be raised. This helps ensure that not too many channels
+    are marked as bad.
+auto_bad_meg_thresh : float | None
+    Same as above but for MEG.
 
 ``preprocessing: ssp``: SSP creation parameters
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -368,7 +403,8 @@ eog_thresh : float | dict | None
 proj_ave : bool
     If True, average artifact epochs before computing proj.
 proj_extra : str | None
-    Extra projector filename to load for each subject.
+    Extra projector filename to load for each subject, e.g.
+    ``extra-proj.fif`` will load ``SUBJ/sss_pca_fif/extra-proj.fif``.
 get_projs_from : list of int
     Indices for runs to get projects from.
 cont_lp : float
