@@ -28,11 +28,6 @@ preprocessing:
   bads:
     mf_autobad:
     mf_badlimit:
-    auto_bad:
-    auto_bad_reject:
-    auto_bad_flat:
-    auto_bad_eeg_thresh:
-    auto_bad_meg_thresh:
   head_position_estimation:
     coil_t_window:
     coil_t_step_min:
@@ -69,6 +64,11 @@ preprocessing:
     fir_window:
     phase:
   ssp:
+    auto_bad:
+    auto_bad_reject:
+    auto_bad_flat:
+    auto_bad_eeg_thresh:
+    auto_bad_meg_thresh:
     proj_nums:
     proj_sfreq:
     proj_meg:
