@@ -108,6 +108,7 @@ def _walk_path(path, write_root, quit_on_error):
                 logger.debug(
                     '    Skipping file that cannot be read %s:\n%s',
                     fname, err)
+                os.makedirs(op.dirname(skip_report_fname), exist_ok=True)
                 with open(skip_report_fname, 'w') as fid:
                     fid.write(err)
                 continue
