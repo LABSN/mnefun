@@ -78,7 +78,10 @@ def acq_qa():
 def _check_exclude(path, exclude):
     for e in exclude:
         if e in path:
-            logger.debug('  Skipping %s (exclude %r)' % (path, e))
+            # Only log if it's not in the path (this will show us things are
+            # excluded, otherwise we get messages every file)
+            if e not in op.dirname(path):
+                logger.debug('  Skipping %s (exclude %r)' % (path, e))
             return True
     return False
 
