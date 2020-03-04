@@ -31,20 +31,26 @@ def acq_qa():
     parser.add_argument('--quit', '-q', dest='quit_on_error',
                         action="store_true", help="Quit on error",
                         default=False)
+    parser.add_argument('--level', '-l', dest='level', default='DEBUG,INFO',
+                        help='Comma-separated levels to use for the console '
+                        'stream and log file')
     args = parser.parse_args()
     write_root = op.abspath(op.expanduser(args.write_root))
     full_paths = [os.path.join(os.getcwd(), path) for path in args.path]
 
     # Logging
+    level = args.level
+    assert level.count(',') == 1, level
+    level = level.split(',')
     logger.setLevel(logging.DEBUG)
     log_dir = op.expanduser('~/log')
     os.makedirs(log_dir, exist_ok=True)
     log_fname = op.join(
         log_dir, 'acq_qa_%s.log' % (datetime.now().isoformat(),))
     ch = logging.StreamHandler()
-    ch.setLevel(logging.DEBUG)
+    ch.setLevel(getattr(logging, level[0].upper()))
     fh = logging.FileHandler(log_fname)
-    fh.setLevel(logging.INFO)
+    fh.setLevel(getattr(logging, level[1].upper()))
     exclude = args.exclude.split(',')
     formatter = logging.Formatter('%(asctime)s : %(levelname)s : %(message)s')
     for h in (ch, fh):
@@ -160,7 +166,8 @@ def _generate_report(raw, report_fname, quit_on_error):
             mf_badlimit=7, tmpdir=mne.utils._TempDir(),
             coil_dist_limit=0.01, coil_t_window='auto', coil_gof_limit=0.95,
             coil_t_step_min=0.01, lp_trans=10, lp_cut=40, movecomp=True,
-            hp_type='python', coil_bad_count_duration_limit=np.inf)
+            hp_type='python', coil_bad_count_duration_limit=np.inf,
+            sss_origin='auto')
         maxbad_file = op.join(p.tmpdir, 'maxbad.txt')
         _set_static(p)
         _maxbad(p, raw, maxbad_file)

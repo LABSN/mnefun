@@ -70,7 +70,7 @@ def run_sss(p, subjects, run_indices):
 def run_sss_command(fname_in, options, fname_out, host='kasga', port=22,
                     fname_pos=None, stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE, prefix='', work_dir='~/',
-                    verbose=None):
+                    throw_error=True, verbose=None):
     """Run Maxfilter remotely and fetch resulting file.
 
     Parameters
@@ -94,6 +94,9 @@ def run_sss_command(fname_in, options, fname_out, host='kasga', port=22,
         The text to prefix to messages.
     work_dir : str
         Where to store the temporary files.
+    throw_error : bool
+        If True, throw an error if the command fails. If False,
+        return anyway, including the code.
 
     Returns
     -------
@@ -101,6 +104,8 @@ def run_sss_command(fname_in, options, fname_out, host='kasga', port=22,
         The standard output of the ``maxfilter`` call.
     stderr : str
         The standard error of the ``maxfilter`` call.
+    code : int
+        Only returned if throw_error=False.
     """
     if not isinstance(host, str):
         raise ValueError('host must be a string, got %r' % (host,))
@@ -162,23 +167,27 @@ def run_sss_command(fname_in, options, fname_out, host='kasga', port=22,
     files += [remote_pos] if fname_pos is not None else []
     if files:
         print(', cleaning', end='')
-        cmd = ['ssh', '-p', port, host, 'rm -f ' + ' '.join(files)]
+        clean_cmd = ['ssh', '-p', port, host, 'rm -f ' + ' '.join(files)]
         try:
             run_subprocess(
-                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                clean_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         except Exception:
             pass
     # now throw an error
     if code != 0:
-        print(output)
         if 'maxfilter: command not' in output[1]:
+            print(output)
             raise RuntimeError(
                 '\nMaxFilter could not be run on the remote machine, '
                 'consider adding the following line to your ~/.bashrc on '
                 'the remote machine:\n\n'
                 'export PATH=${PATH}:/neuro/bin/util:/neuro/bin/X11\n')
-        raise subprocess.CalledProcessError(code, cmd)
+        if throw_error:
+            print(output)
+            raise subprocess.CalledProcessError(code, cmd)
     print(' (%i sec)' % (time.time() - t0,))
+    if not throw_error:
+        output = output + (code,)
     return output
 
 
@@ -315,6 +324,16 @@ def _read_raw_prebad(p, subj, fname, disp=True, prefix=' ' * 6):
     return raw
 
 
+def _get_origin(p, raw):
+    if p.sss_origin == 'auto':
+        R, origin = fit_sphere_to_headshape(
+            raw.info, verbose=False, units='m')[:2]
+        kind, extra = 'automatic', ' R=%0.1f' % (1000 * R,)
+    else:
+        kind, extra, origin = 'manual', '', p.sss_origin
+    return origin, kind, extra
+
+
 def run_sss_locally(p, subjects, run_indices):
     """Run SSS locally using maxwell filter in python
 
@@ -365,15 +384,11 @@ def run_sss_locally(p, subjects, run_indices):
                 raise NameError('File not found (' + r + ')')
             raw = _read_raw_prebad(p, subj, r, disp=ii == 0).load_data()
             if ii == 0:
-                if p.sss_origin == 'auto':
-                    R, origin = fit_sphere_to_headshape(
-                        raw.info, verbose=False, units='m')[:2]
-                    kind, extra = 'automatic', ' R=%0.1f' % (1000 * R,)
-                else:
-                    kind, extra, origin = 'manual', '', p.sss_origin
+                origin, kind, extra = _get_origin(p, raw)
                 print('      Using %s origin=[%0.1f, %0.1f, %0.1f]%s mm' %
                       ((kind,) + tuple(1000 * np.array(origin, float)) +
                        (extra,)))
+                del kind, extra
             print('      Processing %s ...' % op.basename(r))
 
             # For the empty room files, mimic the necessary components
@@ -557,10 +572,31 @@ def _maxbad(p, raw, bad_file):
             if len(bads) > 0:
                 opts += ' -bad %s' % (' '.join(bads))
         # print(' (using %s)' % (opts,))
-        output = run_sss_command(raw, opts, None, host=p.sws_ssh,
-                                 work_dir=p.sws_dir, port=p.sws_port,
-                                 prefix=' ' * 10, verbose='error')[0]
-        output = output.splitlines()
+        kwargs = dict(
+            host=p.sws_ssh, work_dir=p.sws_dir, port=p.sws_port,
+            prefix=' ' * 10, verbose='error')
+        if raw.info['dev_head_t'] is None:
+            frame_opts = ' -frame device -origin 0 0 0'
+        else:
+            origin, _, _ = _get_origin(p, raw)
+            frame_opts = (' -frame head -origin %0.1f %0.1f %0.1f'
+                          % tuple(1000 * origin))
+            del origin
+        stdout, err, code = run_sss_command(
+            raw, opts + frame_opts, None, throw_error=False, **kwargs)
+        if code != 0:
+            if 'outside of the helmet' in err and 'head' in frame_opts:
+                warnings.warn('Head origin was outside the helmet, re-running '
+                              'using device origin')
+                frame_opts = ' -frame device -origin 0 0 0'
+                stdout, err = run_sss_command(
+                    raw, opts + frame_opts, None, **kwargs)
+            else:
+                raise RuntimeError(
+                    'Maxbad failed (%d):\nSTDOUT:\n\n%s\n\nSTDERR:\n%s'
+                    % (code, stdout, err))
+        output = stdout.splitlines()
+        del stdout, err, code
         # Parse output for bad channels
         bads = set()
         for line in output:
