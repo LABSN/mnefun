@@ -26,6 +26,8 @@ def acq_qa():
     parser.add_argument('path', nargs='+', help='Path(s) to monitor')
     parser.add_argument('--write-root', '-r', dest='write_root', default='/',
                         help='Root directory for writing the reports')
+    parser.add_argument('--exclude', '-x', dest='exclude', default='',
+                        help='Comma-separated list of patterns to exclude')
     parser.add_argument('--quit', '-q', dest='quit_on_error',
                         action="store_true", help="Quit on error",
                         default=False)
@@ -43,6 +45,7 @@ def acq_qa():
     ch.setLevel(logging.DEBUG)
     fh = logging.FileHandler(log_fname)
     fh.setLevel(logging.INFO)
+    exclude = args.exclude.split(',')
     formatter = logging.Formatter('%(asctime)s : %(levelname)s : %(message)s')
     for h in (ch, fh):
         h.setFormatter(formatter)
@@ -53,7 +56,7 @@ def acq_qa():
     while True:  # this thing runs forever...
         try:
             for path in full_paths:
-                _walk_path(path, write_root, args.quit_on_error)
+                _walk_path(path, write_root, args.quit_on_error, exclude)
             logger.debug('Sleeping for 10 seconds...')
             time.sleep(10.)
         except KeyboardInterrupt:
@@ -66,13 +69,25 @@ def acq_qa():
             return 1
 
 
-def _walk_path(path, write_root, quit_on_error):
+def _check_exclude(path, exclude):
+    for e in exclude:
+        if e in path:
+            logger.debug('  Skipping %s (exclude %r)' % (path, e))
+            return True
+    return False
+
+
+def _walk_path(path, write_root, quit_on_error, exclude):
     logger.debug('Traversing %s' % (path,))
     # The [::-1] here helps ensure that we go in reverse chronological
     # order for empty-room recordings (most recent first)
     for root, dirs, files in sorted(os.walk(path, topdown=True))[::-1]:
+        if _check_exclude(root, exclude):
+            continue
         logger.debug('  %s', root)
         for fname in sorted(files):
+            if _check_exclude(fname, exclude):
+                continue
             # skip if wrong ext
             if not fname.endswith('_raw.fif'):
                 continue
@@ -97,7 +112,7 @@ def _walk_path(path, write_root, quit_on_error):
             mtime = os.path.getmtime(raw_fname)
             delta = time.time() - mtime
             if delta < 10:
-                logger.info('Skipping file modified %0.1f sec ago: %s',
+                logger.info('    Skipping file modified %0.1f sec ago: %s',
                             delta, fname)
             # skip if not a raw instance
             try:
