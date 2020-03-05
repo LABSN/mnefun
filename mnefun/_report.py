@@ -274,6 +274,10 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                                    'exist, missing:\n%s' % fname)
         raw = [_read_raw_prebad(p, subj, fname, False) for fname in fnames]
         _fix_raw_eog_cals(raw, 'all')
+        # Use the union of bads
+        bads = sorted(set(sum((r.info['bads'] for r in raw), [])))
+        for r in raw:
+            r.info['bads'] = bads
         raw = mne.concatenate_raws(raw)
 
         # sss
@@ -694,14 +698,22 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                             p.reject_tmin, p.reject_tmax)
                         clim = source.get('clim', dict(kind='percent',
                                                        lims=[82, 90, 98]))
-                        out = mne.viz._3d._limits_to_control_points(
-                            clim, stc_crop.data, 'viridis',
-                            transparent=True)  # dummy cmap
-                        if isinstance(out[0], (list, tuple, np.ndarray)):
-                            clim = out[0]  # old MNE
+                        try:
+                            func = mne.viz._3d._limits_to_control_points
+                        except AttributeError:  # 0.20+
+                            clim = mne.viz._3d._process_clim(
+                                clim, 'viridis', transparent=True,
+                                data=stc_crop.data)['clim']
                         else:
-                            clim = out[1]  # new MNE (0.17+)
-                        clim = dict(kind='value', lims=clim)
+                            out = func(
+                                clim, stc_crop.data, 'viridis',
+                                transparent=True)  # dummy cmap
+                            if isinstance(out[0], (list, tuple, np.ndarray)):
+                                clim = out[0]  # old MNE
+                            else:
+                                clim = out[1]  # new MNE (0.17+)
+                            del out
+                            clim = dict(kind='value', lims=clim)
                         assert isinstance(stc, (mne.SourceEstimate,
                                                 mne.VolSourceEstimate))
                         bem, _, _, _ = _get_bem_src_trans(
@@ -847,7 +859,7 @@ def _get_cov_name(p, subj, cov_name=None):
             cov_name = new_run + p.pca_extra + p.inv_tag + '-cov.fif'
     if cov_name is not None:
         cov_dir = op.join(p.work_dir, subj, p.cov_dir)
-        cov_name = op.join(cov_dir, cov_name)
+        cov_name = op.join(cov_dir, safe_inserter(cov_name, subj))
         if not op.isfile(cov_name):
             cov_name = None
     return cov_name
