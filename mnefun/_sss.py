@@ -22,7 +22,8 @@ from mne.io import read_raw_fif, BaseRaw, write_info, read_info
 from mne.preprocessing import maxwell_filter
 from mne.transforms import (quat_to_rot, rot_to_quat, invert_transform,
                             apply_trans)
-from mne.utils import _TempDir, run_subprocess, _pl, verbose, logger
+from mne.utils import (_TempDir, run_subprocess, _pl, verbose, logger,
+                       use_log_level)
 
 
 from ._paths import get_raw_fnames, _prebad, _get_config_file
@@ -579,14 +580,15 @@ def _python_autobad(raw, p, skip_start, skip_stop):
     if skip_stop is not None:
         skip_stop = skip_stop - raw._first_time
         raw = raw.crop(skip_stop, None)
-    raw.load_data()
+    with use_log_level(False):
+        raw.load_data().fix_mag_coil_types()
     del skip_stop, skip_start
     orig_bads = raw.info['bads']
     picks_meg = pick_types(raw.info)
     mark_flat(raw, picks=picks_meg, verbose=False)
     flats = [bad for bad in raw.info['bads'] if bad not in orig_bads]
     if raw.info['dev_head_t'] is None:
-        coord_frame, origin = 'device', (0., 0., 0.)
+        coord_frame, origin = 'meg', (0., 0., 0.)
     else:
         coord_frame, origin = 'head', _get_origin(p, raw)[0]
     bads = find_bad_channels_maxwell(
