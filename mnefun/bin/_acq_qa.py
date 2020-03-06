@@ -166,7 +166,7 @@ def _generate_report(raw, report_fname, quit_on_error):
     with report_context():
         import matplotlib.pyplot as plt
         p = mne.utils.Bunch(
-            mf_badlimit=7, mf_badlimit_type='python', hp_type='python',
+            mf_badlimit=7, mf_autobad_type='python', hp_type='python',
             tmpdir=mne.utils._TempDir(),
             coil_dist_limit=0.01, coil_t_window='auto', coil_gof_limit=0.95,
             coil_t_step_min=0.01, lp_trans=10, lp_cut=40, movecomp=True,
