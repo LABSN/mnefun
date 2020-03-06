@@ -51,63 +51,6 @@ Flow chart
 
 .. graphviz:: _static/flow.dot
 
-Preparing your machine for Maxwell autobad and head position estimation
------------------------------------------------------------------------
-Parameters for remotely connecting to SSS workstation ('sws') can be set
-by adding a file ~/.mnefun/mnefun.json with contents like:
-
-.. code-block:: console
-
-    $ mkdir ~/.mnefun
-    $ echo '{"sws_ssh":"kasga", "sws_dir":"/data06/larsoner/sss_work", "sws_port":22}' > ~/.mnefun/mnefun.json
-
-This should be preferred to the old way, which was to set in each script
-when running on your machine::
-
-    params.sws_ssh = 'kasga'
-    params.sws_dir = '/data06/larsoner/sss_work'
-
-.. note:: Head position estimation is now available using
-          ``hp_type='python'``. Automatic bad channel detection like
-          MaxFilter provides will also be available hopefully soon.
-
-Using per-machine config files rather than per-script variables should
-help increase portability of scripts without hurting reproducibility
-(assuming we all use the same version of MaxFilter, which should be a
-safe assumption).
-
-To test that things are configured correctly, you can do:
-
-.. code-block:: console
-
-    $ python -c "import mnefun; mnefun.check_sws()"
-    On kasga: maxfilter -version (0 sec)
-    Output:
-    Revision: 2.2.15 Neuromag maxfilter Dec 11 2012 14:48:44
-
-If you get an error:
-
-1. Ensure that your file is correctly set up in ``~/.mnefun/mnefun.json``.
-   It needs to use standard quotation marks like ``"``, not fancy ones like
-   ``”`` so ensure that your text editor (if you used one) did not use fancy
-   quotation marks.
-2. Ensure that ``maxwell_filter`` is accessible as a command on the remote
-   machine. Log into the remote machine and do:
-
-   .. code-block:: console
-
-       $ which maxfilter
-       /neuro/bin/util/maxfilter
-
-   If you get no output with this command, it means that MaxFilter is not
-   available on your PATH on the remote machine. To fix this, consider adding
-   the following line to the end of your ``~/.bashrc`` on the remote machine:
-
-   .. code-block:: bash
-
-       export PATH=${PATH}:/neuro/bin/util:/neuro/bin/X11
-
-
 Running parameters
 ------------------
 
@@ -211,8 +154,11 @@ n_jobs_resample : int | str
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 mf_autobad : bool
-    Default False. If True use Maxfilter to automatically mark bad
-    channels *prior to SSS*.
+    Default False. If True use Maxwell-filtering-based automatic bad
+    channel detection to mark bad channels *prior to SSS*.
+mf_autobad_type : str
+    Default 'maxwell'. If 'maxwell', use MaxFilter to do automatic detection,
+    if 'python' (preferred) use MNE-Python.
 mf_badlimit : int
     MaxFilter threshold for noisy channel detection (default is 7).
 
@@ -640,3 +586,62 @@ inv_loose_tag : str
     Tag for loose inverse, usually "".
 inv_free_tag : str
     Tag for free orientation inverse, usually "-free".
+
+Preparing your machine for MaxFilter use
+----------------------------------------
+.. warning:: Head position estimation and bad channel detection are now
+             available using ``hp_type='python'`` and
+             ``mf_autobad_type='python``, respectively.
+             These are the preferred processing methods going forward
+             (as of March 2020), and using MaxFilter should be considered
+             deprecated.
+
+Parameters for remotely connecting to SSS workstation ('sws') can be set
+by adding a file ~/.mnefun/mnefun.json with contents like:
+
+.. code-block:: console
+
+    $ mkdir ~/.mnefun
+    $ echo '{"sws_ssh":"kasga", "sws_dir":"/data06/larsoner/sss_work", "sws_port":22}' > ~/.mnefun/mnefun.json
+
+This should be preferred to the old way, which was to set in each script
+when running on your machine::
+
+    params.sws_ssh = 'kasga'
+    params.sws_dir = '/data06/larsoner/sss_work'
+
+Using per-machine config files rather than per-script variables should
+help increase portability of scripts without hurting reproducibility
+(assuming we all use the same version of MaxFilter, which should be a
+safe assumption).
+
+To test that things are configured correctly, you can do:
+
+.. code-block:: console
+
+    $ python -c "import mnefun; mnefun.check_sws()"
+    On kasga: maxfilter -version (0 sec)
+    Output:
+    Revision: 2.2.15 Neuromag maxfilter Dec 11 2012 14:48:44
+
+If you get an error:
+
+1. Ensure that your file is correctly set up in ``~/.mnefun/mnefun.json``.
+   It needs to use standard quotation marks like ``"``, not fancy ones like
+   ``”`` so ensure that your text editor (if you used one) did not use fancy
+   quotation marks.
+2. Ensure that ``maxwell_filter`` is accessible as a command on the remote
+   machine. Log into the remote machine and do:
+
+   .. code-block:: console
+
+       $ which maxfilter
+       /neuro/bin/util/maxfilter
+
+   If you get no output with this command, it means that MaxFilter is not
+   available on your PATH on the remote machine. To fix this, consider adding
+   the following line to the end of your ``~/.bashrc`` on the remote machine:
+
+   .. code-block:: bash
+
+       export PATH=${PATH}:/neuro/bin/util:/neuro/bin/X11

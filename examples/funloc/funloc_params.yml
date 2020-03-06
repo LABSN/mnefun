@@ -25,6 +25,7 @@ preprocessing:
     n_jobs_resample: 1
   bads:
     mf_autobad: True
+    mf_autobad_type: python
   head_position_estimation:
     coil_t_window: auto
   annotations:

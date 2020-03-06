@@ -10,8 +10,7 @@ def _create_flowchart(fname):
     edge_size = 10
     margin = '0.1,0.05'
     # (background color, text color)
-    acq_color = ('#4477AA', '#000000')
-    sss_color = ('#CCBB44', '#000000')
+    acq_color = ('#CCBB44', '#000000')
     user_color = ('#EE6677', '#000000')
     user_opt_color = ('#FFD8DF', '#000000')
     pipe_color = ('#66CCEE', '#000000')
@@ -22,8 +21,7 @@ def _create_flowchart(fname):
 <TR><TD BGCOLOR="%s">    </TD><TD ALIGN="left">Local: obligatory user-created files</TD></TR>
 <TR><TD BGCOLOR="%s">    </TD><TD ALIGN="left">Local: optional user-created files</TD></TR>
 <TR><TD BGCOLOR="%s">    </TD><TD ALIGN="left">Local: pipeline-created files</TD></TR>
-<TR><TD BGCOLOR="%s">    </TD><TD ALIGN="left">Remote: SSS machine (SWS)</TD></TR>
-</TABLE>>""" % (acq_color[0], user_color[0], user_opt_color[0], pipe_color[0], sss_color[0])  # noqa
+</TABLE>>""" % (acq_color[0], user_color[0], user_opt_color[0], pipe_color[0])  # noqa
     legend = ''.join(legend.split('\n'))
 
     # XXX the SVG mouseovers for these are the dict keys. We should make
@@ -32,23 +30,24 @@ def _create_flowchart(fname):
     nodes = dict(
         # Input files (presumed to be available / manually created)
         sco='./\nscore.py',
-        mri='structural/mri/T1.mgz',
+        mri='structural/mri/\nT1.mgz',
         bem='structural/bem/\n*-bem-sol.fif',
         pbd='./SUBJ/raw_fif/\n*_prebad.txt',
         bad='./SUBJ/bads/\n*_post-sss.txt',
         tra='./SUBJ/trans/\n*-trans.fif',
         acq='user@minea\n*_raw.fif',
-        can='./SUBJ/raw_fif/*-custom-annot.fif',
+        can='./SUBJ/raw_fif/\n*-custom-annot.fif',
         pex='./SUBJ/sss_pca_fif/\n*-extra-proj.fif',
 
         # Files created by various steps
-        mfp='user@kasga:/data00/user/SUBJ/\n*_raw.pos, *_raw_maxbad.txt',
-        aan='./SUBJ/raw_fif/*-annot.fif',
+        mfb='./SUBJ/raw_fif/\n*_raw_maxbad.txt',
+        mfp='./SUBJ/raw_fif/\n*_raw.pos',
+        aan='./SUBJ/raw_fif/\n*-annot.fif',
         cov='./SUBJ/cov/\n*-cov.fif',
         lst='./SUBJ/lists/\nALL_*-eve.lst',
         raw='./SUBJ/raw_fif/\n*_raw.fif',
         sss='./SUBJ/sss_fif/\n*_raw_sss.fif',
-        pca='./SUBJ/sss_pca_fif/\n*_raw_sss.fif',
+        pca='./SUBJ/sss_pca_fif/\n*_fil55_raw_sss.fif',
         pro='./SUBJ/sss_pca_fif/\n*-proj.fif',
         evo='./SUBJ/inverse/, ./SUBJ/epochs/\n*-evo.fif, *-epo.fif',
 
@@ -67,11 +66,16 @@ def _create_flowchart(fname):
         ('acq', 'raw', '1. fetch_raw'),
         ('raw', 'sco'),
         ('sco', 'lst', '2. do_score'),
-        ('raw', 'mfp'),
+        ('raw', 'mfb'),
         ('raw', 'pbd'),
-        ('pbd', 'mfp', '3. do_sss'),
+        ('pbd', 'mfb', '3. do_sss'),
+        ('mfb', 'mfp'),
+        ('pbd', 'mfp'),
         ('mfp', 'sss'),
         ('mfp', 'aan'),
+        ('raw', 'sss'),
+        ('pbd', 'sss'),
+        ('mfb', 'sss'),
         ('aan', 'sss'),
         ('raw', 'can'),
         ('can', 'sss'),
@@ -94,7 +98,7 @@ def _create_flowchart(fname):
         ('src', 'fwd'),
         ('fwd', 'inv', '10. gen_inv'),
         ('cov', 'inv'),
-        ('evo', 'htm', 'gen_report'),
+        ('evo', 'htm', '11. gen_report'),
         ('cov', 'htm'),
         ('inv', 'htm'),
     )
@@ -103,7 +107,6 @@ def _create_flowchart(fname):
         [('acq', 'pbd', 'sco', 'tra', 'bad'), user_color],
         [('can', 'pex'), user_opt_color],
         [('acq',), acq_color],
-        [('mfp',), sss_color],
     ]
     grouped_nodes.append([[node for node in nodes.keys()
                            if not any(node in x[0] for x in grouped_nodes) and

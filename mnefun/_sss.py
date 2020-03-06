@@ -13,7 +13,8 @@ from numpy.testing import assert_allclose
 from scipy import linalg
 from scipy.spatial.distance import cdist
 
-from mne import read_trans, Transform, read_annotations, Annotations
+from mne import (read_trans, Transform, read_annotations, Annotations,
+                 pick_types)
 from mne.bem import fit_sphere_to_headshape
 from mne.chpi import read_head_pos, write_head_pos, filter_chpi
 from mne.externals.h5io import read_hdf5, write_hdf5
@@ -427,7 +428,8 @@ def run_sss_locally(p, subjects, run_indices):
             if p.filter_chpi:
                 t0 = time.time()
                 print('        Filtering cHPI signals ... ', end='')
-                raw = filter_chpi(raw, t_window=_get_t_window(p, raw))
+                raw = filter_chpi(
+                    raw, t_window=_get_t_window(p, raw), verbose=False)
                 print('%i sec' % (time.time() - t0,))
 
             # apply maxwell filter
@@ -552,61 +554,101 @@ def _get_t_window(p, raw):
 
 def _maxbad(p, raw, bad_file):
     """Handle Maxfilter bad channels selection prior to SSS."""
-    if not op.isfile(bad_file):
-        print('        Generating MaxFilter bad file: %s'
-              % (op.basename(bad_file),))
-        skip_start = raw._first_time
-        opts = ('-v -force -badlimit %d -autobad on -format short'
-                % (p.mf_badlimit,))
-        if raw.times[-1] > 45:
-            skip_stop = skip_start + 30.
-        elif raw.times[-1] > 10:
-            skip_stop = skip_start + 1
-        else:
-            skip_stop = None
-        if skip_stop is not None:
-            opts += ' -skip %d %d' % (skip_start, skip_stop)
-        if len(raw.info['bads']) > 0:
-            bads = [bad.split('MEG')[1].strip()
-                    for bad in raw.info['bads'] if bad.startswith('MEG')]
-            if len(bads) > 0:
-                opts += ' -bad %s' % (' '.join(bads))
-        # print(' (using %s)' % (opts,))
-        kwargs = dict(
-            host=p.sws_ssh, work_dir=p.sws_dir, port=p.sws_port,
-            prefix=' ' * 10, verbose='error')
-        if raw.info['dev_head_t'] is None:
+    if op.isfile(bad_file):
+        return
+    print('        Generating MaxFilter bad file using %s: %s'
+          % (p.mf_autobad_type, op.basename(bad_file),))
+    skip_start = raw._first_time
+    if raw.times[-1] > 45:
+        skip_stop = skip_start + 30.
+    elif raw.times[-1] > 10:
+        skip_stop = skip_start + 1
+    else:
+        skip_stop = None
+    func = dict(
+        python=_python_autobad, maxfilter=_mf_autobad)[p.mf_autobad_type]
+    bads = func(raw, p, skip_start, skip_stop)
+    bads = ' '.join(['%04d' % (bad,) for bad in sorted(bads)])
+    with open(bad_file, 'w') as f:
+        f.write(bads)
+
+
+def _python_autobad(raw, p, skip_start, skip_stop):
+    from mne.preprocessing import mark_flat, find_bad_channels_maxwell
+    raw = raw.copy()
+    if skip_stop is not None:
+        skip_stop = skip_stop - raw._first_time
+        raw = raw.crop(skip_stop, None)
+    raw.load_data()
+    del skip_stop, skip_start
+    orig_bads = raw.info['bads']
+    picks_meg = pick_types(raw.info)
+    mark_flat(raw, picks=picks_meg, verbose=False)
+    flats = [bad for bad in raw.info['bads'] if bad not in orig_bads]
+    if raw.info['dev_head_t'] is None:
+        coord_frame, origin = 'device', (0., 0., 0.)
+    else:
+        coord_frame, origin = 'head', _get_origin(p, raw)[0]
+    bads = find_bad_channels_maxwell(
+        raw, p.mf_badlimit, origin=origin, coord_frame=coord_frame,
+        verbose=False)
+    assert all(len(bad) in (7, 8) for bad in bads)
+    assert all(bad.startswith('MEG') for bad in bads)
+    bads = sorted(int(bad.lstrip('MEG').lstrip(' ').lstrip('0'))
+                  for bad in (bads + flats))
+    return bads
+
+
+def _mf_autobad(raw, p, skip_start, skip_stop):
+    # Options used that matter for Python equivalence:
+    # -skip, -bad, -frame, -origin
+    opts = ('-v -force -badlimit %d -autobad on -format short'
+            % (p.mf_badlimit,))
+    if skip_stop is not None:
+        opts += ' -skip %d %d' % (skip_start, skip_stop)
+    if len(raw.info['bads']) > 0:
+        bads = [bad.split('MEG')[1].strip()
+                for bad in raw.info['bads'] if bad.startswith('MEG')]
+        if len(bads) > 0:
+            opts += ' -bad %s' % (' '.join(bads))
+    # print(' (using %s)' % (opts,))
+    kwargs = dict(
+        host=p.sws_ssh, work_dir=p.sws_dir, port=p.sws_port,
+        prefix=' ' * 10, verbose='error')
+    if raw.info['dev_head_t'] is None:
+        frame_opts = ' -frame device -origin 0 0 0'
+    else:
+        origin, _, _ = _get_origin(p, raw)
+        frame_opts = (' -frame head -origin %0.1f %0.1f %0.1f'
+                      % tuple(1000 * origin))
+        del origin
+    stdout, err, code = run_sss_command(
+        raw, opts + frame_opts, None, throw_error=False, **kwargs)
+    if code != 0:
+        if 'outside of the helmet' in err and 'head' in frame_opts:
+            warnings.warn('Head origin was outside the helmet, re-running '
+                          'using device origin')
             frame_opts = ' -frame device -origin 0 0 0'
+            stdout, err = run_sss_command(
+                raw, opts + frame_opts, None, **kwargs)
         else:
-            origin, _, _ = _get_origin(p, raw)
-            frame_opts = (' -frame head -origin %0.1f %0.1f %0.1f'
-                          % tuple(1000 * origin))
-            del origin
-        stdout, err, code = run_sss_command(
-            raw, opts + frame_opts, None, throw_error=False, **kwargs)
-        if code != 0:
-            if 'outside of the helmet' in err and 'head' in frame_opts:
-                warnings.warn('Head origin was outside the helmet, re-running '
-                              'using device origin')
-                frame_opts = ' -frame device -origin 0 0 0'
-                stdout, err = run_sss_command(
-                    raw, opts + frame_opts, None, **kwargs)
-            else:
-                raise RuntimeError(
-                    'Maxbad failed (%d):\nSTDOUT:\n\n%s\n\nSTDERR:\n%s'
-                    % (code, stdout, err))
-        output = stdout.splitlines()
-        del stdout, err, code
-        # Parse output for bad channels
-        bads = set()
-        for line in output:
-            if 'Static bad channels' in line:
-                bads = bads.union(line.split(':')[1].strip().split())
-            if 'flat channels:' in line:
-                bads = bads.union(line.split(':')[1].strip().split())
-        bads = ' '.join(sorted([bad.rjust(4, '0') for bad in bads]))
-        with open(bad_file, 'w') as f:
-            f.write(bads)
+            raise RuntimeError(
+                'Maxbad failed (%d):\nSTDOUT:\n\n%s\n\nSTDERR:\n%s'
+                % (code, stdout, err))
+    output = stdout.splitlines()
+    del stdout, err, code
+    # Parse output for bad channels
+    bads = set()
+    for line in output:
+        if 'Static bad channels' in line:
+            bads = bads.union(line.split(':')[1].strip().split())
+        if 'flat channels:' in line:
+            bads = bads.union(line.split(':')[1].strip().split())
+    bads = set(int(bad) for bad in bads)
+    old_bads = [int(bad.lstrip('MEG').lstrip(' ').lstrip('0'))
+                for bad in raw.info['bads'] if bad.startswith('MEG')]
+    bads = bads.difference(set(old_bads))
+    return bads
 
 
 def _get_fit_data(raw, p=None, prefix='    '):
