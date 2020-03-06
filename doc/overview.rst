@@ -597,7 +597,7 @@ Preparing your machine for MaxFilter use
              deprecated.
 
 Parameters for remotely connecting to SSS workstation ('sws') can be set
-by adding a file ~/.mnefun/mnefun.json with contents like:
+by adding a file `~/.mnefun/mnefun.json` with contents like:
 
 .. code-block:: console
 
