@@ -30,7 +30,7 @@ subject-specific values in the script itself, such as ``proj_nums``
 
     - files are named incorrectly (typos, inconsistently) during acquisition
     - runs are re-executed and saved with a different name
-        (e.g., ``_redo_raw.fif``).
+      (e.g., ``_redo_raw.fif``).
 
     But this should ideally be the exception and not the rule.
 
