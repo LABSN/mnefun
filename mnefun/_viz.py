@@ -229,7 +229,7 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics=None, show=True,
     buflen = int(win_length * sfreq)
     if buflen <= 0:
         raise ValueError('Window length should be >0')
-    cfreqs = _get_hpi_info(raw.info)[0]
+    cfreqs = _get_hpi_info(raw.info, verbose=False)[0]
     if verbose:
         print('Nominal cHPI frequencies: %s Hz' % cfreqs)
         print('Sampling frequency: %s Hz' % sfreq)

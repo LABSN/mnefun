@@ -540,7 +540,7 @@ def _get_t_window(p, raw):
     t_window = p.coil_t_window if p is not None else 'auto'
     if t_window == 'auto':
         from mne.chpi import _get_hpi_info
-        hpi_freqs, _, _ = _get_hpi_info(raw.info)
+        hpi_freqs, _, _ = _get_hpi_info(raw.info, verbose=False)
         # Use the longer of 5 cycles and the difference in HPI freqs.
         # This will be 143 ms for 7 Hz spacing (old) and
         # 60 ms for 83 Hz lowest freq.
