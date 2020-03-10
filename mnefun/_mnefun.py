@@ -128,6 +128,7 @@ class Params(Frozen):
         self.epochs_type = epochs_type
         self.fwd_mindist = fwd_mindist
         self.mf_autobad = False
+        self.mf_autobad_type = 'maxfilter'
         self.mf_badlimit = 7
         self.auto_bad = auto_bad
         self.auto_bad_reject = None

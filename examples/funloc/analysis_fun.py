@@ -11,10 +11,10 @@ The experiment was a simple audio/visual oddball detection task. One
 potential purpose would be e.g. functional localization of auditory and
 visual cortices.
 
-Note that you will need to change the "acq_ssh" and "sss_ssh" parameters
+Note that you will need to change the "acq_ssh" parameter
 to reflect your username/password on the relevant machines. You will also
 need to set up public key authentication between your machine and the
-two remote machines (acquisition/minea and SSS/kasga). Tutorial here:
+acquisition machine. Tutorial here:
 
     * https://help.ubuntu.com/community/SSH/OpenSSH/Keys
 
@@ -24,24 +24,6 @@ SUBJECTS_DIR directory:
 
     * http://lester.ilabs.uw.edu/files/AKCLEE_110_slim.tar.gz
 
-Setting up a config file
-------------------------
-Parameters for remotely connecting to SSS workstation ('sws') can be set
-by adding a file ~/.mnefun/mnefun.json with contents like:
-
-    $ mkdir ~/.mnefun
-    $ echo '{"sws_ssh":"kasga","sws_dir":"/data06/larsoner/sss_work","sws_port":22}' > ~/.mnefun/mnefun.json
-
-This should be preferred to the old way, which was to set in each script
-when running on your machine:
-
-    params.sws_ssh = 'kasga'
-    params.sws_dir = '/data06/larsoner/sss_work'
-
-Using per-machine config files rather than per-script variables should
-help increase portability of scripts without hurting reproducibility
-(assuming we all use the same version of MaxFilter, which should be a
-safe assumption).
 """  # noqa: E501
 
 import mnefun

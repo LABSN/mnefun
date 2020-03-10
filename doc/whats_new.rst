@@ -3,14 +3,19 @@ What's new
 
 .. currentmodule:: mnefun
 
+Using the latest features typically require being on an up-to-date ``mnefun``
+master branch and often an up-to-date MNE-Python ``master`` branch.
+
 Changelog
 ~~~~~~~~~
 
 2020
 ^^^^
+- 2020/03/06
+    Added Python-based Maxwell-filter automatic bad channel detection
+    using ``mf_autobad_type='python'``.
 - 2020/02/21
-    Added Python-based head position estimation (when on latest
-    ``mne`` master branch) using ``hp_type='python'``.
+    Added Python-based head position estimation using ``hp_type='python'``.
 - 2020/02/17
     Added automated QA application ``acq_qa`` to monitor
     acquisition directories and generate HTML reports.

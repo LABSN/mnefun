@@ -166,11 +166,11 @@ def _generate_report(raw, report_fname, quit_on_error):
     with report_context():
         import matplotlib.pyplot as plt
         p = mne.utils.Bunch(
-            mf_badlimit=7, tmpdir=mne.utils._TempDir(),
+            mf_badlimit=7, mf_autobad_type='python', hp_type='python',
+            tmpdir=mne.utils._TempDir(),
             coil_dist_limit=0.01, coil_t_window='auto', coil_gof_limit=0.95,
             coil_t_step_min=0.01, lp_trans=10, lp_cut=40, movecomp=True,
-            hp_type='python', coil_bad_count_duration_limit=np.inf,
-            sss_origin='auto')
+            coil_bad_count_duration_limit=np.inf, sss_origin='auto')
         maxbad_file = op.join(p.tmpdir, 'maxbad.txt')
         _set_static(p)
         _maxbad(p, raw, maxbad_file)
