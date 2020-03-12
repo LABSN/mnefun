@@ -591,6 +591,7 @@ def _python_autobad(raw, p, skip_start, skip_stop):
         coord_frame, origin = 'meg', (0., 0., 0.)
     else:
         coord_frame, origin = 'head', _get_origin(p, raw)[0]
+    filter_chpi(raw, t_window=_get_t_window(p, raw), verbose=False)
     bads = find_bad_channels_maxwell(
         raw, p.mf_badlimit, origin=origin, coord_frame=coord_frame,
         verbose=False)
