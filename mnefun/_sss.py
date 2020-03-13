@@ -29,6 +29,8 @@ from mne.utils import (_TempDir, run_subprocess, _pl, verbose, logger,
 from ._paths import get_raw_fnames, _prebad, _get_config_file
 from ._utils import get_args
 
+_data_dir = op.join(op.dirname(__file__), 'data')
+
 
 def run_sss(p, subjects, run_indices):
     """Run SSS preprocessing remotely (only designed for *nix platforms) or
@@ -336,6 +338,18 @@ def _get_origin(p, raw):
     return origin, kind, extra
 
 
+def _get_cal_ct_file(p):
+    if getattr(p, 'cal_file', 'uw') == 'uw':
+        cal_file = op.join(_data_dir, 'sss_cal.dat')
+    else:
+        cal_file = p.cal_file
+    if getattr(p, 'ct_file', 'uw') == 'uw':
+        ct_file = op.join(_data_dir, 'ct_sparse.fif')
+    else:
+        ct_file = p.ct_file
+    return cal_file, ct_file
+
+
 def run_sss_locally(p, subjects, run_indices):
     """Run SSS locally using maxwell filter in python
 
@@ -344,15 +358,7 @@ def run_sss_locally(p, subjects, run_indices):
     mne.preprocessing.maxwell_filter
     """
     from mne.annotations import _handle_meas_date
-    data_dir = op.join(op.dirname(__file__), 'data')
-    if p.cal_file == 'uw':
-        cal_file = op.join(data_dir, 'sss_cal.dat')
-    else:
-        cal_file = p.cal_file
-    if p.ct_file == 'uw':
-        ct_file = op.join(data_dir, 'ct_sparse.fif')
-    else:
-        ct_file = p.ct_file
+    cal_file, ct_file = _get_cal_ct_file(p)
     assert isinstance(p.tsss_dur, float) and p.tsss_dur > 0
     st_duration = p.tsss_dur
     assert (isinstance(p.sss_regularize, str) or
@@ -592,9 +598,11 @@ def _python_autobad(raw, p, skip_start, skip_stop):
     else:
         coord_frame, origin = 'head', _get_origin(p, raw)[0]
     filter_chpi(raw, t_window=_get_t_window(p, raw), verbose=False)
+    cal_file, ct_file = _get_cal_ct_file(p)
     bads = find_bad_channels_maxwell(
         raw, p.mf_badlimit, origin=origin, coord_frame=coord_frame,
-        verbose=False)
+        bad_condition='warning', calibration=cal_file,
+        cross_talk=ct_file, verbose=False)
     assert all(len(bad) in (7, 8) for bad in bads)
     assert all(bad.startswith('MEG') for bad in bads)
     bads = sorted(int(bad.lstrip('MEG').lstrip(' ').lstrip('0'))
