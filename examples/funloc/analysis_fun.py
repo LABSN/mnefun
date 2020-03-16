@@ -22,7 +22,8 @@ The deidentified structural directories for the one subject is needed
 to do the forward and inverse solutions, extract this into your
 SUBJECTS_DIR directory:
 
-    * http://lester.ilabs.uw.edu/files/AKCLEE_110_slim.tar.gz
+    * http://staff.washington.edu/larsoner/AKCLEE_107_slim.tar.gz
+    * http://staff.washington.edu/larsoner/AKCLEE_110_slim.tar.gz
 
 """  # noqa: E501
 
