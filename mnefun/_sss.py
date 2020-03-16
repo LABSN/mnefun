@@ -549,12 +549,16 @@ def _get_t_window(p, raw):
     t_window = p.coil_t_window if p is not None else 'auto'
     if t_window == 'auto':
         from mne.chpi import _get_hpi_info
-        hpi_freqs, _, _ = _get_hpi_info(raw.info, verbose=False)
-        # Use the longer of 5 cycles and the difference in HPI freqs.
-        # This will be 143 ms for 7 Hz spacing (old) and
-        # 60 ms for 83 Hz lowest freq.
-        t_window = max(5. / min(hpi_freqs), 1. / np.diff(hpi_freqs).min())
-        t_window = round(1000 * t_window) / 1000.  # round to ms
+        try:
+            hpi_freqs, _, _ = _get_hpi_info(raw.info, verbose=False)
+        except RuntimeError:
+            t_window = 0.2
+        else:
+            # Use the longer of 5 cycles and the difference in HPI freqs.
+            # This will be 143 ms for 7 Hz spacing (old) and
+            # 60 ms for 83 Hz lowest freq.
+            t_window = max(5. / min(hpi_freqs), 1. / np.diff(hpi_freqs).min())
+            t_window = round(1000 * t_window) / 1000.  # round to ms
     t_window = float(t_window)
     return t_window
 
@@ -597,7 +601,8 @@ def _python_autobad(raw, p, skip_start, skip_stop):
         coord_frame, origin = 'meg', (0., 0., 0.)
     else:
         coord_frame, origin = 'head', _get_origin(p, raw)[0]
-    filter_chpi(raw, t_window=_get_t_window(p, raw), verbose=False)
+    filter_chpi(raw, t_window=_get_t_window(p, raw), allow_line_only=True,
+                verbose=False)
     cal_file, ct_file = _get_cal_ct_file(p)
     bads = find_bad_channels_maxwell(
         raw, p.mf_badlimit, origin=origin, coord_frame=coord_frame,
