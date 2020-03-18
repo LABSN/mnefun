@@ -10,6 +10,7 @@ import time
 import warnings
 
 import numpy as np
+from scipy.signal import find_peaks, peak_prominences
 
 import mne
 from mne import read_proj, read_epochs, find_events
@@ -674,8 +675,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                     assert isinstance(source, dict)
                     analysis = source['analysis']
                     name = source['name']
-                    times = source.get('times', [0.1, 0.2])
-                    # Load the inverse
+                    # Load the necessary data
                     inv_dir = op.join(p.work_dir, subj, p.inverse_dir)
                     fname_inv = op.join(inv_dir,
                                         safe_inserter(source['inv'], subj))
@@ -685,87 +685,105 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                     if not op.isfile(fname_inv):
                         print('    Missing inv: %s'
                               % op.basename(fname_inv), end='')
+                        continue
                     elif not op.isfile(fname_evoked):
                         print('    Missing evoked: %s'
                               % op.basename(fname_evoked), end='')
+                        continue
+                    # Generate the STC
+                    inv = mne.minimum_norm.read_inverse_operator(fname_inv)
+                    this_evoked = mne.read_evokeds(fname_evoked, name)
+                    title = ('%s: %s["%s"] (N=%d)'
+                             % (section, analysis, name, this_evoked.nave))
+                    stc = mne.minimum_norm.apply_inverse(
+                        this_evoked, inv,
+                        lambda2=source.get('lambda2', 1. / 9.),
+                        method=source.get('method', 'dSPM'))
+                    stc = abs(stc)
+                    # get clim using the reject_tmin <->reject_tmax
+                    stc_crop = stc.copy().crop(
+                        p.reject_tmin, p.reject_tmax)
+                    clim = source.get('clim', dict(kind='percent',
+                                                   lims=[82, 90, 98]))
+                    try:
+                        func = mne.viz._3d._limits_to_control_points
+                    except AttributeError:  # 0.20+
+                        clim = mne.viz._3d._process_clim(
+                            clim, 'viridis', transparent=True,
+                            data=stc_crop.data)['clim']
                     else:
-                        inv = mne.minimum_norm.read_inverse_operator(fname_inv)
-                        this_evoked = mne.read_evokeds(fname_evoked, name)
-                        title = ('%s: %s["%s"] (N=%d)'
-                                 % (section, analysis, name, this_evoked.nave))
-                        stc = mne.minimum_norm.apply_inverse(
-                            this_evoked, inv,
-                            lambda2=source.get('lambda2', 1. / 9.),
-                            method=source.get('method', 'dSPM'))
-                        stc = abs(stc)
-                        # get clim using the reject_tmin <->reject_tmax
-                        stc_crop = stc.copy().crop(
-                            p.reject_tmin, p.reject_tmax)
-                        clim = source.get('clim', dict(kind='percent',
-                                                       lims=[82, 90, 98]))
-                        try:
-                            func = mne.viz._3d._limits_to_control_points
-                        except AttributeError:  # 0.20+
-                            clim = mne.viz._3d._process_clim(
-                                clim, 'viridis', transparent=True,
-                                data=stc_crop.data)['clim']
+                        out = func(
+                            clim, stc_crop.data, 'viridis',
+                            transparent=True)  # dummy cmap
+                        if isinstance(out[0], (list, tuple, np.ndarray)):
+                            clim = out[0]  # old MNE
                         else:
-                            out = func(
-                                clim, stc_crop.data, 'viridis',
-                                transparent=True)  # dummy cmap
-                            if isinstance(out[0], (list, tuple, np.ndarray)):
-                                clim = out[0]  # old MNE
-                            else:
-                                clim = out[1]  # new MNE (0.17+)
-                            del out
-                            clim = dict(kind='value', lims=clim)
-                        assert isinstance(stc, (mne.SourceEstimate,
-                                                mne.VolSourceEstimate))
-                        bem, _, _, _ = _get_bem_src_trans(
-                            p, raw.info, subj, struc)
-                        is_usable = (isinstance(stc, mne.SourceEstimate) or
-                                     not bem['is_sphere'])
-                        if not is_usable:
-                            print('Only source estimates with individual '
-                                  'anatomy supported')
-                            break
-                        subjects_dir = mne.utils.get_subjects_dir(
-                            p.subjects_dir, raise_error=True)
-                        kwargs = dict(
-                            colormap=source.get('colormap', 'viridis'),
-                            transparent=source.get('transparent', True),
-                            clim=clim, subjects_dir=subjects_dir)
-                        imgs = list()
-                        size = source.get('size', (800, 600))
-                        if isinstance(stc, mne.SourceEstimate):
-                            with mlab_offscreen():
-                                brain = stc.plot(
-                                    hemi=source.get('hemi', 'split'),
-                                    views=source.get('views', ['lat', 'med']),
-                                    size=size,
-                                    foreground='k', background='w',
-                                    **kwargs)
-                                for t in times:
-                                    brain.set_time(t)
-                                    imgs.append(
-                                        trim_bg(brain.screenshot(), 255))
-                                brain.close()
-                        else:
-                            # XXX eventually plot_volume_source_estimtates
-                            # will have an intial_time arg...
-                            mode = source.get('mode', 'stat_map')
+                            clim = out[1]  # new MNE (0.17+)
+                        del out
+                        clim = dict(kind='value', lims=clim)
+                    assert isinstance(stc, (mne.SourceEstimate,
+                                            mne.VolSourceEstimate))
+                    bem, _, _, _ = _get_bem_src_trans(
+                        p, raw.info, subj, struc)
+                    is_usable = (isinstance(stc, mne.SourceEstimate) or
+                                 not bem['is_sphere'])
+                    if not is_usable:
+                        print('Only source estimates with individual '
+                              'anatomy supported')
+                        break
+                    subjects_dir = mne.utils.get_subjects_dir(
+                        p.subjects_dir, raise_error=True)
+                    kwargs = dict(
+                        colormap=source.get('colormap', 'viridis'),
+                        transparent=source.get('transparent', True),
+                        clim=clim, subjects_dir=subjects_dir)
+                    imgs = list()
+                    size = source.get('size', (800, 600))
+                    # Define the time slices to include
+                    times = source.get('times', [0.1, 0.2])
+                    if isinstance(times, str) and times=='peaks':
+                        data = stc.data
+                        npeaks = max(min(len(data)//3, 5), 1)
+                        # gfp = np.sqrt((data*data).mean(axis=0))
+                        gfp = data.std(axis=0)
+                        peaks = find_peaks(gfp)[0]
+                        prms = peak_prominences(gfp, peaks)[0]
+                        times = peaks[prms.argsort()[::-1]][:npeaks]
+                        times.sort()
+                        if not len(times):  # guarantee at least one point
+                            times = gfp.argmax()
+                        times = stc.times[times]
+                        print('Local peaks calculated at', times, 'sec.')
+                    # Create the STC plots
+                    if isinstance(stc, mne.SourceEstimate):
+                        with mlab_offscreen():
+                            brain = stc.plot(
+                                hemi=source.get('hemi', 'split'),
+                                views=source.get('views', ['lat', 'med']),
+                                size=size,
+                                foreground='k', background='w',
+                                **kwargs)
                             for t in times:
-                                fig = stc.copy().crop(t, t).plot(
-                                    src=inv['src'], mode=mode, show=False,
-                                    **kwargs,
-                                )
-                                fig.set_dpi(100.)
-                                fig.set_size_inches(*(np.array(size) / 100.))
-                                imgs.append(fig)
-                        captions = ['%2.3f sec' % t for t in times]
-                        report.add_slider_to_section(
-                            imgs, captions=captions, section=section,
-                            title=title, image_format='png')
+                                brain.set_time(t)
+                                imgs.append(
+                                    trim_bg(brain.screenshot(), 255))
+                            brain.close()
+                    else:
+                        # XXX eventually plot_volume_source_estimtates
+                        # will have an intial_time arg...
+                        mode = source.get('mode', 'stat_map')
+                        for t in times:
+                            fig = stc.copy().crop(t, t).plot(
+                                src=inv['src'], mode=mode, show=False,
+                                **kwargs,
+                            )
+                            fig.set_dpi(100.)
+                            fig.set_size_inches(*(np.array(size) / 100.))
+                            imgs.append(fig)
+                    captions = ['%2.3f sec' % t for t in times]
+                    report.add_slider_to_section(
+                        imgs, captions=captions, section=section,
+                        title=title, image_format='png')
                 print('%5.1f sec' % ((time.time() - t0),))
             else:
                 print('    %s skipped' % section)
