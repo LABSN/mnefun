@@ -254,6 +254,37 @@ def _report_raw_psd(report, raw, raw_pca=None, p=None):
     print('%5.1f sec' % ((time.time() - t0),))
 
 
+def _peak_times(evoked, max_peaks=5):
+    '''Return times of prominent peaks from global field power.'''
+    gfp_list = []
+    if 'meg' in evoked:
+        evk = evoked.copy().pick_types(meg=True)
+        gfp = evk.data.std(axis=0)
+        gfp_list.append(gfp/gfp.max())
+    if 'eeg' in evoked:
+        evk = evoked.copy().pick_types(meg=False, eeg=True)
+        gfp = evk.data.std(axis=0)
+        gfp_list.append(gfp/gfp.max())
+    if not gfp_list:    # for non-meg/eeg data types
+        gfp = evoked.data.std(axis=0)
+        gfp = gfp/gfp.max()
+    else:
+        gfp = np.array(gfp_list).mean(axis=0)
+                        # no less than 1, no more than max_peaks
+    npeaks = max(min(len(gfp)//3, max_peaks), 1)
+    peaks = find_peaks(gfp)[0]
+    prms = peak_prominences(gfp, peaks)[0]
+    times = peaks[prms.argsort()[::-1]][:npeaks]
+    times.sort()
+    
+    if not len(times):  # guarantee at least 1
+        times = gfp.argmax()
+    times = evoked.times[times]  # convert units to seconds
+    
+    print('Local peak times calculated at', times, 'sec.')
+    return times
+
+
 def gen_html_report(p, subjects, structurals, run_indices=None):
     """Generate HTML reports."""
     import matplotlib.pyplot as plt
@@ -361,7 +392,6 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
             # SSP
             #
             section = 'SSP topomaps'
-
             proj_nums = _handle_dict(p.proj_nums, subj)
             if p.report_params.get('ssp_topomaps', True) and \
                     raw_pca is not None and np.sum(proj_nums) > 0:
@@ -474,6 +504,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                 print('%5.1f sec' % ((time.time() - t0),))
             else:
                 print('    %s skipped' % section)
+            
             #
             # Drop log
             #
@@ -530,6 +561,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                             figs, captions, section=section,
                             image_format='svg')
                 print('%5.1f sec' % ((time.time() - t0),))
+            
             #
             # BEM
             #
@@ -562,7 +594,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                 print('    %s skipped' % section)
 
             #
-            # Whitening
+            # Covariance
             #
             section = 'Covariance'
             if p.report_params.get('covariance', True):
@@ -585,6 +617,9 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
             else:
                 print('    %s skipped' % section)
 
+            #
+            # Whitening
+            #
             section = 'Whitening'
             if p.report_params.get('whitening', False):
                 t0 = time.time()
@@ -628,6 +663,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
             # Sensor space plots
             #
             section = 'Responses'
+            times_memo = dict()     # store for source plots
             if p.report_params.get('sensor', False):
                 t0 = time.time()
                 print(('    %s ... ' % section).ljust(LJUST), end='')
@@ -638,27 +674,30 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                     assert isinstance(sensor, dict)
                     analysis = sensor['analysis']
                     name = sensor['name']
-                    times = sensor.get('times', [0.1, 0.2])
                     fname_evoked = op.join(inv_dir, '%s_%d%s_%s_%s-ave.fif'
                                            % (analysis, p.lp_cut, p.inv_tag,
                                               p.eq_tag, subj))
                     if not op.isfile(fname_evoked):
                         print('    Missing evoked: %s'
                               % op.basename(fname_evoked), end='')
-                    else:
-                        this_evoked = mne.read_evokeds(fname_evoked, name)
-                        figs = this_evoked.plot_joint(
-                            times, show=False, ts_args=dict(**time_kwargs),
-                            topomap_args=dict(outlines='head', **time_kwargs))
-                        if not isinstance(figs, (list, tuple)):
-                            figs = [figs]
-                        captions = ('%s: %s["%s"] (N=%d)'
-                                    % (section, analysis, name,
-                                       this_evoked.nave))
-                        captions = [captions] * len(figs)
-                        report.add_figs_to_section(
-                            figs, captions, section=section,
-                            image_format='png')
+                        continue
+                    this_evoked = mne.read_evokeds(fname_evoked, name)
+                    # Define the time slices to include
+                    times = sensor.get('times', [0.1, 0.2])
+                    if isinstance(times, str) and times=='peaks':                        
+                        times = _peak_times(this_evoked)
+                        times_memo[(fname_evoked,name)] = times
+                    # Plot the responses
+                    figs = this_evoked.plot_joint(
+                        times, show=False, ts_args=dict(**time_kwargs),
+                        topomap_args=dict(outlines='head', **time_kwargs))
+                    if not isinstance(figs, (list, tuple)):
+                        figs = [figs]
+                    captions = ('%s: %s["%s"] (N=%d)'
+                                % (section, analysis, name, this_evoked.nave))
+                    captions = [captions] * len(figs)
+                    report.add_figs_to_section(
+                        figs, captions, section=section, image_format='png')
                 print('%5.1f sec' % ((time.time() - t0),))
 
             #
@@ -700,7 +739,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                         lambda2=source.get('lambda2', 1. / 9.),
                         method=source.get('method', 'dSPM'))
                     stc = abs(stc)
-                    # get clim using the reject_tmin <->reject_tmax
+                    # get clim using the reject_tmin <-> reject_tmax
                     stc_crop = stc.copy().crop(
                         p.reject_tmin, p.reject_tmax)
                     clim = source.get('clim', dict(kind='percent',
@@ -742,18 +781,12 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                     # Define the time slices to include
                     times = source.get('times', [0.1, 0.2])
                     if isinstance(times, str) and times=='peaks':
-                        data = stc.data
-                        npeaks = max(min(len(data)//3, 5), 1)
-                        # gfp = np.sqrt((data*data).mean(axis=0))
-                        gfp = data.std(axis=0)
-                        peaks = find_peaks(gfp)[0]
-                        prms = peak_prominences(gfp, peaks)[0]
-                        times = peaks[prms.argsort()[::-1]][:npeaks]
-                        times.sort()
-                        if not len(times):  # guarantee at least one point
-                            times = gfp.argmax()
-                        times = stc.times[times]
-                        print('Local peaks calculated at', times, 'sec.')
+                        if (fname_evoked, name) in times_memo.keys():
+                            times = times_memo[fname_evoked, name]
+                            print('Local peak times obtained from '
+                                  'sensor analysis.')
+                        else:
+                            times = _peak_times(this_evoked)
                     # Create the STC plots
                     if isinstance(stc, mne.SourceEstimate):
                         with mlab_offscreen():
