@@ -18,7 +18,7 @@ from mne.viz import (plot_projs_topomap, plot_cov, plot_snr_estimate,
                      plot_events)
 from mne.viz._3d import plot_head_positions
 from mne.report import Report
-from mne.utils import _pl
+from mne.utils import _pl, use_log_level
 
 from ._forward import _get_bem_src_trans
 from ._paths import (get_raw_fnames, get_proj_fnames, get_report_fnames,
@@ -550,9 +550,10 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                     else:
                         t0 = time.time()
                         print(('    %s ... ' % section).ljust(LJUST), end='')
-                        report.add_bem_to_section(struc, caption, section,
-                                                  decim=10, n_jobs=1,
-                                                  subjects_dir=subjects_dir)
+                        with use_log_level('error'):
+                            report.add_bem_to_section(
+                                struc, caption, section, decim=10, n_jobs=1,
+                                subjects_dir=subjects_dir)
                         print('%5.1f sec' % ((time.time() - t0),))
                 else:
                     print('    %s skipped (sphere)' % section)
