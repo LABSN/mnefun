@@ -453,7 +453,7 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
     if dates is not None:
         assert len(dates) == n_subj_orig
         dates = [tuple([int(dd) for dd in d]) if d is not None else None
-                 for d in np.array(p.dates)[sinds]]
+                 for d in [p.dates[si] for si in sinds]]
 
     decim = p.decim
     if not isinstance(decim, (list, tuple)):

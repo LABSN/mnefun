@@ -18,7 +18,7 @@ from mne.viz import (plot_projs_topomap, plot_cov, plot_snr_estimate,
                      plot_events)
 from mne.viz._3d import plot_head_positions
 from mne.report import Report
-from mne.utils import _pl
+from mne.utils import _pl, use_log_level
 
 from ._forward import _get_bem_src_trans
 from ._paths import (get_raw_fnames, get_proj_fnames, get_report_fnames,
@@ -174,6 +174,7 @@ def _report_events(report, fnames, p=None, subj=None):
 
 
 def _report_raw_segments(report, raw, lowpass=None):
+    t0 = time.time()
     section = 'Raw segments'
     print(('    %s ... ' % section).ljust(LJUST), end='')
     times = np.linspace(raw.times[0], raw.times[-1], 12)[1:-1]
@@ -209,6 +210,7 @@ def _report_raw_segments(report, raw, lowpass=None):
             figwidth=12)
     fig.subplots_adjust(0.025, 0.0, 1, 1, 0, 0)
     report.add_figs_to_section(fig, section, section, image_format='png')
+    print('%5.1f sec' % ((time.time() - t0),))
 
 
 def _report_raw_psd(report, raw, raw_pca=None, p=None):
@@ -297,7 +299,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
         if all(op.isfile(fname) for fname in pca_fnames):
             raw_pca = [mne.io.read_raw_fif(fname) for fname in pca_fnames]
             _fix_raw_eog_cals(raw_pca, 'all')
-            raw_pca = mne.concatenate_raws(raw_pca)
+            raw_pca = mne.concatenate_raws(raw_pca).apply_proj()
         else:
             raw_pca = None
 
@@ -343,6 +345,8 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
             if p.report_params.get('raw_segments', True) and \
                     raw_pca is not None:
                 _report_raw_segments(report, raw_pca)
+            else:
+                print('    Raw segments skipped')
 
             #
             # PSD
@@ -546,9 +550,10 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                     else:
                         t0 = time.time()
                         print(('    %s ... ' % section).ljust(LJUST), end='')
-                        report.add_bem_to_section(struc, caption, section,
-                                                  decim=10, n_jobs=1,
-                                                  subjects_dir=subjects_dir)
+                        with use_log_level('error'):
+                            report.add_bem_to_section(
+                                struc, caption, section, decim=10, n_jobs=1,
+                                subjects_dir=subjects_dir)
                         print('%5.1f sec' % ((time.time() - t0),))
                 else:
                     print('    %s skipped (sphere)' % section)
