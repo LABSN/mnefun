@@ -260,28 +260,27 @@ def _peak_times(evoked, max_peaks=5):
     if 'meg' in evoked:
         evk = evoked.copy().pick_types(meg=True)
         gfp = evk.data.std(axis=0)
-        gfp_list.append(gfp/gfp.max())
+        gfp_list.append(gfp / gfp.max())
     if 'eeg' in evoked:
         evk = evoked.copy().pick_types(meg=False, eeg=True)
         gfp = evk.data.std(axis=0)
-        gfp_list.append(gfp/gfp.max())
+        gfp_list.append(gfp / gfp.max())
     if not gfp_list:    # for non-meg/eeg data types
         gfp = evoked.data.std(axis=0)
-        gfp = gfp/gfp.max()
+        gfp = gfp / gfp.max()
     else:
         gfp = np.array(gfp_list).mean(axis=0)
-                        # no less than 1, no more than max_peaks
-    npeaks = max(min(len(gfp)//3, max_peaks), 1)
+    npeaks = max(min(len(gfp) // 3, max_peaks), 1) # 1 <= npeaks <= max_peaks
     peaks = find_peaks(gfp)[0]
     prms = peak_prominences(gfp, peaks)[0]
     times = peaks[prms.argsort()[::-1]][:npeaks]
     times.sort()
-    
     if not len(times):  # guarantee at least 1
         times = gfp.argmax()
     times = evoked.times[times]  # convert units to seconds
-    
-    print('Local peak times calculated at', times, 'sec.')
+    # print('Local peak times calculated at', times, 'sec.')
+    print('Auto peak time%s: %s ' % (_pl(times), ','.join('%0.3f'
+          % t for t in times),), end='')
     return times
 
 
@@ -504,7 +503,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                 print('%5.1f sec' % ((time.time() - t0),))
             else:
                 print('    %s skipped' % section)
-            
+
             #
             # Drop log
             #
@@ -561,7 +560,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                             figs, captions, section=section,
                             image_format='svg')
                 print('%5.1f sec' % ((time.time() - t0),))
-            
+
             #
             # BEM
             #
@@ -684,9 +683,9 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                     this_evoked = mne.read_evokeds(fname_evoked, name)
                     # Define the time slices to include
                     times = sensor.get('times', [0.1, 0.2])
-                    if isinstance(times, str) and times=='peaks':                        
+                    if isinstance(times, str) and times == 'peaks':
                         times = _peak_times(this_evoked)
-                        times_memo[(fname_evoked,name)] = times
+                        times_memo[(fname_evoked, name)] = times
                     # Plot the responses
                     figs = this_evoked.plot_joint(
                         times, show=False, ts_args=dict(**time_kwargs),
@@ -780,7 +779,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                     size = source.get('size', (800, 600))
                     # Define the time slices to include
                     times = source.get('times', [0.1, 0.2])
-                    if isinstance(times, str) and times=='peaks':
+                    if isinstance(times, str) and times == 'peaks':
                         if (fname_evoked, name) in times_memo.keys():
                             times = times_memo[fname_evoked, name]
                             print('Local peak times obtained from '
