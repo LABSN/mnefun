@@ -95,6 +95,8 @@ def _walk_path(path, write_root, quit_on_error, exclude, checked):
     for root, dirs, files in sorted(os.walk(path, topdown=True))[::-1]:
         # modifying dirs in-place prunes subsequent files
         dirs[:] = [d for d in dirs if not _check_exclude(d, exclude)]
+        if _check_exclude(root, exclude):
+            continue
         logger.debug('  %s', root)
         logger.debug('  %s', ','.join(dirs))
         for fname in files:
