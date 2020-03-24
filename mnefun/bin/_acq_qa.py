@@ -93,9 +93,10 @@ def _walk_path(path, write_root, quit_on_error, exclude, checked):
     # The [::-1] here helps ensure that we go in reverse chronological
     # order for empty-room recordings (most recent first)
     for root, dirs, files in sorted(os.walk(path, topdown=True))[::-1]:
-        if _check_exclude(root, exclude):
-            continue
+        # modifying dirs in-place prunes subsequent files
+        dirs[:] = [d for d in dirs if not _check_exclude(d)]
         logger.debug('  %s', root)
+        logger.debug('  %s', ','.join(dirs))
         for fname in files:
             if fname in checked:
                 continue
