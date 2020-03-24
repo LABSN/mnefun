@@ -94,7 +94,7 @@ def _walk_path(path, write_root, quit_on_error, exclude, checked):
     # order for empty-room recordings (most recent first)
     for root, dirs, files in sorted(os.walk(path, topdown=True))[::-1]:
         # modifying dirs in-place prunes subsequent files
-        dirs[:] = [d for d in dirs if not _check_exclude(d)]
+        dirs[:] = [d for d in dirs if not _check_exclude(d, exclude)]
         logger.debug('  %s', root)
         logger.debug('  %s', ','.join(dirs))
         for fname in files:
