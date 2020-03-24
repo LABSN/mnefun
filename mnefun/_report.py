@@ -270,7 +270,7 @@ def _peak_times(evoked, max_peaks=5):
         gfp = gfp / gfp.max()
     else:
         gfp = np.array(gfp_list).mean(axis=0)
-    npeaks = max(min(len(gfp) // 3, max_peaks), 1) # 1 <= npeaks <= max_peaks
+    npeaks = max(min(len(gfp) // 3, max_peaks), 1)  # npeaks >=1, <= max_peaks
     peaks = find_peaks(gfp)[0]
     prms = peak_prominences(gfp, peaks)[0]
     times = peaks[prms.argsort()[::-1]][:npeaks]
