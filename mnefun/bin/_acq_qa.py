@@ -59,10 +59,12 @@ def acq_qa():
     if len(full_paths) == 0:
         print('No paths provided, exiting')
         return 1
+    checked = set()
     while True:  # this thing runs forever...
         try:
             for path in full_paths:
-                _walk_path(path, write_root, args.quit_on_error, exclude)
+                _walk_path(path, write_root, args.quit_on_error, exclude,
+                           checked)
             logger.debug('Sleeping for 10 seconds...')
             time.sleep(10.)
         except KeyboardInterrupt:
@@ -86,7 +88,7 @@ def _check_exclude(path, exclude):
     return False
 
 
-def _walk_path(path, write_root, quit_on_error, exclude):
+def _walk_path(path, write_root, quit_on_error, exclude, checked):
     logger.debug('Traversing %s' % (path,))
     # The [::-1] here helps ensure that we go in reverse chronological
     # order for empty-room recordings (most recent first)
@@ -94,7 +96,10 @@ def _walk_path(path, write_root, quit_on_error, exclude):
         if _check_exclude(root, exclude):
             continue
         logger.debug('  %s', root)
-        for fname in sorted(files):
+        for fname in files:
+            if fname in checked:
+                continue
+            checked.add(fname)
             if _check_exclude(fname, exclude):
                 continue
             # skip if wrong ext
