@@ -6,6 +6,7 @@ Monitor acquisition paths for new files and generate reports for them.
 
 import argparse
 from datetime import datetime
+import glob
 import logging
 import os
 import os.path as op
@@ -34,9 +35,12 @@ def acq_qa():
     parser.add_argument('--level', '-l', dest='level', default='DEBUG,INFO',
                         help='Comma-separated levels to use for the console '
                         'stream and log file')
+    parser.add_argument('--sleep', '-s', dest='sleep', default=30.,
+                        type=float, help='Time to sleep (sec)')
     args = parser.parse_args()
     write_root = op.abspath(op.expanduser(args.write_root))
     full_paths = [os.path.join(os.getcwd(), path) for path in args.path]
+    sleep = float(args.sleep)
 
     # Logging
     level = args.level
@@ -52,6 +56,7 @@ def acq_qa():
     fh = logging.FileHandler(log_fname)
     fh.setLevel(getattr(logging, level[1].upper()))
     exclude = args.exclude.split(',')
+    exclude = [] if len(exclude) == 1 and exclude[0] == '' else exclude
     formatter = logging.Formatter('%(asctime)s : %(levelname)s : %(message)s')
     for h in (ch, fh):
         h.setFormatter(formatter)
@@ -65,8 +70,8 @@ def acq_qa():
             for path in full_paths:
                 _walk_path(path, write_root, args.quit_on_error, exclude,
                            checked)
-            logger.debug('Sleeping for 10 seconds...')
-            time.sleep(10.)
+            logger.debug('Sleeping for %s seconds...' % (sleep,))
+            time.sleep(sleep)
         except KeyboardInterrupt:
             logger.info('%s\n\nCaught keyboard interrupt above, exiting '
                         'normally', traceback.format_exc())
@@ -92,65 +97,64 @@ def _walk_path(path, write_root, quit_on_error, exclude, checked):
     logger.debug('Traversing %s' % (path,))
     # The [::-1] here helps ensure that we go in reverse chronological
     # order for empty-room recordings (most recent first)
-    for root, dirs, files in sorted(os.walk(path, topdown=True))[::-1]:
+    for full_fname in glob.glob(path + '/**/*_raw.fif', recursive=True):
         # modifying dirs in-place prunes subsequent files
-        dirs[:] = [d for d in dirs if not _check_exclude(d, exclude)]
+        if full_fname in checked:
+            continue
+        checked.add(full_fname)
+        root, fname = op.dirname(full_fname), op.basename(full_fname)
         if _check_exclude(root, exclude):
             continue
-        logger.debug('  %s', root)
-        logger.debug('  %s', ','.join(dirs))
-        for fname in files:
-            if fname in checked:
-                continue
-            checked.add(fname)
-            if _check_exclude(fname, exclude):
-                continue
-            # skip if wrong ext
-            if not fname.endswith('_raw.fif'):
-                continue
-            # skip if report done
-            report_fname = op.join(
-                write_root + root, op.splitext(fname)[0] + '.html')
-            if op.isfile(report_fname):
-                continue
-            # skip if it has been deemed unreadable previously
-            skip_report_fname = op.join(
-                write_root + root, '.' + op.splitext(fname)[0] + '.html')
-            if op.isfile(skip_report_fname):
-                continue
-            raw_fname = op.join(root, fname)
-            try:
-                os.stat(raw_fname)
-            except FileNotFoundError:
-                # Can happen for links, which can't necessarily be detected
-                # by op.islink
-                continue
-            # skip if modified time is within the last 10 seconds
-            mtime = os.path.getmtime(raw_fname)
-            delta = time.time() - mtime
-            if delta < 10:
-                logger.info('    Skipping file modified %0.1f sec ago: %s',
-                            delta, fname)
-            # skip if not a raw instance
-            try:
-                raw = mne.io.read_raw_fif(
-                    raw_fname, allow_maxshield='yes', verbose=False)
-            except Exception:
-                err = traceback.format_exc()
-                logger.debug(
-                    '    Skipping file that cannot be read %s:\n%s',
-                    fname, err)
-                os.makedirs(op.dirname(skip_report_fname), exist_ok=True)
-                with open(skip_report_fname, 'w') as fid:
-                    fid.write(err)
-                continue
-            del raw_fname
-            # actually generate the report!
-            logger.info('Generating %s' % (report_fname,))
-            _flush_log()
-            _generate_report(raw, report_fname, quit_on_error)
-            logger.info('Done with %s' % (report_fname,))
-            _flush_log()
+        if _check_exclude(fname, exclude):
+            continue
+        # skip if wrong ext
+        if not fname.endswith('_raw.fif'):
+            print('endswith')
+            continue
+        # skip if report done
+        report_fname = op.join(
+            write_root + root, op.splitext(fname)[0] + '.html')
+        if op.isfile(report_fname):
+            continue
+        # skip if it has been deemed unreadable previously
+        skip_report_fname = op.join(
+            write_root + root, '.' + op.splitext(fname)[0] + '.html')
+        if op.isfile(skip_report_fname):
+            continue
+        raw_fname = op.join(root, fname)
+        try:
+            os.stat(raw_fname)
+        except FileNotFoundError:
+            # Can happen for links, which can't necessarily be detected
+            # by op.islink
+            continue
+        # skip if modified time is within the last 10 seconds
+        mtime = os.path.getmtime(raw_fname)
+        delta = time.time() - mtime
+        if delta < 10:
+            logger.info('    Skipping file modified %0.1f sec ago: %s',
+                        delta, fname)
+            checked.remove(full_fname)
+        # skip if not a raw instance
+        try:
+            raw = mne.io.read_raw_fif(
+                raw_fname, allow_maxshield='yes', verbose=False)
+        except Exception:
+            err = traceback.format_exc()
+            logger.debug(
+                '    Skipping file that cannot be read %s:\n%s',
+                fname, err)
+            os.makedirs(op.dirname(skip_report_fname), exist_ok=True)
+            with open(skip_report_fname, 'w') as fid:
+                fid.write(err)
+            continue
+        del raw_fname
+        # actually generate the report!
+        logger.info('Generating %s' % (report_fname,))
+        _flush_log()
+        _generate_report(raw, report_fname, quit_on_error)
+        logger.info('Done with %s' % (report_fname,))
+        _flush_log()
 
 
 def _flush_log():
