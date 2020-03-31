@@ -11,9 +11,9 @@ Changelog
 
 2020
 ^^^^
-- 2020/03/22
+- 2020/04/01
     Added peak-detection capability to reports for the sensor and source
-    sections, using ``times='peaks'``. Peaks are based on evoked gfp.
+    sections, using ``times='peaks'``. Peaks are based on whitened gfps.
 - 2020/03/06
     Added Python-based Maxwell-filter automatic bad channel detection
     using ``mf_autobad_type='python'``.

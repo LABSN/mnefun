@@ -20,6 +20,8 @@ from mne.viz import (plot_projs_topomap, plot_cov, plot_snr_estimate,
 from mne.viz._3d import plot_head_positions
 from mne.report import Report
 from mne.utils import _pl, use_log_level
+from mne.cov import whiten_evoked
+from mne.viz.utils import _triage_rank_sss
 
 from ._forward import _get_bem_src_trans
 from ._paths import (get_raw_fnames, get_proj_fnames, get_report_fnames,
@@ -254,32 +256,41 @@ def _report_raw_psd(report, raw, raw_pca=None, p=None):
     print('%5.1f sec' % ((time.time() - t0),))
 
 
-def _peak_times(evoked, max_peaks=5):
-    '''Return times of prominent peaks from global field power.'''
+def _peak_times(evoked, noise_cov=None, max_peaks=5):
+    '''Return times of prominent peaks from whitened global field power.'''
+    # Whiten evoked data
+    if noise_cov:
+        rank_dict = _triage_rank_sss(evoked.info, [noise_cov])[1][0]
+        evoked = whiten_evoked(evoked, noise_cov, rank=rank_dict)
+        thr = 1
+        wht_str = 'Whitened '
+    else:
+        thr = 0
+        wht_str = ''
+    # Calculate gfps
     gfp_list = []
     if 'meg' in evoked:
         evk = evoked.copy().pick_types(meg=True)
-        gfp = evk.data.std(axis=0)
-        gfp_list.append(gfp / gfp.max())
+        gfp = np.sum(evk.data ** 2, axis=0) / rank_dict['meg']
+        gfp_list.append(gfp)
     if 'eeg' in evoked:
         evk = evoked.copy().pick_types(meg=False, eeg=True)
-        gfp = evk.data.std(axis=0)
-        gfp_list.append(gfp / gfp.max())
+        gfp = np.sum(evk.data ** 2, axis=0) / rank_dict['eeg']
+        gfp_list.append(gfp)
     if not gfp_list:    # for non-meg/eeg data types
-        gfp = evoked.data.std(axis=0)
-        gfp = gfp / gfp.max()
+        gfp = np.mean(evk.data ** 2, axis=0)
     else:
-        gfp = np.array(gfp_list).mean(axis=0)
+        gfp = np.array(gfp_list).sum(axis=0) / len(gfp_list)
+    # Find peaks
     npeaks = max(min(len(gfp) // 3, max_peaks), 1)  # npeaks >=1, <= max_peaks
-    peaks = find_peaks(gfp)[0]
+    peaks = find_peaks(gfp, height=thr)[0]
     prms = peak_prominences(gfp, peaks)[0]
     times = peaks[prms.argsort()[::-1]][:npeaks]
     times.sort()
     if not len(times):  # guarantee at least 1
         times = gfp.argmax()
-    times = evoked.times[times]  # convert units to seconds
-    # print('Local peak times calculated at', times, 'sec.')
-    print('Auto peak time%s: %s ' % (_pl(times), ','.join('%0.3f'
+    times = evoked.times[times]
+    print('%sGFP peak time%s: %s ' % (wht_str, _pl(times), ','.join('%0.3f'
           % t for t in times),), end='')
     return times
 
@@ -524,7 +535,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
             # SNR
             #
             section = 'SNR'
-            if p.report_params.get('snr', None) is not None:
+            if p.report_params.get('snr', None) not in [None, False]:
                 t0 = time.time()
                 print(('    %s ... ' % section).ljust(LJUST), end='')
                 snrs = p.report_params['snr']
@@ -684,7 +695,12 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                     # Define the time slices to include
                     times = sensor.get('times', [0.1, 0.2])
                     if isinstance(times, str) and times == 'peaks':
-                        times = _peak_times(this_evoked)
+                        cov_name = _get_cov_name(p, subj, sensor.get('cov'))
+                        if cov_name is None:
+                            noise_cov = None
+                        else:
+                            noise_cov = mne.read_cov(cov_name)
+                        times = _peak_times(this_evoked, noise_cov)
                         times_memo[(fname_evoked, name)] = times
                     # Plot the responses
                     figs = this_evoked.plot_joint(
@@ -785,7 +801,14 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                             print('Local peak times obtained from '
                                   'sensor analysis.')
                         else:
-                            times = _peak_times(this_evoked)
+                            cov_name = _get_cov_name(p, subj,
+                                                     source.get('cov'))
+                            if cov_name is None:
+                                noise_cov = None
+                            else:
+                                noise_cov = mne.read_cov(cov_name)
+                            times = _peak_times(this_evoked, noise_cov)
+                            times_memo[(fname_evoked, name)] = times
                     # Create the STC plots
                     if isinstance(stc, mne.SourceEstimate):
                         with mlab_offscreen():
