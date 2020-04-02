@@ -26,6 +26,7 @@ preprocessing:
     n_jobs_fir:
     n_jobs_resample:
   bads:
+    prebad:
     mf_autobad:
     mf_autobad_type:
     mf_badlimit:

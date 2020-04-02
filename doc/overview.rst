@@ -65,6 +65,12 @@ subject_indices : list
 disp_files : bool
     Display status.
 
+.. note:: Anywhere a ``dict`` is supported as an option (e.g.,
+          ``prebad`` or ``proj_nums``), a special entry ``'__default__'``
+          can be used turn the dictionary into a
+          :class:`~python:collections.defaultdict` instance.
+          This is useful in cases where a single set of values works for most
+          subjects, but a few need different ones.
 
 1. fetch_raw
 ------------
@@ -155,6 +161,8 @@ n_jobs_resample : int | str
 ``preprocessing: pre-SSS bads``: Automatic bad channel detection
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+prebad : dict
+    Dict with subject keys, with each value being the
 mf_autobad : bool
     Default False. If True use Maxwell-filtering-based automatic bad
     channel detection to mark bad channels *prior to SSS*.
