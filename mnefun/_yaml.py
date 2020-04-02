@@ -1,5 +1,4 @@
 from collections import defaultdict
-import itertools
 import os.path as op
 import sys
 
@@ -104,6 +103,11 @@ def _write_params(fname, p):
 def _yamlize(obj):
     if isinstance(obj, tuple):
         obj = list(obj)
+    elif isinstance(obj, defaultdict):
+        obj = obj.copy()
+        default = obj['__default__']
+        obj = dict(obj)
+        obj['__default__'] = default
     return obj
 
 
