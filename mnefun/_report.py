@@ -260,7 +260,8 @@ def _peak_times(evoked, noise_cov=None, max_peaks=5):
     '''Return times of prominent peaks from whitened global field power.'''
     # Whiten evoked data
     if noise_cov:
-        rank_dict = _triage_rank_sss(evoked.info, [noise_cov])[1][0]
+        with use_log_level('error'):
+            rank_dict = _triage_rank_sss(evoked.info, [noise_cov])[1][0]
         evoked = whiten_evoked(evoked, noise_cov, rank=rank_dict)
         thr = 1
         wht_str = 'Whitened '
