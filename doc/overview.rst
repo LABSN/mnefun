@@ -112,8 +112,10 @@ on_process : callable
 3. do_sss
 ---------
 
-.. warning:: Before running SSS, make ``SUBJ/raw_fif/SUBJ_prebad.txt``
-             with space-separated list of bad MEG channel numbers.
+.. warning:: Before running SSS, set ``params.prebad[SUBJ]`` to a
+             list of bad MEG channel numbers (int), or (old way) create
+             `SUBJ/raw_fif/SUBJ_prebad.txt`` with space-separated list of bad
+             MEG channel numbers.
              Using ``p.mf_autobad=True`` can help fill in missed bad channels,
              but is not as reliable as experienced analyst inspection.
 

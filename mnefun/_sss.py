@@ -315,11 +315,24 @@ def run_sss_positions(fname_in, fname_out, host='kasga', opts='-force',
 
 def _read_raw_prebad(p, subj, fname, disp=True, prefix=' ' * 6):
     """Read SmartShield raw instance and add bads."""
-    prebad_file = _prebad(p, subj)
     raw = read_raw_fif(fname, allow_maxshield='yes')
-    raw.fix_mag_coil_types()
     # First load our manually marked ones (if present)
-    _load_meg_bads(raw, prebad_file, disp=disp, prefix=prefix)
+    prebad = getattr(p, 'prebad', {}).get(subj, None)
+    if prebad is not None:
+        bads = ['MEG%04d' % p for p in prebad]
+        if disp:
+            print('%sMarking %s bad MEG channel%s using params.prebad'
+                  % (prefix, len(bads), _pl(bads)))
+        raw.info['bads'] += bads
+        raw.info._check_consistency()
+    else:
+        prebad_file = _prebad(p, subj)
+        if not op.isfile(prebad_file):  # SSS prebad file
+            raise RuntimeError(
+                'Could not find prebad in params.prebad[%r] or SSS prebad '
+                'file: %s' % (subj, prebad_file))
+        _load_meg_bads(raw, prebad_file, disp=disp, prefix=prefix)
+    raw.fix_mag_coil_types()
     # Next run Maxfilter for automatic bad channel selection
     if p.mf_autobad:
         maxbad_file = op.splitext(fname)[0] + '_maxbad.txt'
