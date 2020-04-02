@@ -105,9 +105,8 @@ def _yamlize(obj):
         obj = list(obj)
     elif isinstance(obj, defaultdict):
         obj = obj.copy()
-        default = obj['__default__']
+        obj['__default__']  # causes the default value to be created here
         obj = dict(obj)
-        obj['__default__'] = default
     return obj
 
 

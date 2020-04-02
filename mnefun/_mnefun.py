@@ -245,7 +245,7 @@ class Params(Frozen):
         self.src = 'oct6'
         self.epochs_prefix = 'All'
         self.reject_epochs_by_annot = True
-        self.prebad = dict()
+        self.mf_prebad = dict()
         self.freeze()
         # Read static-able paraws from config file
         _set_static(self)

@@ -66,7 +66,7 @@ disp_files : bool
     Display status.
 
 .. note:: Anywhere a ``dict`` is supported as an option (e.g.,
-          ``prebad`` or ``proj_nums``), a special entry ``'__default__'``
+          ``mf_prebad`` or ``proj_nums``), a special entry ``'__default__'``
           can be used turn the dictionary into a
           :class:`~python:collections.defaultdict` instance.
           This is useful in cases where a single set of values works for most
@@ -118,7 +118,7 @@ on_process : callable
 3. do_sss
 ---------
 
-.. warning:: Before running SSS, set ``params.prebad[SUBJ]`` to a
+.. warning:: Before running SSS, set ``params.mf_prebad[SUBJ]`` to a
              list of bad MEG channel numbers (int), or (old way) create
              `SUBJ/raw_fif/SUBJ_prebad.txt`` with space-separated list of bad
              MEG channel numbers.
@@ -161,8 +161,9 @@ n_jobs_resample : int | str
 ``preprocessing: pre-SSS bads``: Automatic bad channel detection
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-prebad : dict
-    Dict with subject keys, with each value being the
+mf_prebad : dict
+    Dict with subject keys, with each value being a list of int of bad
+    MEG channels (e.g., ``[121, 1743]``).
 mf_autobad : bool
     Default False. If True use Maxwell-filtering-based automatic bad
     channel detection to mark bad channels *prior to SSS*.

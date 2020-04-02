@@ -317,11 +317,11 @@ def _read_raw_prebad(p, subj, fname, disp=True, prefix=' ' * 6):
     """Read SmartShield raw instance and add bads."""
     raw = read_raw_fif(fname, allow_maxshield='yes')
     # First load our manually marked ones (if present)
-    prebad = getattr(p, 'prebad', {}).get(subj, None)
-    if prebad is not None:
-        bads = ['MEG%04d' % p for p in prebad]
+    mf_prebad = getattr(p, 'mf_prebad', {}).get(subj, None)
+    if mf_prebad is not None:
+        bads = ['MEG%04d' % p for p in mf_prebad]
         if disp:
-            print('%sMarking %s bad MEG channel%s using params.prebad'
+            print('%sMarking %s bad MEG channel%s using params.mf_prebad'
                   % (prefix, len(bads), _pl(bads)))
         raw.info['bads'] += bads
         raw.info._check_consistency()
@@ -329,7 +329,7 @@ def _read_raw_prebad(p, subj, fname, disp=True, prefix=' ' * 6):
         prebad_file = _prebad(p, subj)
         if not op.isfile(prebad_file):  # SSS prebad file
             raise RuntimeError(
-                'Could not find prebad in params.prebad[%r] or SSS prebad '
+                'Could not find prebad in params.mf_prebad[%r] or SSS prebad '
                 'file: %s' % (subj, prebad_file))
         _load_meg_bads(raw, prebad_file, disp=disp, prefix=prefix)
     raw.fix_mag_coil_types()

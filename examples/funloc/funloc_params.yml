@@ -24,6 +24,10 @@ preprocessing:
     n_jobs_fir: 1
     n_jobs_resample: 1
   bads:
+    mf_prebad: {
+      __default__: [743, 1442],
+      subj_01: [422, 743, 2011, 2532],
+      }
     mf_autobad: True
     mf_autobad_type: python
   head_position_estimation:
@@ -40,10 +44,6 @@ preprocessing:
     tsss_dur: 60.
     st_correlation: 0.98
     trans_to: twa
-    prebad: {
-      __default__: [743, 1442],
-      subj_01: [422, 743, 2011, 2532],
-      }
   filtering:
     lp_cut: 50
     lp_trans: 10
