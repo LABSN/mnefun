@@ -799,8 +799,6 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                     if isinstance(times, str) and times == 'peaks':
                         if (fname_evoked, name) in times_memo.keys():
                             times = times_memo[fname_evoked, name]
-                            print('Local peak times obtained from '
-                                  'sensor analysis.')
                         else:
                             cov_name = _get_cov_name(p, subj,
                                                      source.get('cov'))
