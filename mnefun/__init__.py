@@ -15,7 +15,8 @@ from ._sss import run_sss_command, run_sss_positions, info_sss_basis, \
 from ._viz import plot_reconstruction, plot_chpi_snr_raw, plot_good_coils, \
     clean_brain, plot_colorbar, discretize_cmap
 from ._utils import make_montage, compute_auc
-from ._stats import anova_time
+from ._stats import (anova_time, hotelling_t2, hotelling_t2_baseline,
+                     partial_conjunction)
 from ._viz import trim_bg
 from ._yaml import read_params
 
