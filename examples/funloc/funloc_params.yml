@@ -25,8 +25,8 @@ preprocessing:
     n_jobs_resample: 1
   bads:
     mf_prebad: {
-      __default__: [743, 1442],
-      subj_01: [422, 743, 2011, 2532],
+      __default__: ['MEG0743', 'MEG1442'],
+      subj_01: ['MEG0422', 'MEG0743', 'MEG2011', 'MEG2532'],
       }
     mf_autobad: True
     mf_autobad_type: python

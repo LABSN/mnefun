@@ -119,9 +119,9 @@ on_process : callable
 ---------
 
 .. warning:: Before running SSS, set ``params.mf_prebad[SUBJ]`` to a
-             list of bad MEG channel numbers (int), or (old way) create
+             list of bad MEG channels (str), or (old way) create
              `SUBJ/raw_fif/SUBJ_prebad.txt`` with space-separated list of bad
-             MEG channel numbers.
+             MEG channel numbers (int).
              Using ``p.mf_autobad=True`` can help fill in missed bad channels,
              but is not as reliable as experienced analyst inspection.
 
@@ -162,8 +162,8 @@ n_jobs_resample : int | str
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 mf_prebad : dict
-    Dict with subject keys, with each value being a list of int of bad
-    MEG channels (e.g., ``[121, 1743]``).
+    Dict with subject keys, with each value being a list of str of bad
+    MEG channels (e.g., ``['MEG0121', 'MEG1743']``).
 mf_autobad : bool
     Default False. If True use Maxwell-filtering-based automatic bad
     channel detection to mark bad channels *prior to SSS*.

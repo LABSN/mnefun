@@ -317,13 +317,28 @@ def _read_raw_prebad(p, subj, fname, disp=True, prefix=' ' * 6):
     """Read SmartShield raw instance and add bads."""
     raw = read_raw_fif(fname, allow_maxshield='yes')
     # First load our manually marked ones (if present)
-    mf_prebad = getattr(p, 'mf_prebad', {}).get(subj, None)
+    try:
+        # can't use p.mf_prebad.get when mf_prebad is a defaultdict as it won't
+        # use the default_factory, we need to explicitly use __getitem__:
+        mf_prebad = getattr(p, 'mf_prebad', {})[subj]
+    except KeyError:
+        mf_prebad = None
     if mf_prebad is not None:
-        bads = ['MEG%04d' % p for p in mf_prebad]
+        meg_picks = pick_types(raw.info, meg=True, exclude=())
+        name = 'mf_prebad[%r]' % (subj,)
+        for b in mf_prebad:
+            expl = '%r in %s' % (b, name)
+            try:
+                pick = raw.ch_names.index(b)
+            except ValueError:
+                raise RuntimeError('%s is not a valid channel name in '
+                                   'raw.ch_names' % (expl,))
+            if pick not in meg_picks:
+                raise ValueError('%s is not an MEG channel' % (expl,))
         if disp:
-            print('%sMarking %s bad MEG channel%s using params.mf_prebad'
-                  % (prefix, len(bads), _pl(bads)))
-        raw.info['bads'] += bads
+            print('%sMarking %s bad MEG channel%s using %s'
+                  % (prefix, len(mf_prebad), _pl(mf_prebad), name))
+        raw.info['bads'] = list(mf_prebad)
         raw.info._check_consistency()
     else:
         prebad_file = _prebad(p, subj)
@@ -580,7 +595,7 @@ def _maxbad(p, raw, bad_file):
     """Handle Maxfilter bad channels selection prior to SSS."""
     if op.isfile(bad_file):
         return
-    print('        Generating MaxFilter bad file using %s: %s'
+    print('        Generating Maxwell bad file using %s: %s'
           % (p.mf_autobad_type, op.basename(bad_file),))
     skip_start = raw._first_time
     if raw.times[-1] > 45:
@@ -592,13 +607,16 @@ def _maxbad(p, raw, bad_file):
     func = dict(
         python=_python_autobad, maxfilter=_mf_autobad)[p.mf_autobad_type]
     bads = func(raw, p, skip_start, skip_stop)
-    bads = ' '.join(['%04d' % (bad,) for bad in sorted(bads)])
+    assert isinstance(bads, list)
+    assert all(isinstance(b, str) for b in bads)
+    assert all(b in raw.ch_names for b in bads)
     with open(bad_file, 'w') as f:
-        f.write(bads)
+        f.write('\n'.join(bads))
 
 
 def _python_autobad(raw, p, skip_start, skip_stop):
     from mne.preprocessing import mark_flat, find_bad_channels_maxwell
+    orig_bads = list(raw.info['bads'])
     raw = raw.copy()
     if skip_stop is not None:
         skip_stop = skip_stop - raw._first_time
@@ -606,10 +624,8 @@ def _python_autobad(raw, p, skip_start, skip_stop):
     with use_log_level(False):
         raw.load_data().fix_mag_coil_types()
     del skip_stop, skip_start
-    orig_bads = raw.info['bads']
     picks_meg = pick_types(raw.info)
     mark_flat(raw, picks=picks_meg, verbose=False)
-    flats = [bad for bad in raw.info['bads'] if bad not in orig_bads]
     if raw.info['dev_head_t'] is None:
         coord_frame, origin = 'meg', (0., 0., 0.)
     else:
@@ -621,11 +637,7 @@ def _python_autobad(raw, p, skip_start, skip_stop):
         raw, p.mf_badlimit, origin=origin, coord_frame=coord_frame,
         bad_condition='warning', calibration=cal_file,
         cross_talk=ct_file, verbose=False)
-    bads += flats
-    assert all(len(bad) in (7, 8) for bad in bads)
-    assert all(bad.startswith('MEG') for bad in bads)
-    bads = sorted(int(bad.lstrip('MEG').lstrip(' ').lstrip('0'))
-                  for bad in (bads + flats))
+    bads = sorted(b for b in (bads + flats) if b not in orig_bads)
     return bads
 
 
@@ -674,10 +686,9 @@ def _mf_autobad(raw, p, skip_start, skip_stop):
             bads = bads.union(line.split(':')[1].strip().split())
         if 'flat channels:' in line:
             bads = bads.union(line.split(':')[1].strip().split())
-    bads = set(int(bad) for bad in bads)
-    old_bads = [int(bad.lstrip('MEG').lstrip(' ').lstrip('0'))
-                for bad in raw.info['bads'] if bad.startswith('MEG')]
-    bads = bads.difference(set(old_bads))
+    bads = set('MEG%04d' % b for b in bads)
+    old_bads = set(bad for bad in raw.info['bads'] if bad.startswith('MEG'))
+    bads = sorted(bads.difference(set(old_bads)))
     return bads
 
 
