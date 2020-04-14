@@ -70,7 +70,14 @@ disp_files : bool
           can be used turn the dictionary into a
           :class:`~python:collections.defaultdict` instance.
           This is useful in cases where a single set of values works for most
-          subjects, but a few need different ones.
+          subjects, but a few need different ones. For example in YAML form:
+
+          .. code-block:: YAML
+
+              proj_nums: {
+                __default__: [[2, 2, 0], [1, 1, 2], [0, 0, 0]],
+                subj_08: [[2, 2, 0], [1, 1, 3], [0, 0, 0]],
+                }
 
 1. fetch_raw
 ------------
