@@ -65,6 +65,19 @@ subject_indices : list
 disp_files : bool
     Display status.
 
+.. note:: Anywhere a ``dict`` is supported as an option (e.g.,
+          ``mf_prebad`` or ``proj_nums``), a special entry ``'__default__'``
+          can be used turn the dictionary into a
+          :class:`~python:collections.defaultdict` instance.
+          This is useful in cases where a single set of values works for most
+          subjects, but a few need different ones. For example in YAML form:
+
+          .. code-block:: YAML
+
+              proj_nums: {
+                __default__: [[2, 2, 0], [1, 1, 2], [0, 0, 0]],
+                subj_08: [[2, 2, 0], [1, 1, 3], [0, 0, 0]],
+                }
 
 1. fetch_raw
 ------------
@@ -112,8 +125,10 @@ on_process : callable
 3. do_sss
 ---------
 
-.. warning:: Before running SSS, make ``SUBJ/raw_fif/SUBJ_prebad.txt``
-             with space-separated list of bad MEG channel numbers.
+.. warning:: Before running SSS, set ``params.mf_prebad[SUBJ]`` to a
+             list of bad MEG channels (str), or (old way) create
+             `SUBJ/raw_fif/SUBJ_prebad.txt`` with space-separated list of bad
+             MEG channel numbers (int).
              Using ``p.mf_autobad=True`` can help fill in missed bad channels,
              but is not as reliable as experienced analyst inspection.
 
@@ -153,6 +168,9 @@ n_jobs_resample : int | str
 ``preprocessing: pre-SSS bads``: Automatic bad channel detection
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+mf_prebad : dict
+    Dict with subject keys, with each value being a list of str of bad
+    MEG channels (e.g., ``['MEG0121', 'MEG1743']``).
 mf_autobad : bool
     Default False. If True use Maxwell-filtering-based automatic bad
     channel detection to mark bad channels *prior to SSS*.

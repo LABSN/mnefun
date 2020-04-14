@@ -14,8 +14,10 @@ def test_params_io(tmpdir, fname):
     import yaml
     assert op.isfile(fname)
     p = read_params(fname)
+    assert '__default__' not in p.mf_prebad
     temp_fname = str(tmpdir.join('test.yml'))
     p.save(temp_fname)
+    assert '__default__' not in p.mf_prebad
 
     # Look at our objects
     p2 = read_params(temp_fname)

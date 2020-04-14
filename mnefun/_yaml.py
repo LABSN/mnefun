@@ -1,3 +1,4 @@
+from collections import defaultdict
 import os.path as op
 import sys
 
@@ -42,6 +43,10 @@ def _get_params_keys(p):
     return key_set
 
 
+def _constant_factory(value):
+    return lambda: value
+
+
 def read_params(fname):
     """Create Params from a YAML file.
 
@@ -59,6 +64,9 @@ def read_params(fname):
     params = Params()
     attrs = _flat_params_read(fname)
     for key, val in attrs.items():
+        if isinstance(val, dict) and '__default__' in val:
+            default = val.pop('__default__')
+            val = defaultdict(_constant_factory(default), **val)
         setattr(params, key, val)
     return params
 
@@ -95,6 +103,10 @@ def _write_params(fname, p):
 def _yamlize(obj):
     if isinstance(obj, tuple):
         obj = list(obj)
+    elif isinstance(obj, defaultdict):
+        obj = obj.copy()
+        obj['__default__']  # causes the default value to be created here
+        obj = dict(obj)
     return obj
 
 

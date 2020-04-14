@@ -32,7 +32,7 @@ def _create_flowchart(fname):
         sco='./\nscore.py',
         mri='structural/mri/\nT1.mgz',
         bem='structural/bem/\n*-bem-sol.fif',
-        pbd='./SUBJ/raw_fif/\n*_prebad.txt',
+        pbd='params.mf_prebad[SUBJ]',
         bad='./SUBJ/bads/\n*_post-sss.txt',
         tra='./SUBJ/trans/\n*-trans.fif',
         acq='user@minea\n*_raw.fif',

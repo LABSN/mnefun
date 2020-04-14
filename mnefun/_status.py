@@ -6,7 +6,7 @@ from os import path as op
 
 from .externals import tabulate
 from ._paths import (get_raw_fnames, get_event_fnames, get_cov_fwd_inv_fnames,
-                     get_epochs_evokeds_fnames, get_report_fnames)
+                     get_epochs_evokeds_fnames, get_report_fnames, _prebad)
 from ._fix import _all_files_fixed
 
 # make our table tighter
@@ -14,12 +14,12 @@ tabulate.MIN_PADDING = 0
 
 
 def _have_all(fnames):
-    """Check to make sure all files exist"""
+    """Check to make sure all files exist."""
     return all(op.isfile(fname) for fname in fnames)
 
 
 def print_proc_status(p, subjects, structurals, analyses, run_indices):
-    """Print status update"""
+    """Print status update."""
     steps_all = []
     status_mapping = dict(missing=' ',
                           complete='X',
@@ -42,7 +42,7 @@ def print_proc_status(p, subjects, structurals, analyses, run_indices):
             do_score = 'complete'
 
         # check if prebads created
-        if op.isfile(op.join(subj, 'raw_fif', subj + '_prebad.txt')):
+        if subj in p.prebad or op.isfile(_prebad(p, subj)):
             prebads = 'complete'
 
         # check if coreg has been done

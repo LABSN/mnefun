@@ -233,10 +233,7 @@ def get_bad_fname(p, subj, check_exists=True):
 
 def _prebad(p, subj):
     """File containing bad channels during acq."""
-    prebad_file = op.join(p.work_dir, subj, p.raw_dir, subj + '_prebad.txt')
-    if not op.isfile(prebad_file):  # SSS prebad file
-        raise RuntimeError('Could not find SSS prebad file: %s' % prebad_file)
-    return prebad_file
+    return op.join(p.work_dir, subj, p.raw_dir, subj + '_prebad.txt')
 
 
 def _is_dir(d):
