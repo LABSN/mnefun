@@ -89,22 +89,18 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
         evoked_dir = op.join(p.work_dir, subj, p.inverse_dir)
         if not op.isdir(evoked_dir):
             os.mkdir(evoked_dir)
-
         # read in raw files
         raw_names = get_raw_fnames(p, subj, 'pca', False, False,
                                    run_indices[si])
-        # read in events
         first_samps = []
         last_samps = []
         for raw_fname in raw_names:
             raw = read_raw_fif(raw_fname, preload=False)
             first_samps.append(raw._first_samps[0])
             last_samps.append(raw._last_samps[-1])
-        # read in raw files
         raw = [read_raw_fif(fname, preload=False) for fname in raw_names]
         _fix_raw_eog_cals(raw)  # EOG epoch scales might be bad!
         raw = concatenate_raws(raw)
-
         # read in events
         events = _read_events(p, subj, run_indices[si], raw)
         new_sfreq = raw.info['sfreq'] / decim[si]
@@ -149,7 +145,7 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
             write_hdf5(hdf5_file, use_reject, overwrite=True)
         else:
             use_reject = _handle_dict(p.reject, subj)
-
+        # create epochs
         flat = _handle_dict(p.flat, subj)
         use_reject, use_flat = _restrict_reject_flat(use_reject, flat, raw)
         epochs = Epochs(raw, events, event_id=old_dict, tmin=p.tmin,

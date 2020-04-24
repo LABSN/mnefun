@@ -121,6 +121,7 @@ def gen_covariances(p, subjects, run_indices, decim):
                 ridx = inv_run
             else:
                 ridx = np.intersect1d(run_indices[si], inv_run)
+            # read in raw files
             raw_fnames = get_raw_fnames(p, subj, 'pca', False, False, ridx)
 
             raws = []
@@ -132,6 +133,7 @@ def gen_covariances(p, subjects, run_indices, decim):
                 last_samps.append(raws[-1]._last_samps[-1])
             _fix_raw_eog_cals(raws)  # safe b/c cov only needs MEEG
             raw = concatenate_raws(raws)
+            # read in events
             events = _read_events(p, subj, ridx, raw)
             if p.pick_events_cov is not None:
                 old_count = sum(len(e) for e in events)
@@ -143,6 +145,7 @@ def gen_covariances(p, subjects, run_indices, decim):
                 new_count = len(events)
                 print('  Using %s/%s events for %s'
                       % (new_count, old_count, op.basename(cov_name)))
+            # create epochs
             use_reject, use_flat = _restrict_reject_flat(reject, flat, raw)
             baseline = _get_baseline(p)
             epochs = Epochs(raw, events, event_id=None, tmin=baseline[0],
