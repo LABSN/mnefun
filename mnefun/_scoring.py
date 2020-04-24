@@ -114,7 +114,7 @@ def _read_events(p, subj, ridx, raw):
             raise RuntimeError('Non-unique event samples found in %s'
                                % (fname,))
         events.append(these_events)
-    if len(events)==1 and len(raw._first_samps)>1:  # for split raw
+    if len(events) == 1 and len(raw._first_samps) > 1:  # for split raw
         first_samps = np.array(raw._first_samps[0], ndmin=1)
         last_samps = np.array(raw._last_samps[-1], ndmin=1)
     else:
