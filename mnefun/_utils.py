@@ -49,12 +49,15 @@ def _cals(raw):
 
 def _get_baseline(p):
     """Helper to extract baseline from params."""
-    if p.baseline == 'individual':
+    if p.baseline is None:
+        return p.baseline
+    elif p.baseline == 'individual':
         baseline = (p.bmin, p.bmax)
     else:
         baseline = p.baseline
     # XXX this and some downstream stuff (e.g., tmin=-baseline[0]) won't work
     # for baseline=None, but we can fix that when someone needs it
+    # SMB (2020.04.20): added return None to skip baseline application.
     baseline = tuple(baseline)
     if baseline[0] is None:
         baseline = (p.tmin, baseline[1])
