@@ -115,8 +115,8 @@ def _read_events(p, subj, ridx, raw):
                                % (fname,))
         events.append(these_events)
     if len(events) == 1 and len(raw._first_samps) > 1:  # for split raw
-        first_samps = np.array(raw._first_samps[0], ndmin=1)
-        last_samps = np.array(raw._last_samps[-1], ndmin=1)
+        first_samps = raw._first_samps[:1]
+        last_samps = raw._last_samps[-1:]
     else:
         first_samps = raw._first_samps
         last_samps = raw._last_samps
