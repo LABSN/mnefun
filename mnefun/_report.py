@@ -256,18 +256,12 @@ def _report_raw_psd(report, raw, raw_pca=None, p=None):
     print('%5.1f sec' % ((time.time() - t0),))
 
 
-def _peak_times(evoked, noise_cov=None, max_peaks=5):
-    '''Return times of prominent peaks from whitened global field power.'''
-    # Whiten evoked data
-    if noise_cov:
-        with use_log_level('error'):
-            rank_dict = _triage_rank_sss(evoked.info, [noise_cov])[1][0]
-        evoked = whiten_evoked(evoked, noise_cov, rank=rank_dict)
-        thr = 1
-        wht_str = 'Whitened '
-    else:
-        thr = 0
-        wht_str = ''
+def _peak_times(evoked, cov, max_peaks=5):
+    """Return times of prominent peaks from whitened global field power."""
+    with use_log_level('error'):
+        rank_dict = _triage_rank_sss(evoked.info, [cov])[1][0]
+    evoked = whiten_evoked(evoked, cov, rank=rank_dict)
+    thr = 1
     # Calculate gfps
     gfp_list = []
     if 'meg' in evoked:
@@ -291,9 +285,21 @@ def _peak_times(evoked, noise_cov=None, max_peaks=5):
     if not len(times):  # guarantee at least 1
         times = gfp.argmax()
     times = evoked.times[times]
-    print('%sGFP peak time%s: %s ' % (wht_str, _pl(times), ','.join('%0.3f'
-          % t for t in times),), end='')
+    print('\n    Whitened GFP peak%s:   %s\n                         '
+          % (_pl(times), ','.join('%0.3f' % t for t in times),), end='')
     return times
+
+
+def _get_std_even_odd(fname_evoked, name):
+    all_evoked = [mne.read_evokeds(fname_evoked, name)]
+    for extra in (' even', ' odd'):
+        try:
+            this_evoked = mne.read_evokeds(fname_evoked, name + extra)
+        except ValueError:
+            pass
+        else:
+            all_evoked += [this_evoked]
+    return all_evoked
 
 
 def gen_html_report(p, subjects, structurals, run_indices=None):
@@ -659,13 +665,19 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                               % op.basename(fname_evoked), end='')
                     else:
                         noise_cov = mne.read_cov(cov_name)
-                        evo = mne.read_evokeds(fname_evoked, name)
-                        captions = ('%s: %s["%s"] (N=%d)'
-                                    % (section, analysis, name, evo.nave))
-                        fig = evo.plot_white(noise_cov, verbose='error',
-                                             **time_kwargs)
+                        all_evoked = _get_std_even_odd(fname_evoked, name)
+                        captions = list()
+                        figs = list()
+                        for evo in all_evoked:
+                            captions.append(
+                                '%s: %s["%s"] (N=%d)'
+                                % (section, analysis, evo.comment, evo.nave))
+                            figs.append(
+                                evo.plot_white(noise_cov, verbose='error',
+                                               **time_kwargs))
                         report.add_figs_to_section(
-                            fig, captions, section=section, image_format='png')
+                            figs, captions, section=section,
+                            image_format='svg')
                 print('%5.1f sec' % ((time.time() - t0),))
             else:
                 print('    %s skipped' % section)
@@ -698,22 +710,32 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                     if isinstance(times, str) and times == 'peaks':
                         cov_name = _get_cov_name(p, subj, sensor.get('cov'))
                         if cov_name is None:
-                            noise_cov = None
-                        else:
-                            noise_cov = mne.read_cov(cov_name)
-                        times = _peak_times(this_evoked, noise_cov)
+                            raise RuntimeError(
+                                'A noise covariance must be provided in '
+                                'sensor["cov"] if times="peaks"')
+                        cov = mne.read_cov(cov_name)
+                        times = _peak_times(this_evoked, cov)
                         times_memo[(fname_evoked, name)] = times
-                    # Plot the responses
-                    figs = this_evoked.plot_joint(
-                        times, show=False, ts_args=dict(**time_kwargs),
-                        topomap_args=dict(outlines='head', **time_kwargs))
-                    if not isinstance(figs, (list, tuple)):
-                        figs = [figs]
-                    captions = ('%s: %s["%s"] (N=%d)'
-                                % (section, analysis, name, this_evoked.nave))
-                    captions = [captions] * len(figs)
+                    # Plot the responses, including even/odd
+                    all_evoked = _get_std_even_odd(fname_evoked, name)
+                    all_figs = list()
+                    all_captions = list()
+                    for this_evoked in all_evoked:
+                        figs = this_evoked.plot_joint(
+                            times, show=False, ts_args=dict(**time_kwargs),
+                            topomap_args=dict(outlines='head', **time_kwargs))
+                        if not isinstance(figs, (list, tuple)):
+                            figs = [figs]
+                        captions = ('%s: %s["%s"] (N=%d)'
+                                    % (section, analysis, this_evoked.comment,
+                                       this_evoked.nave))
+                        captions = [captions] * len(figs)
+                        all_figs += figs
+                        all_captions += captions
                     report.add_figs_to_section(
-                        figs, captions, section=section, image_format='png')
+                        all_figs, all_captions, section=section,
+                        image_format='png')
+                    del this_evoked
                 print('%5.1f sec' % ((time.time() - t0),))
 
             #
@@ -800,13 +822,13 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                         if (fname_evoked, name) in times_memo.keys():
                             times = times_memo[fname_evoked, name]
                         else:
-                            cov_name = _get_cov_name(p, subj,
-                                                     source.get('cov'))
+                            cov_name = _get_cov_name(
+                                p, subj, source.get('cov'))
                             if cov_name is None:
-                                noise_cov = None
-                            else:
-                                noise_cov = mne.read_cov(cov_name)
-                            times = _peak_times(this_evoked, noise_cov)
+                                raise RuntimeError(
+                                    'A noise covariance must be provided in '
+                                    'source["cov"] if times="peaks"')
+                            times = _peak_times(this_evoked, cov)
                             times_memo[(fname_evoked, name)] = times
                     # Create the STC plots
                     if isinstance(stc, mne.SourceEstimate):

@@ -454,6 +454,10 @@ must_match : list of int
     Indices from the original in_names that must match in event counts
     before collapsing. Should eventually be expanded to allow for
     ratio-based collapsing.
+every_other : bool
+    If True, in addition to standard averages / evoked data, averages will be
+    computed from every other trial, i.e., from even and odd trials separately.
+    This can help assess the SNR of the data.
 
 8. gen_covs
 -----------

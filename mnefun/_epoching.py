@@ -216,14 +216,32 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
 
             # now make evoked for each out type
             evokeds = list()
-            for name in names:
-                this_e = e[name]
-                if len(this_e) > 0:
-                    evokeds.append(this_e.average())
-                    evokeds.append(this_e.standard_error())
+            n_standard = 0
+            kinds = ['standard']
+            if p.every_other:
+                kinds += ['even', 'odd']
+            for kind in kinds:
+                for name in names:
+                    this_e = e[name]
+                    if kind == 'even':
+                        this_e = this_e[::2]
+                    elif kind == 'odd':
+                        this_e = this_e[1::2]
+                    else:
+                        assert kind == 'standard'
+                    if len(this_e) > 0:
+                        ave = this_e.average()
+                        stde = this_e.standard_error()
+                        if kind != 'standard':
+                            ave.comment += ' %s' % (kind,)
+                            stde.comment += ' %s' % (kind,)
+                        evokeds.append(ave)
+                        evokeds.append(stde)
+                        if kind == 'standard':
+                            n_standard += 2
             write_evokeds(fn, evokeds)
-            naves = [str(n) for n in sorted(set([evoked.nave
-                                                 for evoked in evokeds]))]
+            naves = [str(n) for n in sorted(set([
+                evoked.nave for evoked in evokeds[:n_standard]]))]
             naves = ', '.join(naves)
             if p.disp_files:
                 print('      Analysis "%s": %s epochs / condition'
