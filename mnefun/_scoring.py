@@ -114,7 +114,13 @@ def _read_events(p, subj, ridx, raw):
             raise RuntimeError('Non-unique event samples found in %s'
                                % (fname,))
         events.append(these_events)
-    events = concatenate_events(events, raw._first_samps, raw._last_samps)
+    if len(events) == 1 and len(raw._first_samps) > 1:  # for split raw
+        first_samps = raw._first_samps[:1]
+        last_samps = raw._last_samps[-1:]
+    else:
+        first_samps = raw._first_samps
+        last_samps = raw._last_samps
+    events = concatenate_events(events, first_samps, last_samps)
     if len(np.unique(events[:, 0])) != len(events):
         raise RuntimeError('Non-unique event samples found after '
                            'concatenation')

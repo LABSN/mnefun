@@ -42,7 +42,7 @@ def print_proc_status(p, subjects, structurals, analyses, run_indices):
             do_score = 'complete'
 
         # check if prebads created
-        if subj in p.prebad or op.isfile(_prebad(p, subj)):
+        if subj in p.mf_prebad or op.isfile(_prebad(p, subj)):
             prebads = 'complete'
 
         # check if coreg has been done
