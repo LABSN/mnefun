@@ -471,8 +471,8 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                 print(('    %s ... ' % section).ljust(LJUST), end='')
                 captions = [section]
                 try:
-                    from mayavi import mlab
-                except ImportError:
+                    mne.viz.get_3d_backend() is not None
+                except Exception:
                     warnings.warn('Cannot plot alignment in Report, mayavi '
                                   'could not be imported')
                 else:
@@ -485,8 +485,8 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                     else:
                         coord_frame = 'head'
                     with mlab_offscreen():
-                        fig = mlab.figure(bgcolor=(0., 0., 0.),
-                                          size=(1000, 1000))
+                        fig = mne.viz.create_3d_figure(
+                            bgcolor=(0., 0., 0.), size=(1000, 1000))
                         for key, val in (
                                 ('info', sss_info),
                                 ('subjects_dir', subjects_dir), ('bem', bem),
@@ -507,15 +507,28 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                                 break
                         else:
                             raise RuntimeError('Could not plot any surface '
-                                               'for alignment:\n%s'
+                                               'for alignment:\n%s\n%s'
                                                % (try_surfs,))
-                        fig.scene.parallel_projection = True
+                        try:
+                            fig.scene.parallel_projection = True
+                        except AttributeError:
+                            pass
                         view = list()
                         for ai, angle in enumerate([180, 90, 0]):
-                            mlab.view(angle, 90, focalpoint=(0., 0., 0.),
-                                      distance=0.6, figure=fig)
-                            view.append(mlab.screenshot(figure=fig))
-                        mlab.close(fig)
+                            mne.viz.set_3d_view(
+                                fig, angle, 90, focalpoint=(0., 0., 0.),
+                                distance=0.6)
+                            try:
+                                screenshot = fig.plotter.screenshot()
+                            except AttributeError:
+                                from mayavi import mlab
+                                screenshot = mlab.screenshot(fig)
+                            view.append(screenshot)
+                        try:
+                            fig.plotter.close()
+                        except AttributeError:
+                            from mayavi import mlab
+                            mlab.close(fig)
                     view = trim_bg(np.concatenate(view, axis=1), 0)
                     report.add_figs_to_section(view, captions, section)
                 print('%5.1f sec' % ((time.time() - t0),))
@@ -617,7 +630,8 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
             if p.report_params.get('covariance', True):
                 t0 = time.time()
                 print(('    %s ... ' % section).ljust(LJUST), end='')
-                cov_name = _get_cov_name(p, subj)
+                cov_name = p.report_params.get('covariance', None)
+                cov_name = _get_cov_name(p, subj, cov_name)
                 if cov_name is None:
                     print('    Missing covariance: %s'
                           % op.basename(cov_name), end='')
@@ -675,6 +689,12 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                             figs.append(
                                 evo.plot_white(noise_cov, verbose='error',
                                                **time_kwargs))
+                        # Deal with potentially large GFPs
+                        max_ = max(np.max(l.get_ydata()) for fig in figs
+                                   for l in fig.axes[-1].lines)
+                        max_ = max(2, max_)
+                        for fig in figs:
+                            fig.axes[-1].set_ylim(0, max_)
                         report.add_figs_to_section(
                             figs, captions, section=section,
                             image_format='svg')
@@ -838,19 +858,23 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                                 views=source.get('views', ['lat', 'med']),
                                 size=size,
                                 foreground='k', background='w',
+                                time_viewer=False, show_traces=False,
                                 **kwargs)
                             for t in times:
-                                brain.set_time(t)
+                                try:
+                                    brain.set_time(t)
+                                except AttributeError:
+                                    idx = np.argmin(np.abs(t - stc.times))
+                                    brain.set_time_point(idx)
                                 imgs.append(
                                     trim_bg(brain.screenshot(), 255))
                             brain.close()
                     else:
-                        # XXX eventually plot_volume_source_estimtates
-                        # will have an intial_time arg...
-                        mode = source.get('mode', 'stat_map')
+                        mode = source.get('mode', 'glass_brain')
                         for t in times:
-                            fig = stc.copy().crop(t, t).plot(
+                            fig = stc.copy().plot(
                                 src=inv['src'], mode=mode, show=False,
+                                initial_time=t,
                                 **kwargs,
                             )
                             fig.set_dpi(100.)

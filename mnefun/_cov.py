@@ -6,7 +6,8 @@ import os.path as op
 import numpy as np
 from scipy import linalg
 from mne import (read_epochs, compute_covariance, write_cov,
-                 compute_raw_covariance, Epochs, concatenate_raws)
+                 compute_raw_covariance, Epochs, concatenate_raws,
+                 compute_rank)
 from mne.cov import compute_whitener
 from mne.externals.h5io import read_hdf5
 from mne.io import read_raw_fif
@@ -26,20 +27,27 @@ def _compute_rank(p, subj, run_indices):
     epochs = read_epochs(fif_file)  # .crop(p.bmin, p.bmax)  maybe someday...?
     meg, eeg = 'meg' in epochs, 'eeg' in epochs
     rank = dict()
-    if meg:
-        eps = epochs.copy().pick_types(meg=meg, eeg=False).apply_proj()
-        eps = eps.get_data().transpose([1, 0, 2])
-        eps = eps.reshape(len(eps), -1)
-        if 'grad' in epochs and 'mag' in epochs:  # Neuromag
-            key = 'meg'
-        else:
-            key = 'grad' if 'grad' in epochs else 'mag'
-        rank[key] = estimate_rank(eps, tol=p.cov_rank_tol)
-    if eeg:
-        eps = epochs.copy().pick_types(meg=False, eeg=eeg).apply_proj()
-        eps = eps.get_data().transpose([1, 0, 2])
-        eps = eps.reshape(len(eps), -1)
-        rank['eeg'] = estimate_rank(eps, tol=p.cov_rank_tol)
+    epochs.apply_proj()
+    if p.cov_rank_method == 'estimate_rank':
+        # old way
+        if meg:
+            eps = epochs.copy().pick_types(meg=meg, eeg=False)
+            eps = eps.get_data().transpose([1, 0, 2])
+            eps = eps.reshape(len(eps), -1)
+            if 'grad' in epochs and 'mag' in epochs:  # Neuromag
+                key = 'meg'
+            else:
+                key = 'grad' if 'grad' in epochs else 'mag'
+            rank[key] = estimate_rank(eps, tol=p.cov_rank_tol)
+        if eeg:
+            eps = epochs.copy().pick_types(meg=False, eeg=eeg)
+            eps = eps.get_data().transpose([1, 0, 2])
+            eps = eps.reshape(len(eps), -1)
+            rank['eeg'] = estimate_rank(eps, tol=p.cov_rank_tol)
+    else:
+        assert p.cov_rank_method == 'compute_rank'
+        # new way
+        rank = compute_rank(epochs, tol=p.cov_rank_tol, tol_kind='relative')
     for k, v in rank.items():
         print(' : %s rank %2d' % (k.upper(), v), end='')
     return rank

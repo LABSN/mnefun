@@ -90,6 +90,7 @@ covariance:
   cov_method: shrunk
   compute_rank: True
   cov_rank: null
+  cov_rank_method: compute_rank
   force_erm_cov_rank_full: False
 
 forward:

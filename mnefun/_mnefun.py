@@ -247,6 +247,7 @@ class Params(Frozen):
         self.reject_epochs_by_annot = True
         self.mf_prebad = dict()
         self.every_other = False
+        self.cov_rank_method = 'estimate_rank'
         self.freeze()
         # Read static-able paraws from config file
         _set_static(self)
