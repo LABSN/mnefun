@@ -11,6 +11,9 @@ Changelog
 
 2020
 ^^^^
+- 2020/04/28
+    Added ``every_other`` support for computing evoked data with
+    even and odd trials.
 - 2020/04/01
     Added peak-detection capability to reports for the sensor and source
     sections, using ``times='peaks'``. Peaks are based on whitened gfps.

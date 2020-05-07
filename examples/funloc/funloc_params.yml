@@ -84,6 +84,7 @@ epoching:
   out_names: [['All'], *in_names]
   out_numbers: [[1, 1, 1, 1], *in_numbers]
   must_match: [[], [0, 1]]
+  every_other: True
 
 covariance:
   cov_method: shrunk

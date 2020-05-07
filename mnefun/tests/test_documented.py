@@ -23,7 +23,7 @@ def test_params(params):
     yvals = _flat_params_read(_CANONICAL_YAML_FNAME)
     # on Python3.7 we are guaranteed insertion order, so this should be okay
     yvals = list(yvals.keys())
-    assert set(yvals) == key_set
+    assert set(yvals) == key_set, 'Mismatch canonical<->Params'
     assert yvals == attrs
 
     # funloc has a correct subset
