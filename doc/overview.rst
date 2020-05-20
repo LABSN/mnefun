@@ -475,7 +475,7 @@ pick_events_cov : callable | None
 cov_rank : str | int
     Cov rank to use, usually "auto".
 cov_rank_method : str
-    Can be "estimate_rank" to use :func:`mne.estimate_rank`, or
+    Can be "estimate_rank" to use ``mne.rank.estimate_rank``, or
     "compute_rank" to use :func:`mne.compute_rank`. The latter seems to
     work better for custom ``tol`` values by not row-normalizing data.
 cov_rank_tol : float | str
