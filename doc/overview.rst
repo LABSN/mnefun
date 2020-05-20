@@ -474,8 +474,13 @@ pick_events_cov : callable | None
     Function for picking covariance events.
 cov_rank : str | int
     Cov rank to use, usually "auto".
-cov_rank_tol : float
-    Tolerance for covariance rank computation.
+cov_rank_method : str
+    Can be "estimate_rank" to use ``mne.rank.estimate_rank``, or
+    "compute_rank" to use :func:`mne.compute_rank`. The latter seems to
+    work better for custom ``tol`` values by not row-normalizing data.
+cov_rank_tol : float | str
+    Tolerance for covariance rank computation. Can also be
+    "auto" or "float32", though these tend not to be very robust.
 force_erm_cov_rank_full : bool
     If True, force the ERM cov to be full rank.
     Usually not needed, but might help when the empty-room data

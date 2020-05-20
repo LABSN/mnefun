@@ -122,6 +122,7 @@ covariance:
   compute_rank:
   pick_events_cov:
   cov_rank:
+  cov_rank_method:
   cov_rank_tol:
   force_erm_cov_rank_full:
 

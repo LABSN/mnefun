@@ -403,13 +403,19 @@ def plot_good_coils(raw, t_step=1., t_window=0.2, dist_limit=0.005,
 
 @contextmanager
 def mlab_offscreen(offscreen=True):
-    from mayavi import mlab
-    old_offscreen = mlab.options.offscreen
-    mlab.options.offscreen = offscreen
-    try:
+    """Use mlab in offscreen mode."""
+    import mne
+    if mne.viz.get_3d_backend() == 'mayavi':
+        from mayavi import mlab
+        old_offscreen = mlab.options.offscreen
+        mlab.options.offscreen = offscreen
+        try:
+            yield
+        finally:
+            mlab.options.offscreen = old_offscreen
+    else:
+        # XXX eventually something should go here for PyVista
         yield
-    finally:
-        mlab.options.offscreen = old_offscreen
 
 
 def discretize_cmap(colormap, lims, transparent=True):
