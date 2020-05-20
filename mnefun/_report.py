@@ -507,7 +507,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                                 break
                         else:
                             raise RuntimeError('Could not plot any surface '
-                                               'for alignment:\n%s\n%s'
+                                               'for alignment:\n%s'
                                                % (try_surfs,))
                         try:
                             fig.scene.parallel_projection = True
@@ -690,8 +690,8 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                                 evo.plot_white(noise_cov, verbose='error',
                                                **time_kwargs))
                         # Deal with potentially large GFPs
-                        max_ = max(np.max(l.get_ydata()) for fig in figs
-                                   for l in fig.axes[-1].lines)
+                        max_ = max(np.max(line.get_ydata()) for fig in figs
+                                   for line in fig.axes[-1].lines)
                         max_ = max(2, max_)
                         for fig in figs:
                             fig.axes[-1].set_ylim(0, max_)

@@ -18,7 +18,7 @@ from ._paths import get_epochs_evokeds_fnames, safe_inserter
 
 
 def gen_inverses(p, subjects, run_indices):
-    """Generate inverses
+    """Generate inverses.
 
     Can only complete successfully following forward solution
     calculation and covariance estimation.
@@ -107,10 +107,10 @@ def gen_inverses(p, subjects, run_indices):
                 del s_name
             for f, m, e in zip(out_flags, meg_bools, eeg_bools):
                 fwd_restricted = pick_types_forward(fwd, meg=m, eeg=e)
-                for l, s, x, d in zip(looses, tags, fixeds, depths):
+                for l_, s, x, d in zip(looses, tags, fixeds, depths):
                     inv_name = op.join(
                         inv_dir, temp_name + f + tag + s + '-inv.fif')
-                    kwargs = dict(loose=l, depth=d, fixed=x, use_cps=True,
+                    kwargs = dict(loose=l_, depth=d, fixed=x, use_cps=True,
                                   verbose='error')
                     if name is not True or not e:
                         inv = make_inverse_operator(
@@ -123,7 +123,7 @@ def gen_inverses(p, subjects, run_indices):
 
 def get_fsaverage_medial_vertices(concatenate=True, subjects_dir=None,
                                   vertices=None):
-    """Returns fsaverage medial wall vertex numbers
+    """Return fsaverage medial wall vertex numbers.
 
     These refer to the standard fsaverage source space
     (with vertices from 0 to 2*10242-1).
@@ -205,6 +205,7 @@ def get_fsaverage_label_operator(parc='aparc.a2009s', remove_bads=True,
 @verbose
 def combine_medial_labels(labels, subject='fsaverage', surf='white',
                           dist_limit=0.02, subjects_dir=None):
+    """Combine medial labels."""
     from mne.surface import _compute_nearest
     subjects_dir = get_subjects_dir(subjects_dir, raise_error=True)
     rrs = dict((hemi, read_surface(op.join(subjects_dir, subject, 'surf',

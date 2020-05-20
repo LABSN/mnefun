@@ -11,7 +11,7 @@ from mne.io import Raw
 
 
 def safe_inserter(string, inserter):
-    """Helper to insert a subject name into a string if %s is present
+    """Insert a subject name into a string if %s is present.
 
     Parameters
     ----------
@@ -32,7 +32,7 @@ def safe_inserter(string, inserter):
 
 
 def get_event_fnames(p, subj, run_indices=None):
-    """Get event filenames for a subject
+    """Get event filenames for a subject.
 
     Parameters
     ----------
@@ -67,13 +67,13 @@ def get_event_fnames(p, subj, run_indices=None):
 
 
 def _regex_convert(f):
-    """Helper to regex a given filename (for split file purposes)"""
+    """Regex a given filename (for split file purposes)."""
     return '.*%s-?[0-9]*.fif$' % op.basename(f)[:-4]
 
 
 def get_raw_fnames(p, subj, which='raw', erm=True, add_splits=False,
                    run_indices=None):
-    """Get raw filenames
+    """Get raw filenames.
 
     Parameters
     ----------
@@ -129,7 +129,7 @@ def get_raw_fnames(p, subj, which='raw', erm=True, add_splits=False,
 
 
 def get_cov_fwd_inv_fnames(p, subj, run_indices):
-    """Get covariance, forward, and inverse filenames for a subject"""
+    """Get covariance, forward, and inverse filenames for a subject."""
     cov_fnames = []
     inv_fnames = []
     inv_dir = op.join(p.work_dir, subj, p.inverse_dir)
@@ -165,16 +165,14 @@ def get_cov_fwd_inv_fnames(p, subj, run_indices):
         cov_fnames += [op.join(cov_dir, safe_inserter(name, subj) +
                                ('-%d' % p.lp_cut) + p.inv_tag + '-cov.fif')]
         for f, m, e in zip(out_flags, meg_bools, eeg_bools):
-            for l, s, x in zip([None, 0.2], [p.inv_fixed_tag, ''],
-                               [True, False]):
+            for s in [p.inv_fixed_tag, '']:
                 inv_fnames += [op.join(inv_dir,
                                        temp_name + f + s + '-inv.fif')]
     if make_erm_inv:
         cov_fnames += [op.join(cov_dir, safe_inserter(p.runs_empty[0], subj) +
                                p.pca_extra + p.inv_tag + '-cov.fif')]
         for f, m, e in zip(out_flags, meg_bools, eeg_bools):
-            for l, s, x in zip([None, 0.2], [p.inv_fixed_tag, ''],
-                               [True, False]):
+            for s in [p.inv_fixed_tag, '']:
                 if (not e):
                     inv_fnames += [op.join(inv_dir, subj + f +
                                            p.inv_erm_tag + s + '-inv.fif')]
@@ -182,7 +180,7 @@ def get_cov_fwd_inv_fnames(p, subj, run_indices):
 
 
 def get_epochs_evokeds_fnames(p, subj, analyses, remove_unsaved=False):
-    """Get epochs and evoked filenames for a subject"""
+    """Get epochs and evoked filenames for a subject."""
     epochs_dir = op.join(p.work_dir, subj, p.epochs_dir)
     evoked_dir = op.join(p.work_dir, subj, p.inverse_dir)
     mat_file = op.join(epochs_dir, '%s_%d' % (p.epochs_prefix, p.lp_cut) +
@@ -237,7 +235,7 @@ def _prebad(p, subj):
 
 
 def _is_dir(d):
-    """Safely check for a directory (allowing symlinks)"""
+    """Safely check for a directory (allowing symlinks)."""
     return op.isdir(op.abspath(d))
 
 
