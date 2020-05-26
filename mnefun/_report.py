@@ -851,9 +851,9 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                             assert isinstance(fig, plt.Figure)
                             fig.axes[0].set(ylim=(-max_, max_))
                             t = fig.axes[-1].texts[0]
-                            n_text = f'N={this_evoked.nave})'
+                            n_text = f'N={this_evoked.nave}'
                             t.set_text(
-                                f'{t.get_text()}; {n_text}')
+                                f'{t.get_text()}; {n_text})')
                             all_figs += [fig]
                             all_captions += [n_text]
                     title = f'{section}: {analysis}["{all_evoked[0].comment}"]'
