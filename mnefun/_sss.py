@@ -352,7 +352,8 @@ def _read_raw_prebad(p, subj, fname, disp=True, prefix=' ' * 6):
     if p.mf_autobad:
         maxbad_file = op.splitext(fname)[0] + '_maxbad.txt'
         _maxbad(p, raw, maxbad_file)
-        _load_meg_bads(raw, maxbad_file, disp=disp, prefix=prefix, append=True)
+        _load_meg_bads(
+            raw, maxbad_file, disp=disp, prefix=prefix, append=True)
     return raw
 
 
@@ -418,7 +419,7 @@ def run_sss_locally(p, subjects, run_indices):
                                         raw_files_out + erm_files_out)):
             if not op.isfile(r):
                 raise NameError('File not found (' + r + ')')
-            raw = _read_raw_prebad(p, subj, r, disp=ii == 0).load_data()
+            raw = _read_raw_prebad(p, subj, r, disp=True).load_data()
             if ii == 0:
                 origin, kind, extra = _get_origin(p, raw)
                 print('      Using %s origin=[%0.1f, %0.1f, %0.1f]%s mm' %
@@ -624,7 +625,7 @@ def _python_autobad(raw, p, skip_start, skip_stop):
     with use_log_level(False):
         raw.load_data().fix_mag_coil_types()
     del skip_stop, skip_start
-    picks_meg = pick_types(raw.info)
+    picks_meg = pick_types(raw.info, meg=True)
     mark_flat(raw, picks=picks_meg, verbose=False)
     if raw.info['dev_head_t'] is None:
         coord_frame, origin = 'meg', (0., 0., 0.)

@@ -501,7 +501,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                         p.subjects_dir, raise_error=True)
                     bem, src, trans, _ = _get_bem_src_trans(
                         p, sss_info, subj, struc)
-                    if len(mne.pick_types(sss_info)):
+                    if len(mne.pick_types(sss_info, meg=True)):
                         coord_frame = 'meg'
                     else:
                         coord_frame = 'head'
@@ -1084,7 +1084,7 @@ def _proj_fig(fname, info, proj_nums, proj_meg, kind):
 
 def _get_cov_name(p, subj, cov_name=None):
     # just the first for now
-    if cov_name is None:
+    if cov_name is None or cov_name is True:
         if p.inv_names:
             cov_name = (safe_inserter(p.inv_names[0], subj) +
                         ('-%d' % p.lp_cut) + p.inv_tag + '-cov.fif')
