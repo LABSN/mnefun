@@ -13,7 +13,7 @@ import numpy as np
 from scipy.signal import find_peaks, peak_prominences
 
 import mne
-from mne import read_proj, read_epochs, find_events
+from mne import read_proj, read_epochs, find_events, pick_types
 from mne.io import BaseRaw
 from mne.viz import (plot_projs_topomap, plot_cov, plot_snr_estimate,
                      plot_events)
@@ -32,7 +32,8 @@ from ._viz import plot_good_coils, plot_chpi_snr_raw, trim_bg, mlab_offscreen
 from ._utils import _fix_raw_eog_cals, _handle_dict
 
 LJUST = 25
-
+SQRT_2 = np.sqrt(2)
+SQ2STR = '×√2'
 
 @contextmanager
 def report_context():
@@ -256,6 +257,17 @@ def _report_raw_psd(report, raw, raw_pca=None, p=None):
     print('%5.1f sec' % ((time.time() - t0),))
 
 
+def _get_memo_times(evoked, cov_name, key, memo):
+    if cov_name is None:
+        raise RuntimeError(
+            'A noise covariance must be provided in '
+            'sensor["cov"] if times="peaks"')
+    cov = mne.read_cov(cov_name)
+    if key not in memo:
+        memo[key] = _peak_times(evoked, cov)
+    return memo[key]
+
+
 def _peak_times(evoked, cov, max_peaks=5):
     """Return times of prominent peaks from whitened global field power."""
     with use_log_level('error'):
@@ -285,8 +297,9 @@ def _peak_times(evoked, cov, max_peaks=5):
     if not len(times):  # guarantee at least 1
         times = gfp.argmax()
     times = evoked.times[times]
-    print('\n    Whitened GFP peak%s:   %s\n                         '
-          % (_pl(times), ','.join('%0.3f' % t for t in times),), end='')
+    print('    Whitened GFP peak%s (%s):   %s\n                         '
+          % (_pl(times), evoked.comment,
+             ','.join('%0.3f' % t for t in times),), end='')
     return times
 
 
@@ -310,6 +323,14 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
     time_kwargs = dict()
     if 'time_unit' in mne.fixes._get_args(mne.viz.plot_evoked):
         time_kwargs['time_unit'] = 's'
+    known_keys = {
+        'good_hpi_count', 'chpi_snr', 'head_movement', 'raw_segments', 'psd',
+        'ssp_topomaps', 'source_alignment', 'drop_log', 'bem', 'covariance',
+        'whitening', 'snr', 'sensor', 'source',
+    }
+    unknown = set(p.report_params.keys()).difference(known_keys)
+    if unknown:
+        raise RuntimeError(f'unknown report_params: {sorted(unknown)}')
     for si, subj in enumerate(subjects):
         struc = structurals[si]
         report = Report(verbose=False)
@@ -480,7 +501,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                         p.subjects_dir, raise_error=True)
                     bem, src, trans, _ = _get_bem_src_trans(
                         p, sss_info, subj, struc)
-                    if len(mne.pick_types(sss_info)):
+                    if len(mne.pick_types(sss_info, meg=True)):
                         coord_frame = 'meg'
                     else:
                         coord_frame = 'head'
@@ -550,47 +571,6 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                 print('%5.1f sec' % ((time.time() - t0),))
             else:
                 print('    %s skipped' % section)
-
-            #
-            # SNR
-            #
-            section = 'SNR'
-            if p.report_params.get('snr', None) not in [None, False]:
-                t0 = time.time()
-                print(('    %s ... ' % section).ljust(LJUST), end='')
-                snrs = p.report_params['snr']
-                if not isinstance(snrs, (list, tuple)):
-                    snrs = [snrs]
-                for snr in snrs:
-                    assert isinstance(snr, dict)
-                    analysis = snr['analysis']
-                    name = snr['name']
-                    times = snr.get('times', [0.1])
-                    inv_dir = op.join(p.work_dir, subj, p.inverse_dir)
-                    fname_inv = op.join(inv_dir,
-                                        safe_inserter(snr['inv'], subj))
-                    fname_evoked = op.join(inv_dir, '%s_%d%s_%s_%s-ave.fif'
-                                           % (analysis, p.lp_cut, p.inv_tag,
-                                              p.eq_tag, subj))
-                    if not op.isfile(fname_inv):
-                        print('    Missing inv: %s'
-                              % op.basename(fname_inv), end='')
-                    elif not op.isfile(fname_evoked):
-                        print('    Missing evoked: %s'
-                              % op.basename(fname_evoked), end='')
-                    else:
-                        inv = mne.minimum_norm.read_inverse_operator(fname_inv)
-                        this_evoked = mne.read_evokeds(fname_evoked, name)
-                        figs = plot_snr_estimate(
-                            this_evoked, inv, verbose='error')
-                        figs.axes[0].set_ylim(auto=True)
-                        captions = ('%s: %s["%s"] (N=%d)'
-                                    % (section, analysis, name,
-                                       this_evoked.nave))
-                        report.add_figs_to_section(
-                            figs, captions, section=section,
-                            image_format='svg')
-                print('%5.1f sec' % ((time.time() - t0),))
 
             #
             # BEM
@@ -679,28 +659,140 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                               % op.basename(fname_evoked), end='')
                     else:
                         noise_cov = mne.read_cov(cov_name)
+                        # too messy to plot separately, just plot the main one
                         all_evoked = _get_std_even_odd(fname_evoked, name)
-                        captions = list()
                         figs = list()
-                        for evo in all_evoked:
-                            captions.append(
-                                '%s: %s["%s"] (N=%d)'
-                                % (section, analysis, evo.comment, evo.nave))
-                            figs.append(
-                                evo.plot_white(noise_cov, verbose='error',
-                                               **time_kwargs))
-                        # Deal with potentially large GFPs
-                        max_ = max(np.max(line.get_ydata()) for fig in figs
-                                   for line in fig.axes[-1].lines)
-                        max_ = max(2, max_)
-                        for fig in figs:
-                            fig.axes[-1].set_ylim(0, max_)
+                        n_s = sum(k in all_evoked[0] for k in ('meg', 'eeg'))
+                        n_e = len(all_evoked)
+                        n_row = n_s * n_e + 1
+                        figs, axes = plt.subplots(
+                            n_row, 1, figsize=(7, 3 * n_row))
+                        captions = [
+                            '%s: %s["%s"] (N=%s)'
+                            % (section, analysis, all_evoked[0].comment,
+                               '/'.join(str(evo.nave) for evo in all_evoked))]
+                        for ei, evo in enumerate(all_evoked):
+                            if ei > 0:
+                                evo.data *= SQRT_2
+                            sl = slice(ei, n_e * n_s, n_e)
+                            these_axes = list(axes[sl]) + [axes[-1]]
+                            evo.plot_white(
+                                noise_cov, verbose='error', axes=these_axes,
+                                **time_kwargs)
+                            for ax in these_axes[:-1]:
+                                n_text = 'N=%d' % (evo.nave,)
+                                if ei != 0:
+                                    title = f'{n_text} {SQ2STR}'
+                                else:
+                                    title = f'{ax.get_title()[:-1]}; {n_text})'
+                                ax.set(title=title)
+                        xlim = all_evoked[0].times[[0, -1]]
+                        del ei, all_evoked
+
+                        # joint ylims
+                        for si in range(n_s + 1):
+                            if si == n_s:
+                                ax = axes[-1:]
+                            else:
+                                ax = axes[si * n_e:(si + 1) * n_e]
+                            this_max = max(np.max(np.abs(line.get_ydata()))
+                                           for a in ax
+                                           for line in a.lines)
+                            if si == n_s:
+                                ax[0].set(ylim=[0, this_max], xlim=xlim)
+                            else:
+                                for a in ax:
+                                    a.set(ylim=[-this_max, this_max],
+                                          xlim=xlim)
+                        del si
+                        n_real = 0
+                        hs, labels = [], []
+                        for line in axes[-1].lines:
+                            if line.get_linestyle() == '-':
+                                if n_real < n_s:
+                                    line.set(linewidth=2)
+                                    hs, labels = [line], [line.get_label()]
+                                else:
+                                    line.set(alpha=0.5, linewidth=1)
+                                n_real += 1
+                        assert n_real == n_e * n_s
+                        axes[-1].legend(hs, labels)
+                        if n_e > 1:
+                            axes[-1].set_title(
+                                f'{axes[-1].get_title()} (halves {SQ2STR})')
+                        axes[-1]
+                        figs.tight_layout()
                         report.add_figs_to_section(
                             figs, captions, section=section,
                             image_format='svg')
                 print('%5.1f sec' % ((time.time() - t0),))
             else:
                 print('    %s skipped' % section)
+
+            #
+            # SNR
+            #
+            section = 'SNR'
+            if p.report_params.get('snr', None) not in [None, False]:
+                t0 = time.time()
+                print(('    %s ... ' % section).ljust(LJUST), end='')
+                snrs = p.report_params['snr']
+                if not isinstance(snrs, (list, tuple)):
+                    snrs = [snrs]
+                for snr in snrs:
+                    assert isinstance(snr, dict)
+                    analysis = snr['analysis']
+                    name = snr['name']
+                    times = snr.get('times', [0.1])
+                    inv_dir = op.join(p.work_dir, subj, p.inverse_dir)
+                    fname_inv = op.join(inv_dir,
+                                        safe_inserter(snr['inv'], subj))
+                    fname_evoked = op.join(inv_dir, '%s_%d%s_%s_%s-ave.fif'
+                                           % (analysis, p.lp_cut, p.inv_tag,
+                                              p.eq_tag, subj))
+                    if not op.isfile(fname_inv):
+                        print('    Missing inv: %s'
+                              % op.basename(fname_inv), end='')
+                    elif not op.isfile(fname_evoked):
+                        print('    Missing evoked: %s'
+                              % op.basename(fname_evoked), end='')
+                    else:
+                        inv = mne.minimum_norm.read_inverse_operator(fname_inv)
+                        figs, ax = plt.subplots(1, figsize=(7, 5))
+                        all_evoked = _get_std_even_odd(fname_evoked, name)
+                        for ei, evoked in enumerate(all_evoked):
+                            if ei != 0:
+                                evoked.data *= SQRT_2
+                            plot_snr_estimate(
+                                evoked, inv, axes=ax, verbose='error')
+                        if len(all_evoked) > 1:
+                            ax.set_title(
+                                f'{all_evoked[0].comment} (halves {SQ2STR})')
+                        n_real = 0
+                        for line in ax.lines:
+                            # some are :'s at zero x/y
+                            if line.get_linestyle() == ':':
+                                if n_real >= 2:
+                                    line.set_visible(False)
+                            else:
+                                if n_real < 2:
+                                    line.set(linewidth=2)
+                                else:
+                                    line.set(linewidth=1, alpha=0.5)
+                                n_real += 1
+                        assert n_real == 2 * len(all_evoked)
+                        ax.set(
+                            ylim=[0, max(np.max(line.get_ydata())
+                                         for line in ax.lines)])
+                        captions = ('%s: %s["%s"] (N=%s)'
+                                    % (section, analysis, name,
+                                       '/'.join(str(e.nave)
+                                                for e in all_evoked)))
+                        figs.tight_layout()
+                        report.add_figs_to_section(
+                            figs, captions, section=section,
+                            image_format='svg')
+                print('%5.1f sec' % ((time.time() - t0),))
 
             #
             # Sensor space plots
@@ -729,32 +821,45 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                     times = sensor.get('times', [0.1, 0.2])
                     if isinstance(times, str) and times == 'peaks':
                         cov_name = _get_cov_name(p, subj, sensor.get('cov'))
-                        if cov_name is None:
-                            raise RuntimeError(
-                                'A noise covariance must be provided in '
-                                'sensor["cov"] if times="peaks"')
-                        cov = mne.read_cov(cov_name)
-                        times = _peak_times(this_evoked, cov)
-                        times_memo[(fname_evoked, name)] = times
+                        times = _get_memo_times(
+                            this_evoked, cov_name, (fname_evoked, name),
+                            times_memo)
                     # Plot the responses, including even/odd
                     all_evoked = _get_std_even_odd(fname_evoked, name)
-                    all_figs = list()
-                    all_captions = list()
-                    for this_evoked in all_evoked:
-                        figs = this_evoked.plot_joint(
-                            times, show=False, ts_args=dict(**time_kwargs),
-                            topomap_args=dict(outlines='head', **time_kwargs))
-                        if not isinstance(figs, (list, tuple)):
-                            figs = [figs]
-                        captions = ('%s: %s["%s"] (N=%d)'
-                                    % (section, analysis, this_evoked.comment,
-                                       this_evoked.nave))
-                        captions = [captions] * len(figs)
-                        all_figs += figs
-                        all_captions += captions
-                    report.add_figs_to_section(
+                    all_figs, all_captions = list(), list()
+                    for key in ('grad', 'mag', 'eeg'):
+                        if key not in all_evoked[0]:
+                            continue
+                        if key == 'eeg':
+                            kwargs = dict(meg=False, eeg=True)
+                        else:
+                            kwargs = dict(meg=key, eeg=False)
+                        picks = pick_types(
+                            all_evoked[0].info, exclude='bads', **kwargs)
+                        max_ = max(
+                            np.abs(e.data[picks]).max() for e in all_evoked)
+                        max_ = max_ * mne.defaults.DEFAULTS['scalings'][key]
+                        min_ = -max_ if key != 'grad' else 0
+                        cmap = 'RdBu_r' if key != 'grad' else 'Reds'
+                        for this_evoked in all_evoked:
+                            fig = this_evoked.plot_joint(
+                                times, show=False, ts_args=dict(**time_kwargs),
+                                picks=picks,
+                                topomap_args=dict(outlines='head', vmin=min_,
+                                                  vmax=max_, cmap=cmap,
+                                                  **time_kwargs))
+                            assert isinstance(fig, plt.Figure)
+                            fig.axes[0].set(ylim=(-max_, max_))
+                            t = fig.axes[-1].texts[0]
+                            n_text = f'N={this_evoked.nave}'
+                            t.set_text(
+                                f'{t.get_text()}; {n_text})')
+                            all_figs += [fig]
+                            all_captions += [n_text]
+                    title = f'{section}: {analysis}["{all_evoked[0].comment}"]'
+                    report.add_slider_to_section(
                         all_figs, all_captions, section=section,
-                        image_format='png')
+                        title=title, image_format='png')
                     del this_evoked
                 print('%5.1f sec' % ((time.time() - t0),))
 
@@ -790,8 +895,6 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                     # Generate the STC
                     inv = mne.minimum_norm.read_inverse_operator(fname_inv)
                     this_evoked = mne.read_evokeds(fname_evoked, name)
-                    title = ('%s: %s["%s"] (N=%d)'
-                             % (section, analysis, name, this_evoked.nave))
                     stc = mne.minimum_norm.apply_inverse(
                         this_evoked, inv,
                         lambda2=source.get('lambda2', 1. / 9.),
@@ -834,56 +937,64 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                         colormap=source.get('colormap', 'viridis'),
                         transparent=source.get('transparent', True),
                         clim=clim, subjects_dir=subjects_dir)
-                    imgs = list()
                     size = source.get('size', (800, 600))
                     # Define the time slices to include
                     times = source.get('times', [0.1, 0.2])
                     if isinstance(times, str) and times == 'peaks':
-                        if (fname_evoked, name) in times_memo.keys():
-                            times = times_memo[fname_evoked, name]
-                        else:
-                            cov_name = _get_cov_name(
-                                p, subj, source.get('cov'))
-                            if cov_name is None:
-                                raise RuntimeError(
-                                    'A noise covariance must be provided in '
-                                    'source["cov"] if times="peaks"')
-                            times = _peak_times(this_evoked, cov)
-                            times_memo[(fname_evoked, name)] = times
+                        cov_name = _get_cov_name(
+                            p, subj, source.get('cov'))
+                        times = _get_memo_times(
+                            this_evoked, cov_name, (fname_evoked, name),
+                            times_memo)
                     # Create the STC plots
-                    if isinstance(stc, mne.SourceEstimate):
-                        with mlab_offscreen():
-                            brain = stc.plot(
-                                hemi=source.get('hemi', 'split'),
-                                views=source.get('views', ['lat', 'med']),
-                                size=size,
-                                foreground='k', background='w',
-                                time_viewer=False, show_traces=False,
-                                **kwargs)
+                    hemi = source.get('hemi', 'split')
+                    views = source.get('views', ['lat', 'med'])
+                    method = source.get('method', 'dSPM')
+                    lambda2 = source.get('lambda2', 1. / 9.)
+                    all_evoked = _get_std_even_odd(fname_evoked, name)
+                    for ei, this_evoked in enumerate(all_evoked):
+                        # change from original to halves
+                        if ei == 1 and method in ('dSPM', 'sLORETA'):
+                            clim['lims'] = np.array(clim['lims']) / SQRT_2
+                        figs = list()
+                        stc = mne.minimum_norm.apply_inverse(
+                            this_evoked, inv, lambda2=lambda2, method=method)
+                        stc = abs(stc)
+                        if isinstance(stc, mne.SourceEstimate):
+                            with mlab_offscreen():
+                                brain = stc.plot(
+                                    hemi=hemi, views=views, size=size,
+                                    foreground='k', background='w',
+                                    time_viewer=False, show_traces=False,
+                                    **kwargs)
+                                for t in times:
+                                    try:
+                                        brain.set_time(t)
+                                    except AttributeError:
+                                        idx = np.argmin(np.abs(t - stc.times))
+                                        brain.set_time_point(idx)
+                                    figs.append(
+                                        trim_bg(brain.screenshot(), 255))
+                                brain.close()
+                        else:
+                            mode = source.get('mode', 'glass_brain')
                             for t in times:
-                                try:
-                                    brain.set_time(t)
-                                except AttributeError:
-                                    idx = np.argmin(np.abs(t - stc.times))
-                                    brain.set_time_point(idx)
-                                imgs.append(
-                                    trim_bg(brain.screenshot(), 255))
-                            brain.close()
-                    else:
-                        mode = source.get('mode', 'glass_brain')
-                        for t in times:
-                            fig = stc.copy().plot(
-                                src=inv['src'], mode=mode, show=False,
-                                initial_time=t,
-                                **kwargs,
-                            )
-                            fig.set_dpi(100.)
-                            fig.set_size_inches(*(np.array(size) / 100.))
-                            imgs.append(fig)
-                    captions = ['%2.3f sec' % t for t in times]
-                    report.add_slider_to_section(
-                        imgs, captions=captions, section=section,
-                        title=title, image_format='png')
+                                fig = stc.copy().plot(
+                                    src=inv['src'], mode=mode, show=False,
+                                    initial_time=t,
+                                    **kwargs,
+                                )
+                                fig.set_dpi(100.)
+                                fig.set_size_inches(*(np.array(size) / 100.))
+                                figs.append(fig)
+                        extra = '' if ei == 0 else SQ2STR
+                        title = ('%s: %s["%s"]%s (N=%d)'
+                                 % (section, analysis, name, extra,
+                                    this_evoked.nave,))
+                        captions = ['%2.3f sec' % t for t in times]
+                        report.add_slider_to_section(
+                            figs, captions=captions, section=section,
+                            title=title, image_format='png')
                 print('%5.1f sec' % ((time.time() - t0),))
             else:
                 print('    %s skipped' % section)
@@ -973,7 +1084,7 @@ def _proj_fig(fname, info, proj_nums, proj_meg, kind):
 
 def _get_cov_name(p, subj, cov_name=None):
     # just the first for now
-    if cov_name is None:
+    if cov_name is None or cov_name is True:
         if p.inv_names:
             cov_name = (safe_inserter(p.inv_names[0], subj) +
                         ('-%d' % p.lp_cut) + p.inv_tag + '-cov.fif')
