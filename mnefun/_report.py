@@ -35,6 +35,7 @@ LJUST = 25
 SQRT_2 = np.sqrt(2)
 SQ2STR = '×√2'
 
+
 @contextmanager
 def report_context():
     """Create a context for making plt and mlab figures."""
