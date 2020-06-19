@@ -10,7 +10,8 @@ python:
 
 install:
   # Install mnefun
-  - pip install --upgrade --binary-only=":all:" numpy scipy matplotlib pyyaml patsy pytest pytest-cov codecov flake8 pydocstyle numpydoc https://github.com/mne-tools/mne-python/archive/master.zip
+  - pip install --upgrade --only-binary=":all:" numpy scipy matplotlib
+  - pip install --upgrade pyyaml patsy pytest pytest-cov codecov flake8 pydocstyle numpydoc https://github.com/mne-tools/mne-python/archive/master.zip
   - pip install -ve .
 
 script:
