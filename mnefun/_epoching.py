@@ -230,8 +230,8 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
                     else:
                         assert kind == 'standard'
                     if len(this_e) > 0:
-                        ave = this_e.average()
-                        stde = this_e.standard_error()
+                        ave = this_e.average(picks='all')
+                        stde = this_e.standard_error(picks='all')
                         if kind != 'standard':
                             ave.comment += ' %s' % (kind,)
                             stde.comment += ' %s' % (kind,)

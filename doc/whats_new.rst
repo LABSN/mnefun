@@ -11,6 +11,11 @@ Changelog
 
 2020
 ^^^^
+- 2020/06/19
+    Fixed errant picking of only data channels in preprocessed raw data files.
+- 2020/05/26
+    Improved :class:`mne.Report` generation for comparing conditions by using
+    sliders and grouping by sensor types.
 - 2020/04/28
     Added ``every_other`` support for computing evoked data with
     even and odd trials.
