@@ -6,11 +6,11 @@ env:
   global: OPENBLAS_NUM_THREADS=1
 
 python:
-  - "3.7"
+  - "3.8"
 
 install:
   # Install mnefun
-  - pip install numpy scipy matplotlib pyyaml patsy pytest pytest-cov codecov flake8 pydocstyle numpydoc https://github.com/mne-tools/mne-python/archive/master.zip
+  - pip install --upgrade --binary-only=":all:" numpy scipy matplotlib pyyaml patsy pytest pytest-cov codecov flake8 pydocstyle numpydoc https://github.com/mne-tools/mne-python/archive/master.zip
   - pip install -ve .
 
 script:
