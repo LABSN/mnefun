@@ -49,10 +49,9 @@ def _raw_LRFCP(raw_names, sfreq, l_freq, h_freq, n_jobs, n_jobs_resample,
     raw = list()
     for rn in raw_names:
         r = read_raw_fif(rn, preload=True, allow_maxshield='yes')
-        if pick:
-            r.pick_types(meg=True, eeg=True, eog=True, ecg=True, exclude=())
         r.load_bad_channels(bad_file, force=force_bads)
-        r.pick_types(meg=True, eeg=True, eog=True, ecg=True, exclude=[])
+        if pick:
+            r.pick_types(meg=True, eeg=True, eog=True, ecg=True, exclude=[])
         if _needs_eeg_average_ref_proj(r.info):
             r.set_eeg_reference(projection=True)
         if sfreq is not None:
