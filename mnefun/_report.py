@@ -1,7 +1,6 @@
 #!/usr/bin/env python2
 # -*- coding: utf-8 -*-
 """Create HTML reports."""
-from __future__ import print_function, unicode_literals
 
 from contextlib import contextmanager
 from copy import deepcopy
@@ -448,25 +447,27 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                                                    show=False))
                 if any(proj_nums[0]):  # ECG
                     if 'preproc_ecg-proj.fif' in proj_files:
+                        ecg_channel = _handle_dict(p.ecg_channel, subj)
                         comments.append('ECG')
                         figs.append(_proj_fig(op.join(
                             p.work_dir, subj, p.pca_dir,
                             'preproc_ecg-proj.fif'), sss_info,
-                            proj_nums[0], p.proj_meg, 'ECG'))
+                            proj_nums[0], p.proj_meg, 'ECG', ecg_channel))
                 if any(proj_nums[1]):  # EOG
                     if 'preproc_blink-proj.fif' in proj_files:
+                        eog_channel = _handle_dict(p.eog_channel, subj)
                         comments.append('Blink')
                         figs.append(_proj_fig(op.join(
                             p.work_dir, subj, p.pca_dir,
                             'preproc_blink-proj.fif'), sss_info,
-                            proj_nums[1], p.proj_meg, 'EOG'))
+                            proj_nums[1], p.proj_meg, 'EOG', eog_channel))
                 if any(proj_nums[2]):  # ERM
                     if 'preproc_cont-proj.fif' in proj_files:
                         comments.append('Continuous')
                         figs.append(_proj_fig(op.join(
                             p.work_dir, subj, p.pca_dir,
                             'preproc_cont-proj.fif'), sss_info,
-                            proj_nums[2], p.proj_meg, 'ERM'))
+                            proj_nums[2], p.proj_meg, 'ERM', None))
                 captions = ['SSP epochs: %s' % c for c in comments]
                 report.add_figs_to_section(
                     figs, captions, section, image_format='svg',
@@ -1005,25 +1006,42 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
         report.save(report_fname, open_browser=False, overwrite=True)
 
 
-def _proj_fig(fname, info, proj_nums, proj_meg, kind):
+def _proj_fig(fname, info, proj_nums, proj_meg, kind, use_ch):
     import matplotlib.pyplot as plt
+    from matplotlib.ticker import NullFormatter
+    from mne.preprocessing.ecg import _get_ecg_channel_index
+    from mne.preprocessing.eog import _get_eog_channel_index
     proj_nums = np.array(proj_nums, int)
     assert proj_nums.shape == (3,)
     projs = read_proj(fname)
     epochs = fname.replace('-proj.fif', '-epo.fif')
-    n_col = proj_nums.max()
-    rs_topo = 3
     if op.isfile(epochs):
         epochs = mne.read_epochs(epochs)
-        evoked = epochs.average()
-        rs_trace = 2
+        evoked = epochs.average(picks='all')
+        title = f'N={len(epochs)}/{len(epochs.drop_log)}'
+        cs_trace = 2
+        if kind != 'ERM':
+            if kind == 'ECG':
+                use_ch = [_get_ecg_channel_index(use_ch, evoked)]
+            else:
+                assert kind == 'EOG'
+                use_ch = _get_eog_channel_index(use_ch, evoked)
+            use_ch = [evoked.ch_names[u] for u in use_ch]
+            title += f'\n{", ".join(use_ch)}'
     else:
-        rs_trace = 0
-    n_row = proj_nums.astype(bool).sum() * (rs_topo + rs_trace)
+        cs_trace = 0
+    n_col = proj_nums.max() + cs_trace + 1  # room for legend
+    n_row = proj_nums.astype(bool).sum()
     shape = (n_row, n_col)
-    fig = plt.figure(figsize=(n_col * 2, n_row * 0.75))
+    # with plt.rc_context({'figure.constrained_layout.use': True}):
+    fig = plt.figure(figsize=(n_col * 1.5 + .5, n_row * 2 + .5))
+    if cs_trace:
+        fig.suptitle(title, fontsize='small')
     used = np.zeros(len(projs), int)
     ri = 0
+    colors = ['#CC3311', '#009988', '#0077BB', '#EE3377', '#EE7733', '#33BBEE']
+    need_legend = True
+    type_titles = dict(eeg='EEG', grad='Grad', mag='Mag')
     for count, ch_type in zip(proj_nums, ('grad', 'mag', 'eeg')):
         if count == 0:
             continue
@@ -1051,35 +1069,63 @@ def _proj_fig(fname, info, proj_nums, proj_meg, kind):
                        for name in ch_names]
             proj['data']['data'] = proj['data']['data'][:, sub_idx]
             proj['data']['col_names'] = ch_names
-        topo_axes = [plt.subplot2grid(
-            shape, (ri * (rs_topo + rs_trace), ci),
-            rowspan=rs_topo) for ci in range(count)]
+        topo_axes = [plt.subplot2grid(shape, (ri, ci)) for ci in range(count)]
         # topomaps
         with warnings.catch_warnings(record=True):
             plot_projs_topomap(these_projs, info=info, show=False,
                                axes=topo_axes)
         plt.setp(topo_axes, title='', xlabel='')
-        topo_axes[0].set(ylabel=ch_type)
-        if rs_trace:
-            trace_axes = [plt.subplot2grid(
-                shape, (ri * (rs_topo + rs_trace) + rs_topo, ci),
-                rowspan=rs_trace) for ci in range(count)]
-            for proj, ax in zip(these_projs, trace_axes):
-                this_evoked = evoked.copy().pick_channels(ch_names)
-                p = proj['data']['data']
-                assert p.shape == (1, len(this_evoked.data))
-                with warnings.catch_warnings(record=True):  # tight_layout
-                    this_evoked.plot(
-                        picks=np.arange(len(this_evoked.data)), axes=[ax])
-                ax.texts = []
-                trace = np.dot(p, this_evoked.data)[0]
-                trace *= 0.8 * (np.abs(ax.get_ylim()).max() /
-                                np.abs(trace).max())
-                ax.plot(this_evoked.times, trace, color='#9467bd')
-                ax.set(title='', ylabel='', xlabel='')
+        unit = mne.defaults.DEFAULTS['units'][ch_type]
+        topo_axes[0].set(ylabel=f'{type_titles[ch_type]}\n{unit}')
+        if cs_trace:
+            ax = plt.subplot2grid(shape, (ri, n_col - cs_trace - 1),
+                                  colspan=cs_trace)
+            this_evoked = evoked.copy().pick_channels(ch_names)
+            p = np.concatenate([p['data']['data'] for p in these_projs])
+            assert p.shape == (len(these_projs), len(this_evoked.data))
+            traces = np.dot(p, this_evoked.data)
+            traces *= np.sign(np.mean(
+                np.dot(this_evoked.data, traces.T), 0))[:, np.newaxis]
+            if use_ch is not None:
+                ch_traces = evoked.copy().pick_channels(use_ch).data
+                ch_traces -= np.mean(ch_traces, axis=1, keepdims=True)
+                ch_traces /= np.abs(ch_traces).max()
+            with warnings.catch_warnings(record=True):  # tight_layout
+                this_evoked.plot(
+                    picks=np.arange(len(this_evoked.data)), axes=[ax])
+            for line in ax.lines:
+                line.set(lw=0.5, zorder=3)
+            ax.texts = []
+            scale = 0.8 * np.abs(ax.get_ylim()).max()
+            hs, labels = list(), list()
+            traces /= np.abs(traces).max()  # uniformly scaled
+            for ti, trace in enumerate(traces):
+                hs.append(ax.plot(
+                    this_evoked.times, trace * scale,
+                    color=colors[ti % len(colors)], zorder=5)[0])
+                labels.append(f'#{ti + 1}')
+            traces /= np.abs(traces).max(1, keepdims=True)  # independently
+            for ti, trace in enumerate(traces):
+                ax.plot(
+                    this_evoked.times, trace * scale,
+                    color=colors[ti % len(colors)], zorder=3.5,
+                    ls='--', lw=1., alpha=0.75)
+            if use_ch is not None:
+                hs.append(ax.plot(this_evoked.times, ch_traces.T * scale,
+                                  color='#CCBB44', lw=3, zorder=4,
+                                  alpha=0.75)[0])
+                labels.append(kind)
+            ax.set(title='', xlabel='', ylabel='')
+            if need_legend and count == proj_nums.max():
+                ax.legend(
+                    hs, labels, bbox_to_anchor=(1.05, 1), loc='upper left',
+                    borderaxespad=0.)
+                need_legend = False
         ri += 1
+    if cs_trace:
+        ax.set(xlabel='Time (sec)')
+    fig.subplots_adjust(0.1, 0.15, 1.0, 0.9, wspace=0.25, hspace=0.2)
     assert used.all() and (used <= 2).all()
-    fig.subplots_adjust(0.1, 0.1, 0.95, 1, 0.3, 0.3)
     return fig
 
 
