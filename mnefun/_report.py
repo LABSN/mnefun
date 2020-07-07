@@ -439,6 +439,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                 figs = []
                 comments = []
                 proj_files = get_proj_fnames(p, subj)
+                duration = raw.times[-1]
                 if p.proj_extra is not None:
                     comments.append('Custom')
                     projs = read_proj(op.join(p.work_dir, subj, p.pca_dir,
@@ -452,7 +453,8 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                         figs.append(_proj_fig(op.join(
                             p.work_dir, subj, p.pca_dir,
                             'preproc_ecg-proj.fif'), sss_info,
-                            proj_nums[0], p.proj_meg, 'ECG', ecg_channel))
+                            proj_nums[0], p.proj_meg, 'ECG', ecg_channel,
+                            duration))
                 if any(proj_nums[1]):  # EOG
                     if 'preproc_blink-proj.fif' in proj_files:
                         eog_channel = _handle_dict(p.eog_channel, subj)
@@ -460,14 +462,16 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                         figs.append(_proj_fig(op.join(
                             p.work_dir, subj, p.pca_dir,
                             'preproc_blink-proj.fif'), sss_info,
-                            proj_nums[1], p.proj_meg, 'EOG', eog_channel))
+                            proj_nums[1], p.proj_meg, 'EOG', eog_channel,
+                            duration))
                 if any(proj_nums[2]):  # ERM
                     if 'preproc_cont-proj.fif' in proj_files:
                         comments.append('Continuous')
                         figs.append(_proj_fig(op.join(
                             p.work_dir, subj, p.pca_dir,
                             'preproc_cont-proj.fif'), sss_info,
-                            proj_nums[2], p.proj_meg, 'ERM', None))
+                            proj_nums[2], p.proj_meg, 'ERM', None,
+                            duration))
                 captions = ['SSP epochs: %s' % c for c in comments]
                 report.add_figs_to_section(
                     figs, captions, section, image_format='svg',
@@ -1006,9 +1010,8 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
         report.save(report_fname, open_browser=False, overwrite=True)
 
 
-def _proj_fig(fname, info, proj_nums, proj_meg, kind, use_ch):
+def _proj_fig(fname, info, proj_nums, proj_meg, kind, use_ch, duration):
     import matplotlib.pyplot as plt
-    from matplotlib.ticker import NullFormatter
     from mne.preprocessing.ecg import _get_ecg_channel_index
     from mne.preprocessing.eog import _get_eog_channel_index
     proj_nums = np.array(proj_nums, int)
@@ -1018,7 +1021,10 @@ def _proj_fig(fname, info, proj_nums, proj_meg, kind, use_ch):
     if op.isfile(epochs):
         epochs = mne.read_epochs(epochs)
         evoked = epochs.average(picks='all')
-        title = f'N={len(epochs)}/{len(epochs.drop_log)}'
+        title = (
+            f'N={len(epochs)}/{len(epochs.drop_log)} '
+            f'({len(epochs.drop_log) / duration * 60:0.1f} BPM)'
+        )
         cs_trace = 2
         if kind != 'ERM':
             if kind == 'ECG':
