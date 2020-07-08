@@ -532,6 +532,14 @@ Write :class:`mne.Report` HTML of results to disk.
 
 ``report_params``: Report parameters
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+pre_fun : callable
+    Function to run before adding any Report sections. Must have the
+    signature::
+
+        def pre_fun(report, p, subject, **kwargs):
+            ...
+
+    The ``**kwargs`` is necessary for future compatibility.
 chpi_snr : bool
     cHPI SNR (default True).
 good_hpi_count : bool
@@ -561,6 +569,9 @@ sensor : dict
 source : dict
     Source plots, with keys 'analysis', 'name', 'inv', 'times', 'views',
     and 'size'.
+post_fun : callable
+    Function to run after adding all other Report sections. Must have the same
+    signature as ``pre_fun`` above.
 
 
 Filename standardization

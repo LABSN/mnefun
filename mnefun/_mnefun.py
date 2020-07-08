@@ -221,9 +221,16 @@ class Params(Frozen):
             raw_segments=True,
             psd=True,
             ssp_topomaps=True,
+            drop_log=None,
+            covariance=None,
+            snr=None,
+            whitening=False,
+            sensor=None,
             source_alignment=True,
             bem=True,
             source=None,
+            pre_fun=None,
+            post_fun=None,
         )
         self.rotation_limit = np.inf
         self.translation_limit = np.inf

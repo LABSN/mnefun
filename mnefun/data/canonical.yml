@@ -137,6 +137,7 @@ inverse:
   inv_runs:
 
 report:
+  pre_fun:
   chpi_snr:
   good_hpi_count:
   head_movement:
@@ -151,6 +152,7 @@ report:
   whitening:
   sensor:
   source:
+  post_fun:
 
 naming:
   scoring:

@@ -326,7 +326,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
     known_keys = {
         'good_hpi_count', 'chpi_snr', 'head_movement', 'raw_segments', 'psd',
         'ssp_topomaps', 'source_alignment', 'drop_log', 'bem', 'covariance',
-        'whitening', 'snr', 'sensor', 'source',
+        'whitening', 'snr', 'sensor', 'source', 'pre_fun', 'post_fun',
     }
     unknown = set(p.report_params.keys()).difference(known_keys)
     if unknown:
@@ -385,6 +385,16 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                                     subj + p.inv_tag + '-fwd.fif'))
 
         with report_context():
+            #
+            # Custom pre-fun
+            #
+            pre_fun = p.report_params.get('pre_fun', None)
+            if pre_fun is not None:
+                print('    Pre fun ...'.ljust(LJUST), end='')
+                t0 = time.time()
+                pre_fun(report, p, subj)
+                print('%5.1f sec' % ((time.time() - t0),))
+
             #
             # Head coils
             #
@@ -1001,10 +1011,21 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                         report.add_slider_to_section(
                             figs, captions=captions, section=section,
                             title=title, image_format='png')
+
                 print('%5.1f sec' % ((time.time() - t0),))
             else:
                 print('    %s skipped' % section)
             plt.close('all')
+
+            #
+            # Custom post-fun
+            #
+            post_fun = p.report_params.get('post_fun', None)
+            if post_fun is not None:
+                print('    Post fun ...'.ljust(LJUST), end='')
+                t0 = time.time()
+                post_fun(report, p, subj)
+                print('%5.1f sec' % ((time.time() - t0),))
 
         report_fname = get_report_fnames(p, subj)[0]
         report.save(report_fname, open_browser=False, overwrite=True)
