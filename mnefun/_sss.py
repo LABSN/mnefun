@@ -829,7 +829,7 @@ def _head_pos_annot(p, subj, raw_fname, prefix='  '):
 
 def info_sss_basis(info, origin='auto', int_order=8, ext_order=3,
                    coord_frame='head', regularize='in', ignore_ref=True):
-    """Compute the SSS basis for a given measurement info structure
+    """Compute the SSS basis for a given measurement info structure.
 
     Parameters
     ----------
@@ -858,43 +858,33 @@ def info_sss_basis(info, origin='auto', int_order=8, ext_order=3,
         as ``--trans default`` would in MaxFilter™ (i.e., to the default
         head location).
     regularize : str | None
-        Basis regularization type, must be "in", "svd" or None.
+        Basis regularization type, must be "in" or None.
         "in" is the same algorithm as the "-regularize in" option in
-        MaxFilter™. "svd" (new in v0.13) uses SVD-based regularization by
-        cutting off singular values of the basis matrix below the minimum
-        detectability threshold of an ideal head position (usually near
-        the device origin).
+        MaxFilter™.
     ignore_ref : bool
         If True, do not include reference channels in compensation. This
         option should be True for KIT files, since Maxwell filtering
         with reference channels is not currently supported.
     """
-    from mne.io import pick_info
+    from mne import pick_info
     from mne.preprocessing.maxwell import \
-        _check_origin, _check_regularize, _get_mf_picks, _prep_mf_coils, \
-        _trans_sss_basis, _prep_regularize, _regularize
+        _check_origin, _check_regularize, _get_mf_picks_fix_mags, \
+        _prep_mf_coils, _trans_sss_basis, _regularize
     if coord_frame not in ('head', 'meg'):
         raise ValueError('coord_frame must be either "head" or "meg", not "%s"'
                          % coord_frame)
     origin = _check_origin(origin, info, 'head')
-    regularize = _check_regularize(regularize, ('in', 'svd'))
-    meg_picks, mag_picks, grad_picks, good_picks, coil_scale, mag_or_fine = \
-        _get_mf_picks(info, int_order, ext_order, ignore_ref)
-    info_good = pick_info(info, good_picks, copy=True)
+    _check_regularize(regularize)
+    meg_picks, mag_picks, grad_picks, good_mask, mag_or_fine = \
+        _get_mf_picks_fix_mags(info, int_order, ext_order, ignore_ref)
+    info_good = pick_info(info, meg_picks[good_mask], copy=True)
     all_coils = _prep_mf_coils(info_good, ignore_ref=ignore_ref)
     # remove MEG bads in "to" info
-    decomp_coil_scale = coil_scale[good_picks]
     exp = dict(int_order=int_order, ext_order=ext_order, head_frame=True,
                origin=origin)
     # prepare regularization techniques
-    if _prep_regularize is None:
-        raise RuntimeError('mne-python needs to be on the experimental SVD '
-                           'branch to use this function')
-    _prep_regularize(regularize, all_coils, None, exp, ignore_ref,
-                     coil_scale, grad_picks, mag_picks, mag_or_fine)
     # noinspection PyPep8Naming
-    S = _trans_sss_basis(exp, all_coils, info['dev_head_t'],
-                         coil_scale=decomp_coil_scale)
+    S = _trans_sss_basis(exp, all_coils, info['dev_head_t'])
     if regularize is not None:
         # noinspection PyPep8Naming
         S = _regularize(regularize, exp, S, mag_or_fine, t=0.)[0]
