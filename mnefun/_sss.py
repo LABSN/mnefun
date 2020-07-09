@@ -634,10 +634,13 @@ def _python_autobad(raw, p, skip_start, skip_stop):
     filter_chpi(raw, t_window=_get_t_window(p, raw), allow_line_only=True,
                 verbose=False)
     cal_file, ct_file = _get_cal_ct_file(p)
+    kwargs = dict()
+    if 'h_freq' in get_args(find_bad_channels_maxwell):
+        kwargs['h_freq'] = None
     bads, flats = find_bad_channels_maxwell(
         raw, p.mf_badlimit, origin=origin, coord_frame=coord_frame,
         bad_condition='warning', calibration=cal_file,
-        cross_talk=ct_file, verbose=False)
+        cross_talk=ct_file, verbose=False, **kwargs)
     bads = sorted(b for b in (bads + flats) if b not in orig_bads)
     return bads
 
