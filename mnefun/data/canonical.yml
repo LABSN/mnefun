@@ -116,6 +116,7 @@ epoching:
   out_numbers:
   must_match:
   every_other:
+  epochs_proj:
 
 covariance:
   cov_method:

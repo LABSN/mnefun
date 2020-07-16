@@ -255,6 +255,7 @@ class Params(Frozen):
         self.mf_prebad = dict()
         self.every_other = False
         self.cov_rank_method = 'estimate_rank'
+        self.epochs_proj = True
         self.freeze()
         # Read static-able paraws from config file
         _set_static(self)

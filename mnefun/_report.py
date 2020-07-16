@@ -217,7 +217,8 @@ def _report_raw_segments(report, raw, lowpass=None):
     print('%5.1f sec' % ((time.time() - t0),))
 
 
-def _report_raw_psd(report, raw, raw_pca=None, p=None):
+def _report_raw_psd(report, raw, raw_pca=None, raw_erm=None, raw_erm_pca=None,
+                    p=None):
     t0 = time.time()
     section = 'PSD'
     import matplotlib.pyplot as plt
@@ -235,14 +236,16 @@ def _report_raw_psd(report, raw, raw_pca=None, p=None):
     figs = [raw.plot_psd(fmax=fmax, n_fft=n_fft, show=False, ax=ax)]
     captions = ['%s: Raw' % section]
     fmax = lp_cut + 2 * lp_trans
-    _, ax = plt.subplots(n_ax, figsize=(10, 8))
-    figs.append(raw.plot_psd(fmax=fmax, n_fft=n_fft, show=False, ax=ax))
-    captions.append('%s: Raw (zoomed)' % section)
-    if raw_pca is not None:
+    for this_raw, caption in [
+            (raw, f'{section}: Raw (zoomed)'),
+            (raw_pca, f'{section}: Raw processed (zoomed)'),
+            (raw_erm, f'{section}: ERM (zoomed)'),
+            (raw_erm_pca, f'{section}: ERM processed (zoomed)')]:
         _, ax = plt.subplots(n_ax, figsize=(10, 8))
-        figs.append(raw_pca.plot_psd(fmax=fmax, n_fft=n_fft,
-                                     show=False, ax=ax))
-        captions.append('%s: Processed' % section)
+        if this_raw is not None:
+            figs.append(
+                this_raw.plot_psd(fmax=fmax, n_fft=n_fft, show=False, ax=ax))
+            captions.append(caption)
     # shared y limits
     n = len(figs[0].axes) // 2
     for ai, axes in enumerate(list(zip(
@@ -303,11 +306,12 @@ def _peak_times(evoked, cov, max_peaks=5):
     return times
 
 
-def _get_std_even_odd(fname_evoked, name):
-    all_evoked = [mne.read_evokeds(fname_evoked, name)]
+def _get_std_even_odd(fname_evoked, name, proj=True):
+    all_evoked = [mne.read_evokeds(fname_evoked, name, proj=proj)]
     for extra in (' even', ' odd'):
         try:
-            this_evoked = mne.read_evokeds(fname_evoked, name + extra)
+            this_evoked = mne.read_evokeds(
+                fname_evoked, name + extra, proj=proj)
         except ValueError:
             pass
         else:
@@ -363,15 +367,25 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
         if sss_info is not None:
             sss_info = sss_info.info
 
-        # pca
-        pca_fnames = get_raw_fnames(p, subj, 'pca', False, False,
-                                    run_indices[si])
-        if all(op.isfile(fname) for fname in pca_fnames):
-            raw_pca = [mne.io.read_raw_fif(fname) for fname in pca_fnames]
-            _fix_raw_eog_cals(raw_pca, 'all')
-            raw_pca = mne.concatenate_raws(raw_pca).apply_proj()
-        else:
-            raw_pca = None
+        # pca / erm / erm_pca
+        extra_raws = dict()
+        for key, which, erm in [
+                ('raw_pca', 'pca', False),
+                ('raw_erm', 'raw', 'only'),
+                ('raw_erm_pca', 'pca', 'only')]:
+            these_fnames = get_raw_fnames(
+                p, subj, which, erm, False, run_indices[si])
+            if len(these_fnames) and all(op.isfile(f) for f in these_fnames):
+                extra_raws[key] = [
+                    mne.io.read_raw_fif(fname, allow_maxshield='yes')
+                    for fname in these_fnames]
+                _fix_raw_eog_cals(extra_raws[key], 'all')
+                extra_raws[key] = mne.concatenate_raws(
+                    extra_raws[key]).apply_proj()
+        raw_pca = extra_raws.get('raw_pca', None)
+        raw_erm = extra_raws.get('raw_erm', None)
+        raw_erm_pca = extra_raws.get('raw_erm_pca', None)
+        del extra_raws
 
         # epochs
         epochs_fname, _ = get_epochs_evokeds_fnames(p, subj, p.analyses)
@@ -432,7 +446,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
             # PSD
             #
             if p.report_params.get('psd', True):
-                _report_raw_psd(report, raw, raw_pca, p)
+                _report_raw_psd(report, raw, raw_pca, raw_erm, raw_erm_pca, p)
             else:
                 print('    PSD skipped')
 
@@ -825,6 +839,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                     assert isinstance(sensor, dict)
                     analysis = sensor['analysis']
                     name = sensor['name']
+                    proj = sensor.get('proj', True)
                     fname_evoked = op.join(inv_dir, '%s_%d%s_%s_%s-ave.fif'
                                            % (analysis, p.lp_cut, p.inv_tag,
                                               p.eq_tag, subj))
@@ -840,8 +855,15 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                         times = _get_memo_times(
                             this_evoked, cov_name, (fname_evoked, name),
                             times_memo)
+                    del this_evoked
                     # Plot the responses, including even/odd
-                    all_evoked = _get_std_even_odd(fname_evoked, name)
+                    all_evoked = _get_std_even_odd(
+                        fname_evoked, name, proj=proj)
+                    for this_evoked in all_evoked:
+                        if this_evoked.proj and not proj:
+                            raise RuntimeError(
+                                'cannot use proj=False unless '
+                                'p.epochs_proj = "delayed" was run')
                     all_figs, all_captions = list(), list()
                     for key in ('grad', 'mag', 'eeg'):
                         if key not in all_evoked[0]:
@@ -873,10 +895,12 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                             all_figs += [fig]
                             all_captions += [n_text]
                     title = f'{section}: {analysis}["{all_evoked[0].comment}"]'
+                    if not proj:
+                        title += ' : SSP off'
                     report.add_slider_to_section(
                         all_figs, all_captions, section=section,
                         title=title, image_format='png')
-                    del this_evoked
+                    del this_evoked, all_evoked
                 print('%5.1f sec' % ((time.time() - t0),))
 
             #

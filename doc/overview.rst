@@ -458,6 +458,9 @@ every_other : bool
     If True, in addition to standard averages / evoked data, averages will be
     computed from every other trial, i.e., from even and odd trials separately.
     This can help assess the SNR of the data.
+epochs_proj : bool | 'delayed'
+    The ``proj`` argument in :class:`mne.Epochs`. Should be ``'delayed'`` if
+    you want the option of plotting sensor-space data with no projectors.
 
 8. gen_covs
 -----------

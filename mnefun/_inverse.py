@@ -14,7 +14,8 @@ from mne.stats import spatio_temporal_cluster_1samp_test
 from mne.utils import get_subjects_dir, verbose, logger
 
 from ._cov import _compute_rank
-from ._paths import get_epochs_evokeds_fnames, safe_inserter
+from ._paths import (get_epochs_evokeds_fnames, safe_inserter,
+                     get_cov_fwd_inv_fnames)
 
 
 def gen_inverses(p, subjects, run_indices):
@@ -37,7 +38,6 @@ def gen_inverses(p, subjects, run_indices):
         if p.disp_files:
             print('  Subject %s' % subj, end='')
         inv_dir = op.join(p.work_dir, subj, p.inverse_dir)
-        fwd_dir = op.join(p.work_dir, subj, p.forward_dir)
         cov_dir = op.join(p.work_dir, subj, p.cov_dir)
         if not op.isdir(inv_dir):
             os.mkdir(inv_dir)
@@ -75,7 +75,7 @@ def gen_inverses(p, subjects, run_indices):
             if p.force_erm_cov_rank_full and p.cov_method == 'empirical':
                 empty_cov = regularize(
                     empty_cov, epochs.info, rank='full')
-        fwd_name = op.join(fwd_dir, subj + p.inv_tag + '-fwd.fif')
+        fwd_name = get_cov_fwd_inv_fnames(p, subj, run_indices[si])[1][0]
         fwd = read_forward_solution(fwd_name)
         fwd = convert_forward_solution(fwd, surf_ori=True)
         looses = [1]
