@@ -884,6 +884,14 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                         min_ = -max_ if key != 'grad' else 0
                         cmap = 'RdBu_r' if key != 'grad' else 'Reds'
                         for this_evoked in all_evoked:
+                            # Always view EEG data with avg ref applied
+                            if key == 'eeg' and proj in ('reconstruct', False):
+                                this_evoked = this_evoked.copy()
+                                all_proj = this_evoked.info['projs']
+                                this_evoked.info['projs'] = []
+                                this_evoked.set_eeg_reference(projection=True)
+                                this_evoked.apply_proj()
+                                this_evoked.info['projs'] = all_proj
                             fig = this_evoked.plot_joint(
                                 times, show=False, picks=picks,
                                 ts_args=dict(proj=proj),
