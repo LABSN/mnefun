@@ -307,6 +307,7 @@ def _peak_times(evoked, cov, max_peaks=5):
 
 
 def _get_std_even_odd(fname_evoked, name, proj=True):
+    proj = True if proj == 'reconstruct' else proj
     all_evoked = [mne.read_evokeds(fname_evoked, name, proj=proj)]
     for extra in (' even', ' odd'):
         try:
@@ -707,8 +708,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                             sl = slice(ei, n_e * n_s, n_e)
                             these_axes = list(axes[sl]) + [axes[-1]]
                             evo.plot_white(
-                                noise_cov, verbose='error', axes=these_axes,
-                                **time_kwargs)
+                                noise_cov, verbose='error', axes=these_axes)
                             for ax in these_axes[:-1]:
                                 n_text = 'N=%d' % (evo.nave,)
                                 if ei != 0:
@@ -840,6 +840,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                     analysis = sensor['analysis']
                     name = sensor['name']
                     proj = sensor.get('proj', True)
+                    assert proj in (True, False, 'reconstruct')
                     fname_evoked = op.join(inv_dir, '%s_%d%s_%s_%s-ave.fif'
                                            % (analysis, p.lp_cut, p.inv_tag,
                                               p.eq_tag, subj))
@@ -864,6 +865,9 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                             raise RuntimeError(
                                 'cannot use proj=False unless '
                                 'p.epochs_proj = "delayed" was run')
+                    if proj == 'reconstruct':
+                        assert proj in this_evoked.plot.__doc__, \
+                            'MNE >= PR #8033 required'
                     all_figs, all_captions = list(), list()
                     for key in ('grad', 'mag', 'eeg'):
                         if key not in all_evoked[0]:
@@ -881,11 +885,11 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                         cmap = 'RdBu_r' if key != 'grad' else 'Reds'
                         for this_evoked in all_evoked:
                             fig = this_evoked.plot_joint(
-                                times, show=False, ts_args=dict(**time_kwargs),
-                                picks=picks,
+                                times, show=False, picks=picks,
+                                ts_args=dict(proj=proj),
                                 topomap_args=dict(outlines='head', vmin=min_,
                                                   vmax=max_, cmap=cmap,
-                                                  **time_kwargs))
+                                                  proj=proj))
                             assert isinstance(fig, plt.Figure)
                             fig.axes[0].set(ylim=(-max_, max_))
                             t = fig.axes[-1].texts[0]
@@ -897,6 +901,10 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                     title = f'{section}: {analysis}["{all_evoked[0].comment}"]'
                     if not proj:
                         title += ' : SSP off'
+                    elif proj == 'reconstruct':
+                        title += ' : SSP+recon'
+                    else:
+                        title += ' : SSP on'
                     report.add_slider_to_section(
                         all_figs, all_captions, section=section,
                         title=title, image_format='png')

@@ -568,7 +568,9 @@ snr : dict
 whitening : dict
     Whitening plots, with keys 'analysis', 'name', and 'cov'.
 sensor : dict
-    Sensor topomaps, with keys 'analysis', 'name', and 'times'.
+    Sensor topomaps, with keys 'analysis', 'name', 'times', and 'proj'.
+    'proj' can be True (default), False, or 'reconstruct'.
+    False and 'reconstruct' require ``epochs_proj='delayed'``.
 source : dict
     Source plots, with keys 'analysis', 'name', 'inv', 'times', 'views',
     and 'size'.

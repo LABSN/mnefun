@@ -108,6 +108,7 @@ report:
   sensor: [
     {analysis: All, name: All, times: 'peaks', proj: False},
     {analysis: All, name: All, times: 'peaks'},
+    {analysis: All, name: All, times: 'peaks', proj: 'reconstruct'},
     ]
   source: {analysis: All, name: All, inv: '%s-50-sss-meg-eeg-free-inv.fif',
            times: 'peaks', views: lat, size: [800, 400]}
