@@ -105,6 +105,7 @@ class Params(Frozen):
         self.n_jobs_fir = n_jobs_fir  # Jobs when using method='fir'
         self.n_jobs_resample = n_jobs_resample
         self.filter_length = filter_length
+        self.cont_hp = None
         self.cont_lp = 5.
         self.lp_cut = lp_cut
         self.hp_cut = hp_cut

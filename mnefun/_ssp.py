@@ -292,7 +292,7 @@ def do_preprocessing_combined(p, subjects, run_indices):
                 if p.disp_files:
                     print('    Computing continuous projectors using data.')
                 raw = raw_orig.copy()
-            raw.filter(None, p.cont_lp, n_jobs=p.n_jobs_fir, method='fir',
+            raw.filter(p.cont_hp, p.cont_lp, n_jobs=p.n_jobs_fir, method='fir',
                        filter_length=p.filter_length, h_trans_bandwidth=0.5,
                        fir_window=p.fir_window, phase=p.phase,
                        skip_by_annotation='edge', **fir_kwargs)

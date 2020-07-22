@@ -11,6 +11,10 @@ Changelog
 
 2020
 ^^^^
+- 2020/07/21:
+    Added support for ``cont_hp`` to allow high-pass filtering (in addition
+    to existing low-pass filtering via ``cont_lp``; thereby allowing band-pass
+    filtering) when computing empty-room projectors.
 - 2020/07/16:
     Added support for ``epochs_proj='delayed'`` and
     ``report_params['sensor'] = dict(..., proj=False)`` to allow plotting

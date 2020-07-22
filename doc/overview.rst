@@ -371,8 +371,10 @@ proj_extra : str | None
     ``extra-proj.fif`` will load ``SUBJ/sss_pca_fif/extra-proj.fif``.
 get_projs_from : list of int
     Indices for runs to get projects from.
+cont_hp : float
+    Highpass to use for continuous ERM projectors (default None).
 cont_lp : float
-    Lowpass to use for continuous ERM projectors.
+    Lowpass to use for continuous ERM projectors (default 5).
 plot_drop_logs : bool
     If True, plot drop logs after preprocessing.
 

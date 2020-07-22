@@ -88,6 +88,7 @@ preprocessing:
     proj_ave:
     proj_extra:
     get_projs_from:
+    cont_hp:
     cont_lp:
     plot_drop_logs:
 
