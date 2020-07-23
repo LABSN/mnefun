@@ -217,7 +217,8 @@ def _report_raw_segments(report, raw, lowpass=None):
     print('%5.1f sec' % ((time.time() - t0),))
 
 
-def _report_raw_psd(report, raw, raw_pca=None, p=None):
+def _report_raw_psd(report, raw, raw_pca=None, raw_erm=None, raw_erm_pca=None,
+                    p=None):
     t0 = time.time()
     section = 'PSD'
     import matplotlib.pyplot as plt
@@ -235,14 +236,16 @@ def _report_raw_psd(report, raw, raw_pca=None, p=None):
     figs = [raw.plot_psd(fmax=fmax, n_fft=n_fft, show=False, ax=ax)]
     captions = ['%s: Raw' % section]
     fmax = lp_cut + 2 * lp_trans
-    _, ax = plt.subplots(n_ax, figsize=(10, 8))
-    figs.append(raw.plot_psd(fmax=fmax, n_fft=n_fft, show=False, ax=ax))
-    captions.append('%s: Raw (zoomed)' % section)
-    if raw_pca is not None:
+    for this_raw, caption in [
+            (raw, f'{section}: Raw (zoomed)'),
+            (raw_pca, f'{section}: Raw processed (zoomed)'),
+            (raw_erm, f'{section}: ERM (zoomed)'),
+            (raw_erm_pca, f'{section}: ERM processed (zoomed)')]:
         _, ax = plt.subplots(n_ax, figsize=(10, 8))
-        figs.append(raw_pca.plot_psd(fmax=fmax, n_fft=n_fft,
-                                     show=False, ax=ax))
-        captions.append('%s: Processed' % section)
+        if this_raw is not None:
+            figs.append(
+                this_raw.plot_psd(fmax=fmax, n_fft=n_fft, show=False, ax=ax))
+            captions.append(caption)
     # shared y limits
     n = len(figs[0].axes) // 2
     for ai, axes in enumerate(list(zip(
@@ -303,11 +306,13 @@ def _peak_times(evoked, cov, max_peaks=5):
     return times
 
 
-def _get_std_even_odd(fname_evoked, name):
-    all_evoked = [mne.read_evokeds(fname_evoked, name)]
+def _get_std_even_odd(fname_evoked, name, proj=True):
+    proj = True if proj == 'reconstruct' else proj
+    all_evoked = [mne.read_evokeds(fname_evoked, name, proj=proj)]
     for extra in (' even', ' odd'):
         try:
-            this_evoked = mne.read_evokeds(fname_evoked, name + extra)
+            this_evoked = mne.read_evokeds(
+                fname_evoked, name + extra, proj=proj)
         except ValueError:
             pass
         else:
@@ -326,7 +331,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
     known_keys = {
         'good_hpi_count', 'chpi_snr', 'head_movement', 'raw_segments', 'psd',
         'ssp_topomaps', 'source_alignment', 'drop_log', 'bem', 'covariance',
-        'whitening', 'snr', 'sensor', 'source',
+        'whitening', 'snr', 'sensor', 'source', 'pre_fun', 'post_fun',
     }
     unknown = set(p.report_params.keys()).difference(known_keys)
     if unknown:
@@ -363,15 +368,25 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
         if sss_info is not None:
             sss_info = sss_info.info
 
-        # pca
-        pca_fnames = get_raw_fnames(p, subj, 'pca', False, False,
-                                    run_indices[si])
-        if all(op.isfile(fname) for fname in pca_fnames):
-            raw_pca = [mne.io.read_raw_fif(fname) for fname in pca_fnames]
-            _fix_raw_eog_cals(raw_pca, 'all')
-            raw_pca = mne.concatenate_raws(raw_pca).apply_proj()
-        else:
-            raw_pca = None
+        # pca / erm / erm_pca
+        extra_raws = dict()
+        for key, which, erm in [
+                ('raw_pca', 'pca', False),
+                ('raw_erm', 'raw', 'only'),
+                ('raw_erm_pca', 'pca', 'only')]:
+            these_fnames = get_raw_fnames(
+                p, subj, which, erm, False, run_indices[si])
+            if len(these_fnames) and all(op.isfile(f) for f in these_fnames):
+                extra_raws[key] = [
+                    mne.io.read_raw_fif(fname, allow_maxshield='yes')
+                    for fname in these_fnames]
+                _fix_raw_eog_cals(extra_raws[key], 'all')
+                extra_raws[key] = mne.concatenate_raws(
+                    extra_raws[key]).apply_proj()
+        raw_pca = extra_raws.get('raw_pca', None)
+        raw_erm = extra_raws.get('raw_erm', None)
+        raw_erm_pca = extra_raws.get('raw_erm_pca', None)
+        del extra_raws
 
         # epochs
         epochs_fname, _ = get_epochs_evokeds_fnames(p, subj, p.analyses)
@@ -385,6 +400,16 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                                     subj + p.inv_tag + '-fwd.fif'))
 
         with report_context():
+            #
+            # Custom pre-fun
+            #
+            pre_fun = p.report_params.get('pre_fun', None)
+            if pre_fun is not None:
+                print('    Pre fun ...'.ljust(LJUST), end='')
+                t0 = time.time()
+                pre_fun(report, p, subj)
+                print('%5.1f sec' % ((time.time() - t0),))
+
             #
             # Head coils
             #
@@ -422,7 +447,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
             # PSD
             #
             if p.report_params.get('psd', True):
-                _report_raw_psd(report, raw, raw_pca, p)
+                _report_raw_psd(report, raw, raw_pca, raw_erm, raw_erm_pca, p)
             else:
                 print('    PSD skipped')
 
@@ -683,8 +708,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                             sl = slice(ei, n_e * n_s, n_e)
                             these_axes = list(axes[sl]) + [axes[-1]]
                             evo.plot_white(
-                                noise_cov, verbose='error', axes=these_axes,
-                                **time_kwargs)
+                                noise_cov, verbose='error', axes=these_axes)
                             for ax in these_axes[:-1]:
                                 n_text = 'N=%d' % (evo.nave,)
                                 if ei != 0:
@@ -815,6 +839,8 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                     assert isinstance(sensor, dict)
                     analysis = sensor['analysis']
                     name = sensor['name']
+                    proj = sensor.get('proj', True)
+                    assert proj in (True, False, 'reconstruct')
                     fname_evoked = op.join(inv_dir, '%s_%d%s_%s_%s-ave.fif'
                                            % (analysis, p.lp_cut, p.inv_tag,
                                               p.eq_tag, subj))
@@ -830,8 +856,18 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                         times = _get_memo_times(
                             this_evoked, cov_name, (fname_evoked, name),
                             times_memo)
+                    del this_evoked
                     # Plot the responses, including even/odd
-                    all_evoked = _get_std_even_odd(fname_evoked, name)
+                    all_evoked = _get_std_even_odd(
+                        fname_evoked, name, proj=proj)
+                    for this_evoked in all_evoked:
+                        if this_evoked.proj and not proj:
+                            raise RuntimeError(
+                                'cannot use proj=False unless '
+                                'p.epochs_proj = "delayed" was run')
+                    if proj == 'reconstruct':
+                        assert proj in this_evoked.plot.__doc__, \
+                            'MNE >= PR #8033 required'
                     all_figs, all_captions = list(), list()
                     for key in ('grad', 'mag', 'eeg'):
                         if key not in all_evoked[0]:
@@ -848,12 +884,20 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                         min_ = -max_ if key != 'grad' else 0
                         cmap = 'RdBu_r' if key != 'grad' else 'Reds'
                         for this_evoked in all_evoked:
+                            # Always view EEG data with avg ref applied
+                            if key == 'eeg' and proj in ('reconstruct', False):
+                                this_evoked = this_evoked.copy()
+                                all_proj = this_evoked.info['projs']
+                                this_evoked.info['projs'] = []
+                                this_evoked.set_eeg_reference(projection=True)
+                                this_evoked.apply_proj()
+                                this_evoked.info['projs'] = all_proj
                             fig = this_evoked.plot_joint(
-                                times, show=False, ts_args=dict(**time_kwargs),
-                                picks=picks,
+                                times, show=False, picks=picks,
+                                ts_args=dict(proj=proj),
                                 topomap_args=dict(outlines='head', vmin=min_,
                                                   vmax=max_, cmap=cmap,
-                                                  **time_kwargs))
+                                                  proj=proj))
                             assert isinstance(fig, plt.Figure)
                             fig.axes[0].set(ylim=(-max_, max_))
                             t = fig.axes[-1].texts[0]
@@ -863,10 +907,16 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                             all_figs += [fig]
                             all_captions += [n_text]
                     title = f'{section}: {analysis}["{all_evoked[0].comment}"]'
+                    if not proj:
+                        title += ' : SSP off'
+                    elif proj == 'reconstruct':
+                        title += ' : SSP+recon'
+                    else:
+                        title += ' : SSP on'
                     report.add_slider_to_section(
                         all_figs, all_captions, section=section,
                         title=title, image_format='png')
-                    del this_evoked
+                    del this_evoked, all_evoked
                 print('%5.1f sec' % ((time.time() - t0),))
 
             #
@@ -1001,10 +1051,21 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                         report.add_slider_to_section(
                             figs, captions=captions, section=section,
                             title=title, image_format='png')
+
                 print('%5.1f sec' % ((time.time() - t0),))
             else:
                 print('    %s skipped' % section)
             plt.close('all')
+
+            #
+            # Custom post-fun
+            #
+            post_fun = p.report_params.get('post_fun', None)
+            if post_fun is not None:
+                print('    Post fun ...'.ljust(LJUST), end='')
+                t0 = time.time()
+                post_fun(report, p, subj)
+                print('%5.1f sec' % ((time.time() - t0),))
 
         report_fname = get_report_fnames(p, subj)[0]
         report.save(report_fname, open_browser=False, overwrite=True)

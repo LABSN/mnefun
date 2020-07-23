@@ -28,10 +28,12 @@ SUBJECTS_DIR directory:
 """  # noqa: E501
 
 import mnefun
-from score import score
+from score import score, pre_fun, post_fun
 
 params = mnefun.read_params('funloc_params.yml')
 params.score = score
+params.report_params['pre_fun'] = pre_fun
+params.report_params['post_fun'] = post_fun
 params.subject_indices = [0, 1]
 
 # Set what processing steps will execute

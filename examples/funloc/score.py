@@ -16,6 +16,8 @@ from __future__ import print_function
 import os
 import numpy as np
 from os import path as op
+import time
+
 import mne
 from mnefun import extract_expyfun_events
 
@@ -51,11 +53,39 @@ def score(p, subjects):
             mne.write_events(fname_out, events)
 
             # get subject performance
-            devs = (events[:, 2] % 2 == 1)
+            devs = (events[:, 2] >= 20)
             has_presses = np.array([len(pr) > 0 for pr in presses], bool)
             n_devs = np.sum(devs)
             hits = np.sum(has_presses[devs])
             fas = np.sum(has_presses[~devs])
             misses = n_devs - hits
             crs = (len(devs) - n_devs) - fas
-            print('HMFC: %s, %s, %s, %s' % (hits, misses, fas, crs))
+            out = f'HMFC: {hits} {misses} {fas} {crs}'
+            print(out)
+            with open(op.join(p.work_dir, subj, 'behavioral.txt'), 'w') as fid:
+                fid.write(out)
+
+
+_start = None
+
+
+def pre_fun(report, p, subject, **kwargs):
+    """Report function to run at the beginning."""
+    global _start
+    _start = time.time()
+    fname = op.join(p.work_dir, subject, 'behavioral.txt')
+    if not op.isfile(fname):
+        return  # do nothing
+    with open(fname, 'r') as fid:
+        content = fid.read()
+    report.add_htmls_to_section(
+        f'<p align="center">{content}</p>',
+        captions='Behavioral', section='Behavioral')
+
+
+def post_fun(report, p, subject, **kwargs):
+    """Report function to run at the end."""
+    report.add_htmls_to_section(
+        '<p align="center">Report generation took '
+        f'{time.time() - _start:0.1f} sec</p>',
+        captions='Timing', section='Report info')

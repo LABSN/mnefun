@@ -125,8 +125,8 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
             rtmax = p.reject_tmax if p.reject_tmax is not None else p.tmax
             temp_epochs = Epochs(
                 raw, events, event_id=None, tmin=rtmin, tmax=rtmax,
-                baseline=_get_baseline(p), proj=True, reject=None, flat=None,
-                preload=True, decim=decim[si],
+                baseline=_get_baseline(p), proj=p.epochs_proj, reject=None,
+                flat=None, preload=True, decim=decim[si],
                 reject_by_annotation=p.reject_epochs_by_annot)
             kwargs = dict()
             if 'verbose' in get_args(get_rejection_threshold):

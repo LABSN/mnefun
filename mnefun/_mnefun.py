@@ -105,6 +105,7 @@ class Params(Frozen):
         self.n_jobs_fir = n_jobs_fir  # Jobs when using method='fir'
         self.n_jobs_resample = n_jobs_resample
         self.filter_length = filter_length
+        self.cont_hp = None
         self.cont_lp = 5.
         self.lp_cut = lp_cut
         self.hp_cut = hp_cut
@@ -221,9 +222,16 @@ class Params(Frozen):
             raw_segments=True,
             psd=True,
             ssp_topomaps=True,
+            drop_log=None,
+            covariance=None,
+            snr=None,
+            whitening=False,
+            sensor=None,
             source_alignment=True,
             bem=True,
             source=None,
+            pre_fun=None,
+            post_fun=None,
         )
         self.rotation_limit = np.inf
         self.translation_limit = np.inf
@@ -248,6 +256,7 @@ class Params(Frozen):
         self.mf_prebad = dict()
         self.every_other = False
         self.cov_rank_method = 'estimate_rank'
+        self.epochs_proj = True
         self.freeze()
         # Read static-able paraws from config file
         _set_static(self)

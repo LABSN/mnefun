@@ -371,8 +371,10 @@ proj_extra : str | None
     ``extra-proj.fif`` will load ``SUBJ/sss_pca_fif/extra-proj.fif``.
 get_projs_from : list of int
     Indices for runs to get projects from.
+cont_hp : float
+    Highpass to use for continuous ERM projectors (default None).
 cont_lp : float
-    Lowpass to use for continuous ERM projectors.
+    Lowpass to use for continuous ERM projectors (default 5).
 plot_drop_logs : bool
     If True, plot drop logs after preprocessing.
 
@@ -458,6 +460,9 @@ every_other : bool
     If True, in addition to standard averages / evoked data, averages will be
     computed from every other trial, i.e., from even and odd trials separately.
     This can help assess the SNR of the data.
+epochs_proj : bool | 'delayed'
+    The ``proj`` argument in :class:`mne.Epochs`. Should be ``'delayed'`` if
+    you want the option of plotting sensor-space data with no projectors.
 
 8. gen_covs
 -----------
@@ -532,6 +537,14 @@ Write :class:`mne.Report` HTML of results to disk.
 
 ``report_params``: Report parameters
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+pre_fun : callable
+    Function to run before adding any Report sections. Must have the
+    signature::
+
+        def pre_fun(report, p, subject, **kwargs):
+            ...
+
+    The ``**kwargs`` is necessary for future compatibility.
 chpi_snr : bool
     cHPI SNR (default True).
 good_hpi_count : bool
@@ -557,10 +570,15 @@ snr : dict
 whitening : dict
     Whitening plots, with keys 'analysis', 'name', and 'cov'.
 sensor : dict
-    Sensor topomaps, with keys 'analysis', 'name', and 'times'.
+    Sensor topomaps, with keys 'analysis', 'name', 'times', and 'proj'.
+    'proj' can be True (default), False, or 'reconstruct'.
+    False and 'reconstruct' require ``epochs_proj='delayed'``.
 source : dict
     Source plots, with keys 'analysis', 'name', 'inv', 'times', 'views',
     and 'size'.
+post_fun : callable
+    Function to run after adding all other Report sections. Must have the same
+    signature as ``pre_fun`` above.
 
 
 Filename standardization

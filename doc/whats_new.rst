@@ -11,6 +11,16 @@ Changelog
 
 2020
 ^^^^
+- 2020/07/21:
+    Added support for ``cont_hp`` to allow high-pass filtering (in addition
+    to existing low-pass filtering via ``cont_lp``; thereby allowing band-pass
+    filtering) when computing empty-room projectors.
+- 2020/07/16:
+    Added support for ``epochs_proj='delayed'`` and
+    ``report_params['sensor'] = dict(..., proj=False)`` to allow plotting
+    sensor space responses without projection.
+- 2020/07/08:
+    Add support for ``pre_fun`` and ``post_fun`` hooks in reports.
 - 2020/06/19
     Fixed errant picking of only data channels in preprocessed raw data files.
 - 2020/05/26

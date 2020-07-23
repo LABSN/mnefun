@@ -88,6 +88,7 @@ preprocessing:
     proj_ave:
     proj_extra:
     get_projs_from:
+    cont_hp:
     cont_lp:
     plot_drop_logs:
 
@@ -116,6 +117,7 @@ epoching:
   out_numbers:
   must_match:
   every_other:
+  epochs_proj:
 
 covariance:
   cov_method:
@@ -137,6 +139,7 @@ inverse:
   inv_runs:
 
 report:
+  pre_fun:
   chpi_snr:
   good_hpi_count:
   head_movement:
@@ -151,6 +154,7 @@ report:
   whitening:
   sensor:
   source:
+  post_fun:
 
 naming:
   scoring:

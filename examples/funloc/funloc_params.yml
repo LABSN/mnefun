@@ -85,6 +85,7 @@ epoching:
   out_numbers: [[1, 1, 1, 1], *in_numbers]
   must_match: [[], [0, 1]]
   every_other: True
+  epochs_proj: delayed
 
 covariance:
   cov_method: shrunk
@@ -104,6 +105,10 @@ inverse:
 report:
   snr: {analysis: All, name: All, inv: '%s-50-sss-meg-eeg-free-inv.fif'}
   whitening: {analysis: All, name: All}
-  sensor: {analysis: All, name: All, times: 'peaks'}
+  sensor: [
+    {analysis: All, name: All, times: 'peaks', proj: False},
+    {analysis: All, name: All, times: 'peaks'},
+    {analysis: All, name: All, times: 'peaks', proj: 'reconstruct'},
+    ]
   source: {analysis: All, name: All, inv: '%s-50-sss-meg-eeg-free-inv.fif',
            times: 'peaks', views: lat, size: [800, 400]}
