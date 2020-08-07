@@ -155,6 +155,7 @@ report:
   sensor:
   source:
   post_fun:
+  preload:
 
 naming:
   scoring:

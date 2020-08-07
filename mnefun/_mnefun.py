@@ -232,6 +232,7 @@ class Params(Frozen):
             source=None,
             pre_fun=None,
             post_fun=None,
+            preload=False,
         )
         self.rotation_limit = np.inf
         self.translation_limit = np.inf

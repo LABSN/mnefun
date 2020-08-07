@@ -23,7 +23,7 @@ _EXCLUDED_KEYS = (
 _REPORT_KEYS = {
     'chpi_snr', 'good_hpi_count', 'head_movement', 'raw_segments',
     'psd', 'ssp_topomaps', 'source_alignment', 'drop_log', 'bem', 'covariance',
-    'snr', 'whitening', 'sensor', 'source', 'pre_fun', 'post_fun',
+    'snr', 'whitening', 'sensor', 'source', 'pre_fun', 'post_fun', 'preload',
 }
 
 _KEYS_TO_FLATTEN = {
