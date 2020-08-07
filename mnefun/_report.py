@@ -332,10 +332,12 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
         'good_hpi_count', 'chpi_snr', 'head_movement', 'raw_segments', 'psd',
         'ssp_topomaps', 'source_alignment', 'drop_log', 'bem', 'covariance',
         'whitening', 'snr', 'sensor', 'source', 'pre_fun', 'post_fun',
+        'preload',
     }
     unknown = set(p.report_params.keys()).difference(known_keys)
     if unknown:
         raise RuntimeError(f'unknown report_params: {sorted(unknown)}')
+    preload = p.report_params.get('preload', False)
     for si, subj in enumerate(subjects):
         struc = structurals[si]
         report = Report(verbose=False)
@@ -355,7 +357,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
         bads = sorted(set(sum((r.info['bads'] for r in raw), [])))
         for r in raw:
             r.info['bads'] = bads
-        raw = mne.concatenate_raws(raw)
+        raw = mne.concatenate_raws(raw, preload=preload)
 
         # sss
         sss_fnames = get_raw_fnames(p, subj, 'sss', False, False,
@@ -382,7 +384,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                     for fname in these_fnames]
                 _fix_raw_eog_cals(extra_raws[key], 'all')
                 extra_raws[key] = mne.concatenate_raws(
-                    extra_raws[key]).apply_proj()
+                    extra_raws[key], preload=preload).apply_proj()
         raw_pca = extra_raws.get('raw_pca', None)
         raw_erm = extra_raws.get('raw_erm', None)
         raw_erm_pca = extra_raws.get('raw_erm_pca', None)

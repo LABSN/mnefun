@@ -579,6 +579,10 @@ source : dict
 post_fun : callable
     Function to run after adding all other Report sections. Must have the same
     signature as ``pre_fun`` above.
+preload : bool
+    If True (default False), load all raw data into memory before generating
+    plots. Can help speed up computations like PSD estimates, but can also
+    consume a large amount of memory.
 
 
 Filename standardization
