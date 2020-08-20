@@ -582,7 +582,7 @@ def _get_t_window(p, raw):
             info = raw.info
             if info['line_freq'] is not None:  # as in mne.chpi.py
                 line_freqs = np.arange(info['line_freq'], info['sfreq'] / 3.,
-                       info['line_freq'])
+                                       info['line_freq'])
             else:
                 line_freqs = np.array([60])   # SMB: should be safe to assume
         except RuntimeError:
@@ -594,7 +594,7 @@ def _get_t_window(p, raw):
             # of 727 Hz+) and 83 ms for 60 Hz line freq (w/ more typical coil
             # freqs of 83 Hz+).
             all_freqs = np.concatenate((hpi_freqs, line_freqs))
-            delta_freqs = [abs(b-a) for b in all_freqs for a in all_freqs \
+            delta_freqs = [abs(b - a) for b in all_freqs for a in all_freqs
                            if a != b]
             delta_freqs = np.array(delta_freqs)
             t_window = max(5. / all_freqs.min(), 1. / delta_freqs.min())
