@@ -16,7 +16,7 @@ from scipy.spatial.distance import cdist
 from mne import (read_trans, Transform, read_annotations, Annotations,
                  pick_types)
 from mne.bem import fit_sphere_to_headshape
-from mne.chpi import read_head_pos, write_head_pos, filter_chpi
+from mne.chpi import read_head_pos, write_head_pos, filter_chpi, _get_hpi_info
 from mne.externals.h5io import read_hdf5, write_hdf5
 from mne.io import read_raw_fif, BaseRaw, write_info, read_info
 from mne.preprocessing import maxwell_filter
@@ -577,16 +577,27 @@ def _pos_valid(pos, dist_limit, gof_limit):
 def _get_t_window(p, raw):
     t_window = p.coil_t_window if p is not None else 'auto'
     if t_window == 'auto':
-        from mne.chpi import _get_hpi_info
         try:
             hpi_freqs, _, _ = _get_hpi_info(raw.info, verbose=False)
+            info = raw.info
+            if info['line_freq'] is not None:  # as in mne.chpi.py
+                line_freqs = np.arange(info['line_freq'], info['sfreq'] / 3.,
+                       info['line_freq'])
+            else:
+                line_freqs = np.array([60])   # SMB: should be safe to assume
         except RuntimeError:
             t_window = 0.2
         else:
-            # Use the longer of 5 cycles and the difference in HPI freqs.
-            # This will be 143 ms for 7 Hz spacing (old) and
-            # 60 ms for 83 Hz lowest freq.
-            t_window = max(5. / min(hpi_freqs), 1. / np.diff(hpi_freqs).min())
+            # Use the longer of 5 cycles and the difference across all
+            # HPI and line harmonic frequencies.
+            # This will be 143 ms for 7 Hz spacing (e.g. w/ higher coil freqs
+            # of 727 Hz+) and 83 ms for 60 Hz line freq (w/ more typical coil
+            # freqs of 83 Hz+).
+            all_freqs = np.concatenate((hpi_freqs, line_freqs))
+            delta_freqs = [abs(b-a) for b in all_freqs for a in all_freqs \
+                           if a != b]
+            delta_freqs = np.array(delta_freqs)
+            t_window = max(5. / all_freqs.min(), 1. / delta_freqs.min())
             t_window = round(1000 * t_window) / 1000.  # round to ms
     t_window = float(t_window)
     return t_window
@@ -696,7 +707,7 @@ def _mf_autobad(raw, p, skip_start, skip_stop):
     return bads
 
 
-def _get_fit_data(raw, p=None, prefix='    '):
+def _get_fit_data(raw, p=None, prefix='    ', return_t_window=False):
     if hasattr(p, 'tmpdir'):
         # Make these more tolerant and less frequent for faster runs
         count_fname = op.join(p.tmpdir, 'temp-counts.h5')
@@ -709,9 +720,12 @@ def _get_fit_data(raw, p=None, prefix='    '):
     coil_dist_limit = p.coil_dist_limit
     coil_gof_limit = p.coil_gof_limit
     coil_t_step_min = p.coil_t_step_min
-    if any(x is None for x in (p.movecomp, coil_dist_limit)):
-        return None, None
     t_window = _get_t_window(p, raw)
+    if any(x is None for x in (p.movecomp, coil_dist_limit)):
+        if return_t_window:
+            return None, None, t_window
+        else:
+            return None, None
 
     # Good to do the fits
     if not op.isfile(count_fname):
@@ -768,7 +782,10 @@ def _get_fit_data(raw, p=None, prefix='    '):
     # otherwise we need to go back and fix!
     assert _pos_valid(head_pos[0], coil_dist_limit, coil_gof_limit), pos_fname
 
-    return fit_data, head_pos
+    if return_t_window:
+        return fit_data, head_pos, t_window
+    else:
+        return fit_data, head_pos
 
 
 def _head_pos_annot(p, subj, raw_fname, prefix='  '):
@@ -779,9 +796,9 @@ def _head_pos_annot(p, subj, raw_fname, prefix='  '):
     if p is not None and p.movecomp is None:
         head_pos = fit_data = None
     else:
-        t_window = _get_t_window(p, raw)
+        # t_window = _get_t_window(p, raw)    SMB 20.08.20: incorp. below
         # do the coil counts
-        fit_data, head_pos = _get_fit_data(raw, p, prefix)
+        fit_data, head_pos, t_window = _get_fit_data(raw, p, prefix, True)
 
     # do the annotations
     annot_fname = raw_fname[:-4] + '-annot.fif'
@@ -965,9 +982,8 @@ def calc_twa_hp(p, subj, out_file, ridx):
         ts -= raw.first_samp / raw.info['sfreq']
         idx = raw.time_as_index(ts, use_rounding=True)
         del ts
-        if idx[0] == -1:  # annoying rounding errors
-            idx[0] = 0
-            assert idx[1] > 0
+        if idx[0] < 0:   # formerly == -1   (-2 possible with raw.t_a_i())
+            idx[0] = 0   # annoying rounding errors
         assert (idx >= 0).all()
         assert idx[-1] == len(good)
         assert (np.diff(idx) > 0).all()
@@ -1077,7 +1093,7 @@ def _old_chpi_locs(raw, t_step, t_window, prefix):
 @verbose
 def compute_good_coils(raw, t_step=0.01, t_window=0.2, dist_limit=0.005,
                        prefix='', gof_limit=0.98, verbose=None):
-    """Comute time-varying coil distances."""
+    """Compute time-varying coil distances."""
     try:
         from mne.chpi import compute_chpi_amplitudes, compute_chpi_locs
     except ImportError:
