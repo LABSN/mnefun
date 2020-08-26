@@ -580,11 +580,8 @@ def _get_t_window(p, raw):
         try:
             hpi_freqs, _, _ = _get_hpi_info(raw.info, verbose=False)
             info = raw.info
-            if info['line_freq'] is not None:  # as in mne.chpi.py
-                line_freqs = np.arange(info['line_freq'], info['sfreq'] / 3.,
-                                       info['line_freq'])
-            else:
-                line_freqs = np.array([60])   # SMB: should be safe to assume
+            line_freq = info['line_freq'] or 60
+            line_freqs = np.arange(line_freq, info['sfreq'] / 3., line_freq)
         except RuntimeError:
             t_window = 0.2
         else:
@@ -594,9 +591,7 @@ def _get_t_window(p, raw):
             # of 727 Hz+) and 83 ms for 60 Hz line freq (w/ more typical coil
             # freqs of 83 Hz+).
             all_freqs = np.concatenate((hpi_freqs, line_freqs))
-            delta_freqs = [abs(b - a) for b in all_freqs for a in all_freqs
-                           if a != b]
-            delta_freqs = np.array(delta_freqs)
+            delta_freqs = np.diff(np.unique(all_freqs))
             t_window = max(5. / all_freqs.min(), 1. / delta_freqs.min())
             t_window = round(1000 * t_window) / 1000.  # round to ms
     t_window = float(t_window)
@@ -707,7 +702,7 @@ def _mf_autobad(raw, p, skip_start, skip_stop):
     return bads
 
 
-def _get_fit_data(raw, p=None, prefix='    ', return_t_window=False):
+def _get_fit_data(raw, p=None, prefix='    '):
     if hasattr(p, 'tmpdir'):
         # Make these more tolerant and less frequent for faster runs
         count_fname = op.join(p.tmpdir, 'temp-counts.h5')
@@ -722,10 +717,7 @@ def _get_fit_data(raw, p=None, prefix='    ', return_t_window=False):
     coil_t_step_min = p.coil_t_step_min
     t_window = _get_t_window(p, raw)
     if any(x is None for x in (p.movecomp, coil_dist_limit)):
-        if return_t_window:
-            return None, None, t_window
-        else:
-            return None, None
+        return None, None, t_window
 
     # Good to do the fits
     if not op.isfile(count_fname):
@@ -782,10 +774,7 @@ def _get_fit_data(raw, p=None, prefix='    ', return_t_window=False):
     # otherwise we need to go back and fix!
     assert _pos_valid(head_pos[0], coil_dist_limit, coil_gof_limit), pos_fname
 
-    if return_t_window:
-        return fit_data, head_pos, t_window
-    else:
-        return fit_data, head_pos
+    return fit_data, head_pos, t_window
 
 
 def _head_pos_annot(p, subj, raw_fname, prefix='  '):
@@ -798,7 +787,7 @@ def _head_pos_annot(p, subj, raw_fname, prefix='  '):
     else:
         # t_window = _get_t_window(p, raw)    SMB 20.08.20: incorp. below
         # do the coil counts
-        fit_data, head_pos, t_window = _get_fit_data(raw, p, prefix, True)
+        fit_data, head_pos, t_window = _get_fit_data(raw, p, prefix)
 
     # do the annotations
     annot_fname = raw_fname[:-4] + '-annot.fif'

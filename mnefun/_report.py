@@ -72,7 +72,7 @@ def _report_good_hpi(report, fnames, p=None, subj=None):
     captions = list()
     for fname in fnames:
         fname, raw = _check_fname_raw(fname, p, subj)
-        fit_data, _ = _get_fit_data(raw, p, prefix='      ')
+        fit_data, _, _ = _get_fit_data(raw, p, prefix='      ')
         if fit_data is None:
             print('%s skipped, HPI count data not found (possibly '
                   'no params.*_limit values set?)' % (section,))
@@ -118,7 +118,7 @@ def _report_head_movement(report, fnames, p=None, subj=None, run_indices=None):
     captions = list()
     for fname in fnames:
         fname, raw = _check_fname_raw(fname, p, subj)
-        _, pos = _get_fit_data(raw, p, prefix='      ')
+        _, pos, _ = _get_fit_data(raw, p, prefix='      ')
         trans_to = _load_trans_to(p, subj, run_indices, raw)
         fig = plot_head_positions(pos=pos, destination=trans_to,
                                   info=raw.info, show=False)
