@@ -579,9 +579,6 @@ def _get_t_window(p, raw):
     if t_window == 'auto':
         try:
             hpi_freqs, _, _ = _get_hpi_info(raw.info, verbose=False)
-            info = raw.info
-            line_freq = info['line_freq'] or 60
-            line_freqs = np.arange(line_freq, info['sfreq'] / 3., line_freq)
         except RuntimeError:
             t_window = 0.2
         else:
@@ -590,6 +587,9 @@ def _get_t_window(p, raw):
             # This will be 143 ms for 7 Hz spacing (e.g. w/ higher coil freqs
             # of 727 Hz+) and 83 ms for 60 Hz line freq (w/ more typical coil
             # freqs of 83 Hz+).
+            info = raw.info
+            line_freq = info['line_freq'] or 60
+            line_freqs = np.arange(line_freq, info['sfreq'] / 3., line_freq)
             all_freqs = np.concatenate((hpi_freqs, line_freqs))
             delta_freqs = np.diff(np.unique(all_freqs))
             t_window = max(5. / all_freqs.min(), 1. / delta_freqs.min())
@@ -783,10 +783,8 @@ def _head_pos_annot(p, subj, raw_fname, prefix='  '):
     from mne.annotations import _handle_meas_date
     printed = False
     if p is not None and p.movecomp is None:
-        head_pos = fit_data = None
+        fit_data = head_pos = t_window = None
     else:
-        # t_window = _get_t_window(p, raw)    SMB 20.08.20: incorp. below
-        # do the coil counts
         fit_data, head_pos, t_window = _get_fit_data(raw, p, prefix)
 
     # do the annotations
