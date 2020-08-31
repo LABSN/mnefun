@@ -125,7 +125,7 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
             rtmax = p.reject_tmax if p.reject_tmax is not None else p.tmax
             temp_epochs = Epochs(
                 raw, events, event_id=None, tmin=rtmin, tmax=rtmax,
-                baseline=_get_baseline(p), proj=p.epochs_proj, reject=None,
+                baseline=_get_baseline(p), proj=True, reject=None,
                 flat=None, preload=True, decim=decim[si],
                 reject_by_annotation=p.reject_epochs_by_annot)
             kwargs = dict()
@@ -150,7 +150,7 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
         use_reject, use_flat = _restrict_reject_flat(use_reject, flat, raw)
         epochs = Epochs(raw, events, event_id=old_dict, tmin=p.tmin,
                         tmax=p.tmax, baseline=_get_baseline(p),
-                        reject=use_reject, flat=use_flat, proj='delayed',
+                        reject=use_reject, flat=use_flat, proj=p.epochs_proj,
                         preload=True, decim=decim[si], on_missing=p.on_missing,
                         reject_tmin=p.reject_tmin, reject_tmax=p.reject_tmax,
                         reject_by_annotation=p.reject_epochs_by_annot)

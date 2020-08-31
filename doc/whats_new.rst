@@ -11,6 +11,11 @@ Changelog
 
 2020
 ^^^^
+- 2020/08/26:
+    Optimized window length for cHPI amplitude estimation by accounting for
+    line frequency and its harmonics. The window for a standard minimum cHPI
+    frequency of 83 Hz should now be longer (determined by the 60 Hz line
+    component) making head position estimation more robust.
 - 2020/07/21:
     Added support for ``cont_hp`` to allow high-pass filtering (in addition
     to existing low-pass filtering via ``cont_lp``; thereby allowing band-pass
