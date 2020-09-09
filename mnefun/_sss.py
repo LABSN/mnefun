@@ -31,6 +31,19 @@ from ._utils import get_args
 
 _data_dir = op.join(op.dirname(__file__), 'data')
 
+try:
+    from mne.preprocessing import annotate_flat
+except ImportError:
+    from mne.preprocessing import mark_flat
+else:
+    def mark_flat(raw, bad_percent=5., min_duration=0.005, picks=None,
+                  verbose=None):
+        annot, bads = annotate_flat(raw, bad_percent, min_duration, picks,
+                                    verbose)
+        raw.set_annotations(raw.annotations + annot)
+        raw.info['bads'] += bads
+        return raw
+
 
 def run_sss(p, subjects, run_indices):
     """Run SSS preprocessing remotely (only designed for *nix platforms) or
@@ -622,7 +635,7 @@ def _maxbad(p, raw, bad_file):
 
 
 def _python_autobad(raw, p, skip_start, skip_stop):
-    from mne.preprocessing import mark_flat, find_bad_channels_maxwell
+    from mne.preprocessing import find_bad_channels_maxwell
     orig_bads = list(raw.info['bads'])
     raw = raw.copy()
     if skip_stop is not None:
