@@ -231,6 +231,9 @@ st_correlation : float
     child data.
 filter_chpi : str
     Filter cHPI signals before SSS.
+filter_chpi_t_window : str | float | None
+    If None, use ``coil_t_window``. Otherwise, options are the same as
+    ``coil_t_window``.
 trans_to : str | array-like, (3,) | None
     The destination location for the head. Can be:
 

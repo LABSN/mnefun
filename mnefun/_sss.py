@@ -476,9 +476,10 @@ def run_sss_locally(p, subjects, run_indices):
             # filter cHPI signals
             if p.filter_chpi:
                 t0 = time.time()
-                print('        Filtering cHPI signals ... ', end='')
-                raw = filter_chpi(
-                    raw, t_window=_get_t_window(p, raw), verbose=False)
+                t_window = _get_t_window(p, raw, p.filter_chpi_t_window)
+                print('        Filtering cHPI signals (window='
+                      f'{t_window * 1000:0.1f} ms) ... ', end='')
+                raw = filter_chpi(raw, t_window=t_window, verbose=False)
                 print('%i sec' % (time.time() - t0,))
 
             # apply maxwell filter
@@ -587,8 +588,9 @@ def _pos_valid(pos, dist_limit, gof_limit):
     return a & b & c & d & e
 
 
-def _get_t_window(p, raw):
-    t_window = p.coil_t_window if p is not None else 'auto'
+def _get_t_window(p, raw, t_window=None):
+    if t_window is None:
+        t_window = p.coil_t_window if p is not None else 'auto'
     if t_window == 'auto':
         try:
             hpi_freqs, _, _ = _get_hpi_info(raw.info, verbose=False)
@@ -650,8 +652,9 @@ def _python_autobad(raw, p, skip_start, skip_stop):
         coord_frame, origin = 'meg', (0., 0., 0.)
     else:
         coord_frame, origin = 'head', _get_origin(p, raw)[0]
-    filter_chpi(raw, t_window=_get_t_window(p, raw), allow_line_only=True,
-                verbose=False)
+    t_window = _get_t_window(p, raw, p.filter_chpi_t_window)
+    filter_chpi(raw, t_window=t_window,
+                allow_line_only=True, verbose=False)
     cal_file, ct_file = _get_cal_ct_file(p)
     kwargs = dict()
     if 'h_freq' in get_args(find_bad_channels_maxwell):

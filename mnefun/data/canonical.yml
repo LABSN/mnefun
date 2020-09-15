@@ -49,6 +49,7 @@ preprocessing:
     tsss_dur:
     st_correlation:
     filter_chpi:
+    filter_chpi_t_window:
     trans_to:
     sss_origin:
     dig_with_eeg:
