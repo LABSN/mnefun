@@ -240,6 +240,7 @@ class Params(Frozen):
         self.coil_dist_limit = 0.005
         self.coil_gof_limit = 0.98
         self.coil_t_window = 0.2  # default is same as MF
+        self.filter_chpi_t_window = None
         self.coil_t_step_min = 0.01
         self.proj_ave = False
         self.compute_rank = False

@@ -82,7 +82,8 @@ def _write_params(fname, p):
     lookup = dict()
     _flat_params_map(out, lookup)
     for key in _get_params_keys(p):
-        assert key in lookup, key  # otherwise we have some major config issue
+        # otherwise we have some major config issue
+        assert key in lookup, f'{key} missing from {_CANONICAL_YAML_FNAME}'
         use = out
         for level in lookup[key][:-1]:
             use = use[level]
