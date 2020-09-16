@@ -364,7 +364,7 @@ def _read_raw_prebad(p, subj, fname, disp=True, prefix=' ' * 6):
     # Next run Maxfilter for automatic bad channel selection
     if p.mf_autobad:
         maxbad_file = op.splitext(fname)[0] + '_maxbad.txt'
-        _maxbad(p, raw, maxbad_file)
+        _maxbad(p, raw, maxbad_file, subj)
         _load_meg_bads(
             raw, maxbad_file, disp=disp, prefix=prefix, append=True)
     return raw
@@ -476,7 +476,7 @@ def run_sss_locally(p, subjects, run_indices):
             # filter cHPI signals
             if p.filter_chpi:
                 t0 = time.time()
-                t_window = _get_t_window(p, raw, p.filter_chpi_t_window)
+                t_window = _get_t_window(p, raw, p.filter_chpi_t_window, subj)
                 print('        Filtering cHPI signals (window='
                       f'{t_window * 1000:0.1f} ms) ... ', end='')
                 raw = filter_chpi(raw, t_window=t_window, verbose=False)
@@ -588,10 +588,10 @@ def _pos_valid(pos, dist_limit, gof_limit):
     return a & b & c & d & e
 
 
-def _get_t_window(p, raw, t_window=None):
+def _get_t_window(p, raw, t_window=None, subj=None):
     if t_window is None:
         if p is not None:
-            t_window = _handle_dict(p.coil_t_window, p.subj)
+            t_window = _handle_dict(p.coil_t_window, subj)
         else:
             t_window = 'auto'
     if t_window == 'auto':
@@ -616,7 +616,7 @@ def _get_t_window(p, raw, t_window=None):
     return t_window
 
 
-def _maxbad(p, raw, bad_file):
+def _maxbad(p, raw, bad_file, subj):
     """Handle Maxfilter bad channels selection prior to SSS."""
     if op.isfile(bad_file):
         return
@@ -631,7 +631,7 @@ def _maxbad(p, raw, bad_file):
         skip_stop = None
     func = dict(
         python=_python_autobad, maxfilter=_mf_autobad)[p.mf_autobad_type]
-    bads = func(raw, p, skip_start, skip_stop)
+    bads = func(raw, p, skip_start, skip_stop, subj)
     assert isinstance(bads, list)
     assert all(isinstance(b, str) for b in bads)
     assert all(b in raw.ch_names for b in bads)
@@ -639,7 +639,7 @@ def _maxbad(p, raw, bad_file):
         f.write('\n'.join(bads))
 
 
-def _python_autobad(raw, p, skip_start, skip_stop):
+def _python_autobad(raw, p, skip_start, skip_stop, subj):
     from mne.preprocessing import find_bad_channels_maxwell
     orig_bads = list(raw.info['bads'])
     raw = raw.copy()
@@ -655,7 +655,7 @@ def _python_autobad(raw, p, skip_start, skip_stop):
         coord_frame, origin = 'meg', (0., 0., 0.)
     else:
         coord_frame, origin = 'head', _get_origin(p, raw)[0]
-    t_window = _get_t_window(p, raw, p.filter_chpi_t_window)
+    t_window = _get_t_window(p, raw, p.filter_chpi_t_window, subj)
     filter_chpi(raw, t_window=t_window,
                 allow_line_only=True, verbose=False)
     cal_file, ct_file = _get_cal_ct_file(p)
@@ -670,7 +670,7 @@ def _python_autobad(raw, p, skip_start, skip_stop):
     return bads
 
 
-def _mf_autobad(raw, p, skip_start, skip_stop):
+def _mf_autobad(raw, p, skip_start, skip_stop, subj):
     # Options used that matter for Python equivalence:
     # -skip, -bad, -frame, -origin
     opts = ('-v -force -badlimit %d -autobad on -format short'
@@ -721,7 +721,7 @@ def _mf_autobad(raw, p, skip_start, skip_stop):
     return bads
 
 
-def _get_fit_data(raw, p=None, prefix='    '):
+def _get_fit_data(raw, p=None, prefix='    ', subj=None):
     if hasattr(p, 'tmpdir'):
         # Make these more tolerant and less frequent for faster runs
         count_fname = op.join(p.tmpdir, 'temp-counts.h5')
@@ -731,10 +731,10 @@ def _get_fit_data(raw, p=None, prefix='    '):
         count_fname = raw.filenames[0][:-4] + '-counts.h5'
         locs_fname = raw.filenames[0][:-4] + '-chpi_locs.h5'
         pos_fname = raw.filenames[0][:-4] + '.pos'
-    coil_dist_limit = _handle_dict(p.coil_dist_limit, p.subj)
-    coil_gof_limit = _handle_dict(p.coil_gof_limit, p.subj)
-    coil_t_step_min = _handle_dict(p.coil_t_step_min, p.subj)
-    t_window = _get_t_window(p, raw)
+    coil_dist_limit = _handle_dict(p.coil_dist_limit, subj)
+    coil_gof_limit = _handle_dict(p.coil_gof_limit, subj)
+    coil_t_step_min = _handle_dict(p.coil_t_step_min, subj)
+    t_window = _get_t_window(p, raw, subj=subj)
     if any(x is None for x in (p.movecomp, coil_dist_limit)):
         return None, None, t_window
 
@@ -804,12 +804,12 @@ def _head_pos_annot(p, subj, raw_fname, prefix='  '):
     if p is not None and p.movecomp is None:
         fit_data = head_pos = t_window = None
     else:
-        fit_data, head_pos, t_window = _get_fit_data(raw, p, prefix)
+        fit_data, head_pos, t_window = _get_fit_data(raw, p, prefix, subj)
 
     # do the annotations
     annot_fname = raw_fname[:-4] + '-annot.fif'
     if not op.isfile(annot_fname) and fit_data is not None:
-        lims = [_handle_dict(x, p.subj) for x in [
+        lims = [_handle_dict(x, subj) for x in [
                 p.rotation_limit, p.translation_limit, p.coil_dist_limit,
                 p.coil_t_step_min, t_window, p.coil_bad_count_duration_limit]]
         if np.isfinite(lims[:3]).any() or np.isfinite(lims[5]):
