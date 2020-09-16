@@ -27,7 +27,7 @@ from mne.utils import (_TempDir, run_subprocess, _pl, verbose, logger,
 
 
 from ._paths import get_raw_fnames, _prebad, _get_config_file
-from ._utils import get_args
+from ._utils import get_args, _handle_dict
 
 _data_dir = op.join(op.dirname(__file__), 'data')
 
@@ -590,7 +590,10 @@ def _pos_valid(pos, dist_limit, gof_limit):
 
 def _get_t_window(p, raw, t_window=None):
     if t_window is None:
-        t_window = p.coil_t_window if p is not None else 'auto'
+        if p is not None:
+            t_window = _handle_dict(p.coil_t_window, p.subj)
+        else:
+            t_window = 'auto'
     if t_window == 'auto':
         try:
             hpi_freqs, _, _ = _get_hpi_info(raw.info, verbose=False)
@@ -728,9 +731,9 @@ def _get_fit_data(raw, p=None, prefix='    '):
         count_fname = raw.filenames[0][:-4] + '-counts.h5'
         locs_fname = raw.filenames[0][:-4] + '-chpi_locs.h5'
         pos_fname = raw.filenames[0][:-4] + '.pos'
-    coil_dist_limit = p.coil_dist_limit
-    coil_gof_limit = p.coil_gof_limit
-    coil_t_step_min = p.coil_t_step_min
+    coil_dist_limit = _handle_dict(p.coil_dist_limit, p.subj)
+    coil_gof_limit = _handle_dict(p.coil_gof_limit, p.subj)
+    coil_t_step_min = _handle_dict(p.coil_t_step_min, p.subj)
     t_window = _get_t_window(p, raw)
     if any(x is None for x in (p.movecomp, coil_dist_limit)):
         return None, None, t_window
@@ -806,8 +809,9 @@ def _head_pos_annot(p, subj, raw_fname, prefix='  '):
     # do the annotations
     annot_fname = raw_fname[:-4] + '-annot.fif'
     if not op.isfile(annot_fname) and fit_data is not None:
-        lims = [p.rotation_limit, p.translation_limit, p.coil_dist_limit,
-                p.coil_t_step_min, t_window, p.coil_bad_count_duration_limit]
+        lims = [_handle_dict(x, p.subj) for x in [
+                p.rotation_limit, p.translation_limit, p.coil_dist_limit,
+                p.coil_t_step_min, t_window, p.coil_bad_count_duration_limit]]
         if np.isfinite(lims[:3]).any() or np.isfinite(lims[5]):
             print(prefix.join(['', 'Annotating raw segments with:\n',
                                u'  rotation_limit    = %s °/s\n' % lims[0],

@@ -184,24 +184,24 @@ mf_badlimit : int
 
 ``preprocessing: head_position_estimation``: Head position estimation parameters
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-coil_t_window : float
+coil_t_window : float | dict
     Time window for coil position estimation.
-coil_t_step_min : float
+coil_t_step_min : float | dict
     Coil step min for head / cHPI coil position estimation.
-coil_dist_limit : float
+coil_dist_limit : float | dict
     Dist limit for coils.
-coil_gof_limit : float
+coil_gof_limit : float | dict
     Goodness of fit limit for coils.
 
 .. _preprocessing_annotations:
 
 ``preprocessing: annotations``: Annotation parameters
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-coil_bad_count_duration_limit : float
+coil_bad_count_duration_limit : float | dict
     Remove segments with < 3 good coils for at least this many sec.
-rotation_limit : float
+rotation_limit : float | dict
     Rotation limit (deg/s) for annotating bad segments.
-translation_limit : float
+translation_limit : float | dict
     Head translation limit (m/s) for annotating bad segments.
 
 ``preprocessing: sss``: SSS parameters
