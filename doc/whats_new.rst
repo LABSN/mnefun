@@ -11,6 +11,20 @@ Changelog
 
 2020
 ^^^^
+- 2020/09/16:
+    Added support for the following parameters to take dict (including
+    defaultdict) so that subject-specific parameters can be used:
+
+    - ``coil_dist_limit``
+    - ``coil_gof_limit``
+    - ``coil_t_step_min``
+    - ``coil_t_window``
+    - ``rotation_limit``
+    - ``translation_limit``
+    - ``coil_bad_count_duration_limit``
+- 2020/09/15:
+    Added support for ``params.filter_chpi_t_window`` for backward
+    compatibility with when this was fixed to 0.2 (around Feb 2020).
 - 2020/08/26:
     Optimized window length for cHPI amplitude estimation by accounting for
     line frequency and its harmonics. The window for a standard minimum cHPI

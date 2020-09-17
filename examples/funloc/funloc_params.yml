@@ -34,7 +34,7 @@ preprocessing:
     coil_t_window: auto
   annotations:
     coil_bad_count_duration_limit: 0.1
-    rotation_limit: 0.2
+    rotation_limit: {'subj_01': 0.2, 'subj_02': 0.1}
     translation_limit: 0.0001
   sss:
     sss_type: python
