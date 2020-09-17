@@ -138,6 +138,8 @@ class Params(Frozen):
         self.auto_bad_eeg_thresh = 10
         self.ecg_channel = ecg_channel
         self.eog_channel = eog_channel
+        self.heog_channel = 'EOG061'
+        self.veog_channel = 'EOG062'
         self.plot_raw = plot_raw
 
         # add standard file tags

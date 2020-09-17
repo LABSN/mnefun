@@ -25,6 +25,7 @@ from mne.viz.utils import _triage_rank_sss
 from ._forward import _get_bem_src_trans
 from ._paths import (get_raw_fnames, get_proj_fnames, get_report_fnames,
                      get_bad_fname, get_epochs_evokeds_fnames, safe_inserter)
+from ._ssp import _proj_nums
 from ._sss import (_load_trans_to, _read_raw_prebad,
                    _get_t_window, _get_fit_data)
 from ._viz import plot_good_coils, plot_chpi_snr_raw, trim_bg, mlab_offscreen
@@ -83,7 +84,7 @@ def _report_good_hpi(report, fnames, p=None, subj=None):
         figs.append(fig)
         captions.append('%s: %s' % (section, op.basename(fname)))
     report.add_figs_to_section(figs, captions, section,
-                               image_format='svg')
+                               image_format='png')
     print('%5.1f sec' % ((time.time() - t0),))
 
 
@@ -152,7 +153,7 @@ def _report_head_movement(report, fnames, p=None, subj=None, run_indices=None):
         captions.append('%s: %s' % (section, op.basename(fname)))
     del trans_to
     report.add_figs_to_section(figs, captions, section,
-                               image_format='svg')
+                               image_format='png')
     print('%5.1f sec' % ((time.time() - t0),))
 
 
@@ -173,7 +174,7 @@ def _report_events(report, fnames, p=None, subj=None):
             figs.append(fig)
             captions.append('%s: %s' % (section, op.basename(fname)))
     if len(figs):
-        report.add_figs_to_section(figs, captions, section, image_format='svg')
+        report.add_figs_to_section(figs, captions, section, image_format='png')
     print('%5.1f sec' % ((time.time() - t0),))
 
 
@@ -256,7 +257,7 @@ def _report_raw_psd(report, raw, raw_pca=None, raw_erm=None, raw_erm_pca=None,
             ax.set_ylim(ylims)
             ax.set(title='')
     report.add_figs_to_section(figs, captions, section,
-                               image_format='svg')
+                               image_format='png')
     print('%5.1f sec' % ((time.time() - t0),))
 
 
@@ -457,7 +458,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
             # SSP
             #
             section = 'SSP topomaps'
-            proj_nums = _handle_dict(p.proj_nums, subj)
+            proj_nums = _proj_nums(p, subj)
             if p.report_params.get('ssp_topomaps', True) and \
                     raw_pca is not None and np.sum(proj_nums) > 0:
                 assert sss_info is not None
@@ -473,6 +474,14 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                                               p.proj_extra))
                     figs.append(plot_projs_topomap(projs, info=sss_info,
                                                    show=False))
+                if any(proj_nums[2]):  # ERM
+                    if 'preproc_cont-proj.fif' in proj_files:
+                        comments.append('Continuous')
+                        figs.append(_proj_fig(op.join(
+                            p.work_dir, subj, p.pca_dir,
+                            'preproc_cont-proj.fif'), sss_info,
+                            proj_nums[2], p.proj_meg, 'ERM', None,
+                            duration))
                 if any(proj_nums[0]):  # ECG
                     if 'preproc_ecg-proj.fif' in proj_files:
                         ecg_channel = _handle_dict(p.ecg_channel, subj)
@@ -482,26 +491,21 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                             'preproc_ecg-proj.fif'), sss_info,
                             proj_nums[0], p.proj_meg, 'ECG', ecg_channel,
                             duration))
-                if any(proj_nums[1]):  # EOG
-                    if 'preproc_blink-proj.fif' in proj_files:
-                        eog_channel = _handle_dict(p.eog_channel, subj)
-                        comments.append('Blink')
-                        figs.append(_proj_fig(op.join(
-                            p.work_dir, subj, p.pca_dir,
-                            'preproc_blink-proj.fif'), sss_info,
-                            proj_nums[1], p.proj_meg, 'EOG', eog_channel,
-                            duration))
-                if any(proj_nums[2]):  # ERM
-                    if 'preproc_cont-proj.fif' in proj_files:
-                        comments.append('Continuous')
-                        figs.append(_proj_fig(op.join(
-                            p.work_dir, subj, p.pca_dir,
-                            'preproc_cont-proj.fif'), sss_info,
-                            proj_nums[2], p.proj_meg, 'ERM', None,
-                            duration))
+                for idx, kind in ((1, 'EOG'), (3, 'HEOG'), (4, 'VEOG')):
+                    if any(proj_nums[idx]):  # Blink
+                        bk = dict(EOG='Blink').get(kind, kind)
+                        if f'preproc_{bk.lower()}-proj.fif' in proj_files:
+                            eog_channel = _handle_dict(
+                                getattr(p, f'{kind.lower()}_channel'), subj)
+                            comments.append(dict(EOG='Blink').get(kind, kind))
+                            figs.append(_proj_fig(op.join(
+                                p.work_dir, subj, p.pca_dir,
+                                f'preproc_{bk.lower()}-proj.fif'), sss_info,
+                                proj_nums[idx], p.proj_meg, kind, eog_channel,
+                                duration))
                 captions = ['SSP epochs: %s' % c for c in comments]
                 report.add_figs_to_section(
-                    figs, captions, section, image_format='svg',
+                    figs, captions, section, image_format='png',
                     comments=comments)
                 print('%5.1f sec' % ((time.time() - t0),))
             else:
@@ -756,7 +760,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                         figs.tight_layout()
                         report.add_figs_to_section(
                             figs, captions, section=section,
-                            image_format='svg')
+                            image_format='png')
                 print('%5.1f sec' % ((time.time() - t0),))
             else:
                 print('    %s skipped' % section)
@@ -823,7 +827,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                         figs.tight_layout()
                         report.add_figs_to_section(
                             figs, captions, section=section,
-                            image_format='svg')
+                            image_format='png')
                 print('%5.1f sec' % ((time.time() - t0),))
 
             #
@@ -1093,13 +1097,13 @@ def _proj_fig(fname, info, proj_nums, proj_meg, kind, use_ch, duration):
             if kind == 'ECG':
                 use_ch = [_get_ecg_channel_index(use_ch, evoked)]
             else:
-                assert kind == 'EOG'
+                assert kind in ('EOG', 'HEOG', 'VEOG')
                 use_ch = _get_eog_channel_index(use_ch, evoked)
             use_ch = [evoked.ch_names[u] for u in use_ch]
             title += f'\n{", ".join(use_ch)}'
     else:
         cs_trace = 0
-    n_col = proj_nums.max() + cs_trace + 1  # room for legend
+    n_col = proj_nums.max() + 2 * cs_trace + 1  # room for legend
     n_row = proj_nums.astype(bool).sum()
     shape = (n_row, n_col)
     # with plt.rc_context({'figure.constrained_layout.use': True}):
@@ -1111,6 +1115,7 @@ def _proj_fig(fname, info, proj_nums, proj_meg, kind, use_ch, duration):
     colors = ['#CC3311', '#009988', '#0077BB', '#EE3377', '#EE7733', '#33BBEE']
     need_legend = True
     type_titles = dict(eeg='EEG', grad='Grad', mag='Mag')
+    last_ax = [None] * 2
     for count, ch_type in zip(proj_nums, ('grad', 'mag', 'eeg')):
         if count == 0:
             continue
@@ -1138,14 +1143,14 @@ def _proj_fig(fname, info, proj_nums, proj_meg, kind, use_ch, duration):
                        for name in ch_names]
             proj['data']['data'] = proj['data']['data'][:, sub_idx]
             proj['data']['col_names'] = ch_names
-        topo_axes = [plt.subplot2grid(shape, (ri, ci)) for ci in range(count)]
+        topo_axes = [plt.subplot2grid(shape, (ri, ci + cs_trace))
+                     for ci in range(count)]
         # topomaps
         with warnings.catch_warnings(record=True):
             plot_projs_topomap(these_projs, info=info, show=False,
                                axes=topo_axes)
         plt.setp(topo_axes, title='', xlabel='')
         unit = mne.defaults.DEFAULTS['units'][ch_type]
-        topo_axes[0].set(ylabel=f'{type_titles[ch_type]}\n{unit}')
         if cs_trace:
             ax = plt.subplot2grid(shape, (ri, n_col - cs_trace - 1),
                                   colspan=cs_trace)
@@ -1160,8 +1165,7 @@ def _proj_fig(fname, info, proj_nums, proj_meg, kind, use_ch, duration):
                 ch_traces -= np.mean(ch_traces, axis=1, keepdims=True)
                 ch_traces /= np.abs(ch_traces).max()
             with warnings.catch_warnings(record=True):  # tight_layout
-                this_evoked.plot(
-                    picks=np.arange(len(this_evoked.data)), axes=[ax])
+                this_evoked.plot(picks='all', axes=[ax])
             for line in ax.lines:
                 line.set(lw=0.5, zorder=3)
             ax.texts = []
@@ -1190,9 +1194,28 @@ def _proj_fig(fname, info, proj_nums, proj_meg, kind, use_ch, duration):
                     hs, labels, bbox_to_anchor=(1.05, 1), loc='upper left',
                     borderaxespad=0.)
                 need_legend = False
+            last_ax[1] = ax
+            # Before and after traces
+            ax = plt.subplot2grid(shape, (ri, 0), colspan=cs_trace)
+            with warnings.catch_warnings(record=True):  # tight_layout
+                this_evoked.plot(
+                    picks='all', axes=[ax])
+            for line in ax.lines:
+                line.set(lw=0.5, zorder=3)
+            loff = len(ax.lines)
+            with warnings.catch_warnings(record=True):  # tight_layout
+                this_evoked.copy().add_proj(projs).apply_proj().plot(
+                    picks='all', axes=[ax])
+            for line in ax.lines[loff:]:
+                line.set(lw=0.5, zorder=4, color='g')
+            ax.texts = []
+            ax.set(title='', xlabel='')
+            ax.set(ylabel=f'{type_titles[ch_type]}\n{unit}')
+            last_ax[0] = ax
         ri += 1
     if cs_trace:
-        ax.set(xlabel='Time (sec)')
+        for ax in last_ax:
+            ax.set(xlabel='Time (sec)')
     fig.subplots_adjust(0.1, 0.15, 1.0, 0.9, wspace=0.25, hspace=0.2)
     assert used.all() and (used <= 2).all()
     return fig
