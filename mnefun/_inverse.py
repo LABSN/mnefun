@@ -22,6 +22,7 @@ try:
 except ImportError:
     from mne import spatial_src_connectivity as spatial_src_adjacency
 
+
 def gen_inverses(p, subjects, run_indices):
     """Generate inverses.
 
