@@ -7,9 +7,12 @@ import subprocess
 import warnings
 
 import numpy as np
-from mne import pick_types, pick_info, make_sphere_model, DipoleFixed, Epochs
+from mne import (pick_types, pick_info, make_sphere_model, DipoleFixed, Epochs,
+                 Dipole, make_forward_dipole, Projection)
 from mne.channels import make_standard_montage, make_dig_montage
 from mne.fixes import _get_args as get_args  # noqa: F401
+from mne.io.constants import FIFF
+from mne.utils import verbose
 
 
 def _fix_raw_eog_cals(raws, kind='EOG'):
@@ -195,3 +198,55 @@ def _get_epo_kwargs():
     if 'overwrite' in _get_args(Epochs.save):
         epo_kwargs['overwrite'] = True
     return epo_kwargs
+
+
+@verbose
+def make_dipole_projectors(info, pos, ori, bem, trans, verbose=None):
+    """Make dipole projectors.
+
+    Parameters
+    ----------
+    info : instance of Info
+        The measurement info.
+    pos : ndarray, shape (n_dip, 3)
+        The dipole positions.
+    ori : ndarray, shape (n_dip, 3)
+        The dipole orientations.
+    bem : instance of ConductorModel
+        The conductor model to use.
+    trans : instance of Transform
+        The mri-to-head transformation.
+    %(verbose)s
+
+    Returns
+    -------
+    projs : list of Projeciton
+        The projectors.
+    """
+    pos = np.atleast_2d(pos).astype(float)
+    ori = np.atleast_2d(ori).astype(float)
+    if pos.shape[1] != 3 or pos.shape != ori.shape:
+        raise ValueError('pos and ori must be 2D, the same shape, and have '
+                         f'last dimension 3, got {pos.shape} and {ori.shape}')
+    dip = Dipole(
+        pos=pos, ori=ori, amplitude=np.ones(pos.shape[0]),
+        gof=np.ones(pos.shape[0]), times=np.arange(pos.shape[0]))
+    info = pick_info(info, pick_types(info, meg=True, eeg=True, exclude=()))
+    fwd, _ = make_forward_dipole(dip, bem, info, trans)
+    assert fwd['sol']['data'].shape[1] == pos.shape[0]
+    projs = list()
+    for kind in ('meg', 'eeg'):
+        kwargs = dict(meg=False, eeg=False, exclude=())
+        kwargs.update({kind: True})
+        picks = pick_types(info, **kwargs)
+        if len(picks) > 0:
+            ch_names = [info['ch_names'][pick] for pick in picks]
+            projs.extend([
+                Projection(
+                    data=dict(data=p[np.newaxis, picks], row_names=None,
+                              nrow=1, col_names=list(ch_names),
+                              ncol=len(ch_names)),
+                    kind=FIFF.FIFFV_PROJ_ITEM_DIP_FIX, explained_var=None,
+                    active=False, desc=f'Dipole #{pi}')
+                for pi, p in enumerate(fwd['sol']['data'].T, 1)])
+    return projs
