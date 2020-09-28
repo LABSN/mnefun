@@ -11,6 +11,8 @@ Changelog
 
 2020
 ^^^^
+- 2020/09/28:
+    Added :func:`mnefun.make_dipole_projectors`.
 - 2020/09/17:
     Added support for HEOG and VEOG projectors via additional
     projection options.
