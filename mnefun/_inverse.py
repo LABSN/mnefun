@@ -7,7 +7,7 @@ import numpy as np
 from mne import (read_label, read_labels_from_annot, read_source_spaces, Label,
                  SourceEstimate, BiHemiLabel, read_surface, read_epochs,
                  read_cov, read_forward_solution, convert_forward_solution,
-                 pick_types_forward, spatial_src_connectivity)
+                 pick_types_forward)
 from mne.cov import regularize
 from mne.minimum_norm import make_inverse_operator, write_inverse_operator
 from mne.stats import spatio_temporal_cluster_1samp_test
@@ -17,6 +17,10 @@ from ._cov import _compute_rank
 from ._paths import (get_epochs_evokeds_fnames, safe_inserter,
                      get_cov_fwd_inv_fnames)
 
+try:
+    from mne import spatial_src_adjacency
+except ImportError:
+    from mne import spatial_src_connectivity as spatial_src_adjacency
 
 def gen_inverses(p, subjects, run_indices):
     """Generate inverses.
@@ -323,7 +327,7 @@ def extract_roi(stc, src, label=None, thresh=0.5):
 
     # Get contiguous vertices within 50%
     threshold = max_val * thresh
-    connectivity = spatial_src_connectivity(src, verbose='error')  # holes
+    connectivity = spatial_src_adjacency(src, verbose='error')  # holes
     _, clusters, _, _ = spatio_temporal_cluster_1samp_test(
         np.array([stc.data]), threshold, n_permutations=1,
         stat_fun=lambda x: x.mean(0), tail=1,
