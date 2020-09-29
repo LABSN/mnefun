@@ -80,6 +80,8 @@ preprocessing:
     ssp_eog_reject:
     ssp_ecg_reject:
     eog_channel:
+    heog_channel:
+    veog_channel:
     ecg_channel:
     eog_t_lims:
     ecg_t_lims:

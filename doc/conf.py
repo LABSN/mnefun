@@ -42,6 +42,14 @@ numpydoc_attributes_as_param_list = True
 numpydoc_xref_param_type = True
 numpydoc_xref_ignore = {
     'instance', 'of', 'shape', 'ndarray', 'or',
+    'n_dip',
+}
+numpydoc_xref_aliases = {
+    # Python
+    'ConductorModel': 'mne.bem.ConductorModel',
+    'Info': 'mne.Info',
+    'Transform': 'mne.transforms.Transform',
+    'Projection': 'mne.Projection',
 }
 html_favicon = "_static/favicon.ico"
 html_logo = "_static/ilabs.png"

@@ -13,6 +13,7 @@ from mne.preprocessing import find_ecg_events, find_eog_events
 from mne.filter import filter_data
 from mne.io import read_raw_fif
 from mne.viz import plot_drop_log
+from mne.utils import _pl
 
 from ._paths import get_raw_fnames, get_bad_fname
 from ._utils import (get_args, _fix_raw_eog_cals, _handle_dict, _safe_remove,
@@ -45,7 +46,8 @@ def _raw_LRFCP(raw_names, sfreq, l_freq, h_freq, n_jobs, n_jobs_resample,
     if isinstance(raw_names, str):
         raw_names = [raw_names]
     if disp_files:
-        print('    Loading and filtering %d files.' % len(raw_names))
+        print(f'    Loading and filtering {len(raw_names)} '
+              f'file{_pl(raw_names)}.')
     raw = list()
     for rn in raw_names:
         r = read_raw_fif(rn, preload=True, allow_maxshield='yes')
@@ -101,9 +103,8 @@ def do_preprocessing_combined(p, subjects, run_indices):
     """
     drop_logs = list()
     for si, subj in enumerate(subjects):
-        proj_nums = np.array(_handle_dict(p.proj_nums, subj), int)
+        proj_nums = _proj_nums(p, subj)
         ecg_channel = _handle_dict(p.ecg_channel, subj)
-        eog_channel = _handle_dict(p.eog_channel, subj)
         flat = _handle_dict(p.flat, subj)
         if p.disp_files:
             print('  Preprocessing subject %g/%g (%s).'
@@ -220,17 +221,12 @@ def do_preprocessing_combined(p, subjects, run_indices):
                   % op.sep.join(bad_file.split(op.sep)[-3:]))
             bad_file = None
 
-        eog_t_lims = p.eog_t_lims
         ecg_t_lims = p.ecg_t_lims
-        eog_f_lims = p.eog_f_lims
         ecg_f_lims = p.ecg_f_lims
 
         ecg_eve = op.join(pca_dir, 'preproc_ecg-eve.fif')
         ecg_epo = op.join(pca_dir, 'preproc_ecg-epo.fif')
         ecg_proj = op.join(pca_dir, 'preproc_ecg-proj.fif')
-        eog_eve = op.join(pca_dir, 'preproc_blink-eve.fif')
-        eog_epo = op.join(pca_dir, 'preproc_blink-epo.fif')
-        eog_proj = op.join(pca_dir, 'preproc_blink-proj.fif')
         cont_proj = op.join(pca_dir, 'preproc_cont-proj.fif')
         all_proj = op.join(pca_dir, 'preproc_all-proj.fif')
 
@@ -270,9 +266,6 @@ def do_preprocessing_combined(p, subjects, run_indices):
         #
         # Calculate and apply ERM projectors
         #
-        if proj_nums.shape != (3, 3):
-            raise ValueError('proj_nums for %s must be an array with shape '
-                             '(3, 3), got %s' % (subj, projs.shape))
         if any(proj_nums[2]):
             assert proj_nums[2][2] == 0  # no EEG projectors for ERM
             if len(empty_names) >= 1:
@@ -368,46 +361,11 @@ def do_preprocessing_combined(p, subjects, run_indices):
         #
         # Next calculate and apply the EOG projectors
         #
-        if any(proj_nums[1]):
-            if p.disp_files:
-                print('    Computing EOG projectors...', end='')
-            raw = raw_orig.copy()
-            raw.filter(eog_f_lims[0], eog_f_lims[1], n_jobs=p.n_jobs_fir,
-                       method='fir', filter_length=p.filter_length,
-                       l_trans_bandwidth=0.5, h_trans_bandwidth=0.5,
-                       phase='zero-double', fir_window='hann',
-                       skip_by_annotation='edge', **old_kwargs)
-            raw.add_proj(projs)
-            raw.apply_proj()
-            thresh = _handle_dict(p.eog_thresh, subj)
-            eog_events = find_eog_events(
-                raw, ch_name=eog_channel, reject_by_annotation=True,
-                thresh=thresh)
-            use_reject, use_flat = _restrict_reject_flat(
-                p.ssp_eog_reject, flat, raw)
-            eog_epochs = Epochs(
-                raw, eog_events, 998, eog_t_lims[0], eog_t_lims[1],
-                baseline=None, reject=use_reject, flat=use_flat, preload=True)
-            print('  obtained %d epochs from %d events.' % (len(eog_epochs),
-                                                            len(eog_events)))
-            del eog_events
-            if len(eog_epochs) >= 5:
-                write_events(eog_eve, eog_epochs.events)
-                eog_epochs.save(eog_epo, **_get_epo_kwargs())
-                desc_prefix = 'EOG-%s-%s' % tuple(eog_t_lims)
-                pr = compute_proj_wrap(
-                    eog_epochs, p.proj_ave, n_grad=proj_nums[1][0],
-                    n_mag=proj_nums[1][1], n_eeg=proj_nums[1][2],
-                    desc_prefix=desc_prefix, **extra_proj)
-                assert len(pr) == np.sum(proj_nums[1][::p_sl])
-                write_proj(eog_proj, pr)
-                projs.extend(pr)
-            else:
-                warnings.warn('Only %d usable EOG events!' % len(eog_epochs))
-                _safe_remove([eog_proj, eog_eve, eog_epo])
-            del raw, eog_epochs
-        else:
-            _safe_remove([eog_proj, eog_eve, eog_epo])
+        for idx, kind in ((1, 'EOG'), (3, 'HEOG'), (4, 'VEOG')):
+            _compute_add_eog(
+                p, subj, raw_orig, projs, proj_nums[idx], kind, pca_dir,
+                flat, extra_proj, old_kwargs, p_sl)
+        del proj_nums
 
         # save the projectors
         write_proj(all_proj, projs)
@@ -439,6 +397,72 @@ def do_preprocessing_combined(p, subjects, run_indices):
     if p.plot_drop_logs:
         for subj, drop_log in zip(subjects, drop_logs):
             plot_drop_log(drop_log, p.drop_thresh, subject=subj)
+
+
+def _proj_nums(p, subj):
+    proj_nums = np.array(_handle_dict(p.proj_nums, subj), int)
+    if proj_nums.shape not in ((3, 3), (4, 3), (5, 3)):
+        raise ValueError('proj_nums for %s must be an array with shape '
+                         '(3, 3), (4, 3), or (5, 3), got %s'
+                         % (subj, proj_nums.shape))
+    proj_nums = np.pad(
+        proj_nums, ((0, 5 - proj_nums.shape[0]), (0, 0)), 'constant')
+    assert proj_nums.shape == (5, 3)
+    return proj_nums
+
+
+def _compute_add_eog(p, subj, raw_orig, projs, eog_nums, kind, pca_dir,
+                     flat, extra_proj, old_kwargs, p_sl):
+    assert kind in ('EOG', 'HEOG', 'VEOG')
+    bk = dict(EOG='blink').get(kind, kind.lower())
+    eog_eve = op.join(pca_dir, f'preproc_{bk}-eve.fif')
+    eog_epo = op.join(pca_dir, f'preproc_{bk}-epo.fif')
+    eog_proj = op.join(pca_dir, f'preproc_{bk}-proj.fif')
+    eog_t_lims = p.eog_t_lims
+    eog_f_lims = p.eog_f_lims
+    eog_channel = _handle_dict(getattr(p, f'{kind.lower()}_channel'), subj)
+    if eog_channel is None and kind != 'EOG':
+        eog_channel = 'EOG061' if kind == 'HEOG' else 'EOG062'
+    if eog_nums.any():
+        if p.disp_files:
+            print(f'    Computing {kind} projectors...', end='')
+        raw = raw_orig.copy()
+        raw.filter(eog_f_lims[0], eog_f_lims[1], n_jobs=p.n_jobs_fir,
+                   method='fir', filter_length=p.filter_length,
+                   l_trans_bandwidth=0.5, h_trans_bandwidth=0.5,
+                   phase='zero-double', fir_window='hann',
+                   skip_by_annotation='edge', **old_kwargs)
+        raw.add_proj(projs)
+        raw.apply_proj()
+        thresh = _handle_dict(p.eog_thresh, subj)
+        eog_events = find_eog_events(
+            raw, ch_name=eog_channel, reject_by_annotation=True,
+            thresh=thresh)
+        use_reject, use_flat = _restrict_reject_flat(
+            p.ssp_eog_reject, flat, raw)
+        eog_epochs = Epochs(
+            raw, eog_events, 998, eog_t_lims[0], eog_t_lims[1],
+            baseline=None, reject=use_reject, flat=use_flat, preload=True)
+        print('  obtained %d epochs from %d events.' % (len(eog_epochs),
+                                                        len(eog_events)))
+        del eog_events
+        if len(eog_epochs) >= 5:
+            write_events(eog_eve, eog_epochs.events)
+            eog_epochs.save(eog_epo, **_get_epo_kwargs())
+            desc_prefix = f'{kind}-%s-%s' % tuple(eog_t_lims)
+            pr = compute_proj_wrap(
+                eog_epochs, p.proj_ave, n_grad=eog_nums[0],
+                n_mag=eog_nums[1], n_eeg=eog_nums[2],
+                desc_prefix=desc_prefix, **extra_proj)
+            assert len(pr) == np.sum(eog_nums[::p_sl])
+            write_proj(eog_proj, pr)
+            projs.extend(pr)
+        else:
+            warnings.warn('Only %d usable EOG events!' % len(eog_epochs))
+            _safe_remove([eog_proj, eog_eve, eog_epo])
+        del raw, eog_epochs
+    else:
+        _safe_remove([eog_proj, eog_eve, eog_epo])
 
 
 def apply_preprocessing_combined(p, subjects, run_indices):

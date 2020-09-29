@@ -31,6 +31,7 @@ Functions:
    get_atlas_roi_mask
    get_fsaverage_medial_vertices
    get_raw_fnames
+   make_dipole_projectors
    read_params
    run_sss_command
    run_sss_positions

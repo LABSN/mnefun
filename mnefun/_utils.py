@@ -220,7 +220,7 @@ def make_dipole_projectors(info, pos, ori, bem, trans, verbose=None):
 
     Returns
     -------
-    projs : list of Projeciton
+    projs : list of Projection
         The projectors.
     """
     pos = np.atleast_2d(pos).astype(float)

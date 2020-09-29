@@ -114,8 +114,11 @@ def _ht2_p(mu, sigma, n_ave, mu_other, sigma_other, n_ave_other, use_pinv):
             sinv = np.linalg.inv(sigma)
         except np.linalg.LinAlgError:
             sinv = np.linalg.pinv(sigma)
-    # Compute the T**2 values:
-    T2 = np.einsum('vo...,von,vn...->v...', mu, sinv, mu)
+    # Compute the T**2 values (just left- and right-multiply the cov inverse
+    # sinv by the mean; a is the left 3 oris, b is right 3 oris, which get
+    # collapsed; v is vertices and ... is our time points, which get
+    # preserved):
+    T2 = np.einsum('va...,vab,vb...->v...', mu, sinv, mu)
     # Then convert T**2 for p (here, 3) variables and n DOF into F:
     #
     #     F_{p,n-p} = \frac{n-p}{p*(n-1)} * T ** 2

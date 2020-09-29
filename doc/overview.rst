@@ -329,9 +329,25 @@ auto_bad_meg_thresh : float | None
 ``preprocessing: ssp``: SSP creation parameters
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 proj_nums : list | dict
-    List of projector counts to use for ECG/EOG/ERM; each list contains
-    three values for grad/mag/eeg channels.
+    List of projector counts to use for ECG/blink/ERM/HEOG/VEOG; each list
+    contains three values for grad/mag/eeg channels.
     Can be a dict that maps subject names to projector counts to use.
+    The order of computation and application is empty-room, ECG, blink,
+    HEOG, VEOG.
+
+    ECG, blink, and ERM are obligatory lists (though they can be lists of all
+    zeros). Lists for HEOG and VEOG are optional. For example,
+    if you want 1 blink, 2 HEOG, and 3 VEOG projectors (for a total of 6
+    EOG-related projectors) for each channel type, you would do::
+
+        [[...],
+         [1, 1, 1],
+         [...],
+         [2, 2, 2],
+         [3, 3, 3]]
+
+    If you want just blink and HEOG, you can use a list of 4 lists instead of
+    5 (or 3).
 proj_sfreq : float | None
     The sample freq to use for calculating projectors. Useful since
     time points are not independent following low-pass. Also saves
@@ -351,8 +367,13 @@ ssp_ecg_reject : dict | None
     Amplitude rejection criteria for ECG SSP computation. None will
     use the mne-python default.
 eog_channel : str | dict | None
-    The channel to use to detect EOG events. None will use EOG* channels.
+    The channel to use to detect blink events. None will use EOG* channels.
     In lieu of an EOG recording, MEG1411 may work.
+heog_channel : str | dict | None
+    The channel to use to detect HEOG events. None will use EOG061.
+    In lieu of an EOG recording, MEG1411 may work.
+veog_channel : str | dict | None
+    The channel to use to detect HEOG events. None will use EOG062.
 ecg_channel : str | dict | None
     The channel to use to detect ECG events. None will use ECG063.
     In lieu of an ECG recording, MEG1531 may work.
