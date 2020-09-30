@@ -88,7 +88,10 @@ def _write_params(fname, p):
         for level in lookup[key][:-1]:
             use = use[level]
         val = _yamlize(getattr(p, key))
-        if val != getattr(def_params, key):
+        def_val = getattr(def_params, key)
+        if isinstance(def_val, tuple):
+            def_val = list(def_val)
+        if val != def_val:
             use[lookup[key][-1]] = val
         else:
             del use[lookup[key][-1]]

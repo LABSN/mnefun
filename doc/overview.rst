@@ -378,22 +378,34 @@ ecg_channel : str | dict | None
     The channel to use to detect ECG events. None will use ECG063.
     In lieu of an ECG recording, MEG1531 may work.
     Can be a dict that maps subject names to channels.
-eog_t_lims : tuple
+eog_t_lims : tuple | dict
     The time limits for EOG calculation. Default (-0.25, 0.25).
-ecg_t_lims : tuple
+heog_t_lims : tuple | dict
+    The time limits for HEOG calculation. Default (-0.25, 0.25).
+veog_t_lims : tuple | dict
+    The time limits for VEOG calculation. Default (-0.25, 0.25).
+ecg_t_lims : tuple | dict
     The time limits for ECG calculation. Default(-0.08, 0.08).
-eog_f_lims : tuple
+eog_f_lims : tuple | dict
     Band-pass limits for EOG detection and calculation. Default (0, 2).
-ecg_f_lims : tuple
+heog_f_lims : tuple | dict
+    Band-pass limits for HEOG detection and calculation. Default (0, 2).
+veog_f_lims : tuple | dict
+    Band-pass limits for VEOG detection and calculation. Default (0, 2).
+ecg_f_lims : tuple | dict
     Band-pass limits for ECG detection and calculation. Default (5, 35).
 eog_thresh : float | dict | None
     Threshold for EOG detection. Can vary per subject.
+heog_thresh : float | dict | None
+    Threshold for HEOG detection. Can vary per subject.
+veog_thresh : float | dict | None
+    Threshold for VEOG detection. Can vary per subject.
 proj_ave : bool
     If True, average artifact epochs before computing proj.
 proj_extra : str | None
     Extra projector filename to load for each subject, e.g.
     ``extra-proj.fif`` will load ``SUBJ/sss_pca_fif/extra-proj.fif``.
-get_projs_from : list of int
+get_projs_from : list of int | dict
     Indices for runs to get projects from.
 cont_hp : float
     Highpass to use for continuous ERM projectors (default None).

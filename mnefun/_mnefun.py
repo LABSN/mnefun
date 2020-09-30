@@ -80,6 +80,8 @@ class Params(Frozen):
         self.reject = dict(eog=np.inf, grad=1500e-13, mag=5000e-15, eeg=150e-6)
         self.flat = dict(eog=0, grad=1e-13, mag=1e-15, eeg=1e-6)
         self.eog_thresh = None
+        self.heog_thresh = None
+        self.veog_thresh = None
         if ssp_eog_reject is None:
             ssp_eog_reject = dict(grad=2000e-13, mag=3000e-15,
                                   eeg=500e-6, eog=np.inf)
@@ -202,7 +204,7 @@ class Params(Frozen):
         self.sws_ssh = self.sws_dir = None
         self.sws_port = 22
         self.subject_indices = []
-        self.get_projs_from = []
+        self.get_projs_from = None
         self.runs_empty = []
         self.proj_nums = [[0] * 3] * 3
         self.in_names = []
@@ -250,8 +252,12 @@ class Params(Frozen):
         self.force_erm_cov_rank_full = True  # force empty-room inv rank
         self.cov_rank_tol = 1e-6
         self.eog_t_lims = (-0.25, 0.25)
+        self.heog_t_lims = (-0.25, 0.25)
+        self.veog_t_lims = (-0.25, 0.25)
         self.ecg_t_lims = (-0.08, 0.08)
         self.eog_f_lims = (0, 2)
+        self.heog_f_lims = (0, 2)
+        self.veog_f_lims = (0, 2)
         self.ecg_f_lims = (5, 35)
         self.proj_meg = 'separate'
         self.src = 'oct6'

@@ -57,12 +57,8 @@ preprocessing:
       }
     proj_sfreq: 200
     proj_meg: combined
-    eog_t_lims: [-0.25, 0.25]
-    ecg_t_lims: [-0.08, 0.08]
     eog_f_lims: [1, 10]
-    ecg_f_lims: [5, 35]
     proj_ave: True
-    get_projs_from: [0]
 
 epoching:
   tmin: -0.2
