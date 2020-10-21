@@ -237,7 +237,7 @@ def do_preprocessing_combined(p, subjects, run_indices):
         if get_projs_from is None:
             get_projs_from = np.arange(len(raw_names))
         pre_list = [r for ri, r in enumerate(raw_names)
-                    if ri in p.get_projs_from]
+                    if ri in get_projs_from]
 
         projs = list()
         raw_orig = _raw_LRFCP(
