@@ -739,15 +739,15 @@ def _get_fit_data(raw, p=None, prefix='    ', subj=None):
         return None, None, t_window
 
     # Good to do the fits
-    if not op.isfile(count_fname):
+    if not op.isfile(count_fname) or p.overwrite:
         fit_t, counts, n_coils, chpi_locs = compute_good_coils(
             raw, coil_t_step_min, t_window, coil_dist_limit,
             prefix=prefix, gof_limit=coil_gof_limit, verbose=True)
-        write_hdf5(locs_fname, chpi_locs, title='mnefun')
+        write_hdf5(locs_fname, chpi_locs, title='mnefun', overwrite=p.overwrite)
         write_hdf5(count_fname,
                    dict(fit_t=fit_t, counts=counts, n_coils=n_coils,
                         t_step=coil_t_step_min, t_window=t_window,
-                        coil_dist_limit=coil_dist_limit), title='mnefun')
+                        coil_dist_limit=coil_dist_limit), title='mnefun', overwrite=p.overwrite)
     fit_data = read_hdf5(count_fname, 'mnefun')
     if op.isfile(locs_fname):
         chpi_locs = read_hdf5(locs_fname, 'mnefun')

@@ -233,6 +233,9 @@ def do_preprocessing_combined(p, subjects, run_indices):
         if not op.isdir(pca_dir):
             os.mkdir(pca_dir)
 
+        get_projs_from = _handle_dict(p.get_projs_from, subj)
+        if get_projs_from is None:
+            get_projs_from = np.arange(len(raw_names))
         pre_list = [r for ri, r in enumerate(raw_names)
                     if ri in p.get_projs_from]
 
@@ -332,7 +335,7 @@ def do_preprocessing_combined(p, subjects, run_indices):
                 raw, 999, ecg_channel, 0., ecg_f_lims[0], ecg_f_lims[1],
                 qrs_threshold='auto', return_ecg=False, **find_kwargs)[0]
             use_reject, use_flat = _restrict_reject_flat(
-                p.ssp_ecg_reject, flat, raw)
+                _handle_dict(p.ssp_ecg_reject, subj), flat, raw)
             ecg_epochs = Epochs(
                 raw, ecg_events, 999, ecg_t_lims[0], ecg_t_lims[1],
                 baseline=None, reject=use_reject, flat=use_flat, preload=True)
@@ -439,7 +442,7 @@ def _compute_add_eog(p, subj, raw_orig, projs, eog_nums, kind, pca_dir,
             raw, ch_name=eog_channel, reject_by_annotation=True,
             thresh=thresh)
         use_reject, use_flat = _restrict_reject_flat(
-            p.ssp_eog_reject, flat, raw)
+            _handle_dict(p.ssp_eog_reject, subj), flat, raw)
         eog_epochs = Epochs(
             raw, eog_events, 998, eog_t_lims[0], eog_t_lims[1],
             baseline=None, reject=use_reject, flat=use_flat, preload=True)
