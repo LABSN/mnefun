@@ -421,9 +421,10 @@ def _compute_add_eog(p, subj, raw_orig, projs, eog_nums, kind, pca_dir,
     eog_eve = op.join(pca_dir, f'preproc_{bk}-eve.fif')
     eog_epo = op.join(pca_dir, f'preproc_{bk}-epo.fif')
     eog_proj = op.join(pca_dir, f'preproc_{bk}-proj.fif')
-    eog_t_lims = p.eog_t_lims
-    eog_f_lims = p.eog_f_lims
+    eog_t_lims = _handle_dict(getattr(p, f'{kind.lower()}_t_lims'), subj)
+    eog_f_lims = _handle_dict(getattr(p, f'{kind.lower()}_f_lims'), subj)
     eog_channel = _handle_dict(getattr(p, f'{kind.lower()}_channel'), subj)
+    thresh = _handle_dict(getattr(p, f'{kind.lower()}_thresh'), subj)
     if eog_channel is None and kind != 'EOG':
         eog_channel = 'EOG061' if kind == 'HEOG' else 'EOG062'
     if eog_nums.any():
@@ -437,7 +438,6 @@ def _compute_add_eog(p, subj, raw_orig, projs, eog_nums, kind, pca_dir,
                    skip_by_annotation='edge', **old_kwargs)
         raw.add_proj(projs)
         raw.apply_proj()
-        thresh = _handle_dict(p.eog_thresh, subj)
         eog_events = find_eog_events(
             raw, ch_name=eog_channel, reject_by_annotation=True,
             thresh=thresh)

@@ -84,10 +84,16 @@ preprocessing:
     veog_channel:
     ecg_channel:
     eog_t_lims:
+    heog_t_lims:
+    veog_t_lims:
     ecg_t_lims:
     eog_f_lims:
+    heog_f_lims:
+    veog_f_lims:
     ecg_f_lims:
     eog_thresh:
+    heog_thresh:
+    veog_thresh:
     proj_ave:
     proj_extra:
     get_projs_from:
