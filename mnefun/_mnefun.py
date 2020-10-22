@@ -267,7 +267,6 @@ class Params(Frozen):
         self.every_other = False
         self.cov_rank_method = 'estimate_rank'
         self.epochs_proj = True
-        self.overwrite=False
         self.freeze()
         # Read static-able paraws from config file
         _set_static(self)
