@@ -33,6 +33,7 @@ Functions:
    get_raw_fnames
    make_dipole_projectors
    read_params
+   repeat_coreg
    run_sss_command
    run_sss_positions
    safe_inserter

@@ -7,6 +7,7 @@ import subprocess
 import warnings
 
 import numpy as np
+import mne
 from mne import (pick_types, pick_info, make_sphere_model, DipoleFixed, Epochs,
                  Dipole, make_forward_dipole, Projection)
 from mne.channels import make_standard_montage, make_dig_montage
@@ -250,3 +251,51 @@ def make_dipole_projectors(info, pos, ori, bem, trans, verbose=None):
                     active=False, desc=f'Dipole #{pi}')
                 for pi, p in enumerate(fwd['sol']['data'].T, 1)])
     return projs
+
+
+@verbose
+def repeat_coreg(subject, subjects_dir=None, subjects_dir_old=None,
+                 overwrite=False, verbose=None):
+    """Repeat a mne coreg warping of an MRI.
+
+    This is useful for example when bugs are fixed with
+    :func:`mne.scale_mri`.
+
+    Parameters
+    ----------
+    subject : str
+        The subject name.
+    subjects_dir : str | None
+        The subjects directory where the redone subject should go.
+        The template/surrogate MRI must also be in this directory.
+    subjects_dir_old : str | None
+        The subjects directory where the old subject is.
+        Can be None to use ``subjects_dir``.
+    overwrite : bool
+        If True (default False), overwrite an existing subject directory
+        if it exists.
+    verbose : str | None
+        The verbose level to use.
+
+    Returns
+    -------
+    out_dir : str
+        The output subject directory.
+    """
+    subjects_dir = mne.utils.get_subjects_dir(subjects_dir)
+    if subjects_dir_old is None:
+        subjects_dir_old = subjects_dir
+    config = mne.coreg.read_mri_cfg(subject, subjects_dir_old)
+    n_params = config.pop('n_params')
+    assert n_params in (3, 1), n_params
+    out_dir = op.join(subjects_dir, subject)
+    mne.coreg.scale_mri(subject_to=subject, subjects_dir=subjects_dir,
+                        labels=False, annot=False, overwrite=overwrite,
+                        **config)
+    sol_file = op.join(subjects_dir, subject, 'bem',
+                       '%s-5120-bem-sol.fif' % subject)
+    if not op.isfile(sol_file):
+        print('  Computing BEM solution')
+        sol = mne.make_bem_solution(sol_file[:-8] + '.fif')
+        mne.write_bem_solution(sol_file, sol)
+    return out_dir
