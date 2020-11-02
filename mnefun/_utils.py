@@ -293,7 +293,7 @@ def repeat_coreg(subject, subjects_dir=None, subjects_dir_old=None,
                         labels=False, annot=False, overwrite=overwrite,
                         **config)
     sol_file = op.join(subjects_dir, subject, 'bem',
-                        '%s-5120-bem-sol.fif' % subject)
+                       '%s-5120-bem-sol.fif' % subject)
     if not op.isfile(sol_file):
         print('  Computing BEM solution')
         sol = mne.make_bem_solution(sol_file[:-8] + '.fif')
