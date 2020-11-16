@@ -213,7 +213,7 @@ def get_proj_fnames(p, subj):
     proj_dir = op.join(p.work_dir, subj, p.pca_dir)
     for fn in ['preproc_all-proj.fif', 'preproc_ecg-proj.fif',
                'preproc_blink-proj.fif', 'preproc_cont-proj.fif',
-               'preproc_heog-proj.fif', 'preproc-veog-proj.fif']:
+               'preproc_heog-proj.fif', 'preproc_veog-proj.fif']:
         if op.isfile(op.join(proj_dir, fn)):
             proj_fnames.append(fn)
     return proj_fnames
