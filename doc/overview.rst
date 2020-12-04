@@ -319,11 +319,11 @@ auto_bad_reject : str | dict | None
     http://autoreject.github.io/ for details.
 auto_bad_flat : dict | None
     Flat threshold for auto bad.
-auto_bad_eeg_thresh : float | None
+auto_bad_eeg_thresh : int | None
     If more than this number of EEG channels is automatically marked bad,
     an error will be raised. This helps ensure that not too many channels
     are marked as bad.
-auto_bad_meg_thresh : float | None
+auto_bad_meg_thresh : int | None
     Same as above but for MEG.
 
 ``preprocessing: ssp``: SSP creation parameters
