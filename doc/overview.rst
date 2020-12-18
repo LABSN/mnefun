@@ -262,6 +262,9 @@ sss_format : str
     Deprecated. SSS numerical format when using MaxFilter.
 mf_args : str
     Deprecated. Extra arguments for MF SSS.
+erm_proj_as_esss : bool
+    If True (default False), use eSSS to improve the external basis estimate
+    using ``proj_nums[2]``. Only supported when Python is used for SSS.
 
 
 4. do_ch_fix
@@ -348,6 +351,15 @@ proj_nums : list | dict
 
     If you want just blink and HEOG, you can use a list of 4 lists instead of
     5 (or 3).
+erm_proj_hp_cut : float | None
+    High-pass cutoff (e.g., 0.5 Hz) to use for empty-room projector
+    calculations.
+erm_proj_lp_cut : float | None
+    Low-pass cutoff (e.g. 40 Hz) to use for empty-room projector calculations.
+erm_proj_reject : dict | None
+    Rejection parameters for empty-room projection calculations.
+    None (default) will use ``params.reject``.
+    This likely needs to be set when ``erm_proj_as_esss=True``.
 proj_sfreq : float | None
     The sample freq to use for calculating projectors. Useful since
     time points are not independent following low-pass. Also saves

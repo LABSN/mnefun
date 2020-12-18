@@ -326,7 +326,7 @@ def run_sss_positions(fname_in, fname_out, host='kasga', opts='-force',
     print(' (%i sec)' % (time.time() - t0,))
 
 
-def _read_raw_prebad(p, subj, fname, disp=True, prefix=' ' * 6):
+def _read_raw_prebad(p, subj, fname, disp=True, prefix=' ' * 6, autobad=True):
     """Read SmartShield raw instance and add bads."""
     raw = read_raw_fif(fname, allow_maxshield='yes')
     # First load our manually marked ones (if present)
@@ -362,7 +362,7 @@ def _read_raw_prebad(p, subj, fname, disp=True, prefix=' ' * 6):
         _load_meg_bads(raw, prebad_file, disp=disp, prefix=prefix)
     raw.fix_mag_coil_types()
     # Next run Maxfilter for automatic bad channel selection
-    if p.mf_autobad:
+    if p.mf_autobad and autobad:
         maxbad_file = op.splitext(fname)[0] + '_maxbad.txt'
         _maxbad(p, raw, maxbad_file, subj)
         _load_meg_bads(
@@ -400,6 +400,7 @@ def run_sss_locally(p, subjects, run_indices):
     mne.preprocessing.maxwell_filter
     """
     from mne.annotations import _handle_meas_date
+    from ._ssp import _proj_nums, _compute_erm_proj
     cal_file, ct_file = _get_cal_ct_file(p)
     assert isinstance(p.tsss_dur, float) and p.tsss_dur > 0
     st_duration = p.tsss_dur
@@ -411,6 +412,19 @@ def run_sss_locally(p, subjects, run_indices):
         if p.disp_files:
             print('    Maxwell filtering subject %g/%g (%s).'
                   % (si + 1, len(subjects), subj))
+        # compute eSSS basis
+        kwargs = dict()
+        if p.erm_proj_as_esss:
+            assert p.proj_meg == 'combined', 'must be combined for eSSS'
+            proj_nums = _proj_nums(p, subj)[2]
+            if any(proj_nums):
+                prebad_file = (p, subj, dict(autobad=False, prefix=' ' * 8))
+                print('      Computing eSSS basis from ERM with %d components'
+                      % (proj_nums[0],))
+                kwargs['extended_proj'] = _compute_erm_proj(
+                    p, subj, projs=[], kind='raw', bad_file=prebad_file,
+                    remove_existing=True, disp_files=False)
+
         # locate raw files with splits
         sss_dir = op.join(p.work_dir, subj, p.sss_dir)
         if not op.isdir(sss_dir):
@@ -491,7 +505,8 @@ def run_sss_locally(p, subjects, run_indices):
                 ext_order=p.ext_order, calibration=cal_file,
                 cross_talk=ct_file, st_correlation=p.st_correlation,
                 st_duration=st_duration, destination=trans_to,
-                coord_frame='head', regularize=reg, bad_condition='warning')
+                coord_frame='head', regularize=reg, bad_condition='warning',
+                **kwargs)
             print('%i sec' % (time.time() - t0,))
             raw_sss.save(o, overwrite=True, buffer_size_sec=None)
 

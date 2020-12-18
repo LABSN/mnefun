@@ -57,6 +57,7 @@ preprocessing:
     cal_file:
     sss_format:
     mf_args:
+    erm_proj_as_esss:
   filtering:
     hp_cut:
     hp_trans:
@@ -73,6 +74,9 @@ preprocessing:
     auto_bad_eeg_thresh:
     auto_bad_meg_thresh:
     proj_nums:
+    erm_proj_hp_cut:
+    erm_proj_lp_cut:
+    erm_proj_reject:
     proj_sfreq:
     proj_meg:
     drop_thresh:
