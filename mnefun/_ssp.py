@@ -331,11 +331,12 @@ def do_preprocessing_combined(p, subjects, run_indices):
                 assert proj_nums[2][2] == 0  # no EEG projectors for ERM
                 if len(empty_names) == 0:
                     raise RuntimeError('Cannot compute empty-room projectors '
-                                    'from continuous raw data')
+                                       'from continuous raw data')
                 if p.disp_files:
                     print('    Computing continuous projectors using ERM.')
                 # Use empty room(s), but processed the same way
-                projs.extend(_compute_erm_proj(p, subj, 'sss', projs, bad_file))
+                projs.extend(
+                    _compute_erm_proj(p, subj, 'sss', projs, bad_file))
             else:
                 cont_proj = op.join(pca_dir, 'preproc_cont-proj.fif')
                 _safe_remove(cont_proj)
