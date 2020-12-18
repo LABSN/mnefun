@@ -11,6 +11,8 @@ Changelog
 
 2020
 ^^^^
+- 2020/12/18:
+    Added ``float`` support for ``params.decim``.
 - 2020/11/02:
     Added :func:`mnefun.repeat_coreg`.
 - 2020/09/28:

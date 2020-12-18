@@ -17,7 +17,7 @@ from mne.viz import plot_cov
 from ._paths import get_epochs_evokeds_fnames, get_raw_fnames, safe_inserter
 from ._scoring import _read_events
 from ._utils import (get_args, _get_baseline, _restrict_reject_flat,
-                     _fix_raw_eog_cals, _handle_dict)
+                     _fix_raw_eog_cals, _handle_dict, _handle_decim)
 
 
 def _compute_rank(p, subj, run_indices):
@@ -141,6 +141,7 @@ def gen_covariances(p, subjects, run_indices, decim):
                 last_samps.append(raws[-1]._last_samps[-1])
             _fix_raw_eog_cals(raws)  # safe b/c cov only needs MEEG
             raw = concatenate_raws(raws)
+            this_decim = _handle_decim(decim, raw.info['sfreq'])
             # read in events
             events = _read_events(p, subj, ridx, raw)
             if p.pick_events_cov is not None:
@@ -160,7 +161,7 @@ def gen_covariances(p, subjects, run_indices, decim):
                             tmax=baseline[1], baseline=(None, None),
                             proj=False,
                             reject=use_reject, flat=use_flat, preload=True,
-                            decim=decim[si],
+                            decim=this_decim,
                             verbose='error',  # ignore decim-related warnings
                             on_missing=p.on_missing,
                             reject_by_annotation=p.reject_epochs_by_annot)

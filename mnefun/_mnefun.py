@@ -482,7 +482,7 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
         decim = [decim] * len(p.subjects)
     assert len(decim) == n_subj_orig
     decim = np.array(decim)
-    assert decim.dtype.char in 'il', decim.dtype
+    assert decim.dtype.char in 'ild', (decim.dtype.char, decim.dtype)
     assert decim.shape == (len(p.subjects),), decim.shape
     decim = decim[sinds]
 
