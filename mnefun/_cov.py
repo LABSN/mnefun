@@ -141,7 +141,7 @@ def gen_covariances(p, subjects, run_indices, decim):
                 last_samps.append(raws[-1]._last_samps[-1])
             _fix_raw_eog_cals(raws)  # safe b/c cov only needs MEEG
             raw = concatenate_raws(raws)
-            this_decim = _handle_decim(decim, raw.info['sfreq'])
+            this_decim = _handle_decim(decim[si], raw.info['sfreq'])
             # read in events
             events = _read_events(p, subj, ridx, raw)
             if p.pick_events_cov is not None:
