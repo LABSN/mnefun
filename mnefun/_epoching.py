@@ -14,7 +14,7 @@ from mne.viz import plot_drop_log
 from ._paths import get_raw_fnames, get_epochs_evokeds_fnames
 from ._scoring import _read_events
 from ._utils import (_fix_raw_eog_cals, _get_baseline, get_args, _handle_dict,
-                     _restrict_reject_flat, _get_epo_kwargs)
+                     _restrict_reject_flat, _get_epo_kwargs, _handle_decim)
 
 
 def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
@@ -103,10 +103,11 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
         raw = concatenate_raws(raw)
         # read in events
         events = _read_events(p, subj, run_indices[si], raw)
-        new_sfreq = raw.info['sfreq'] / decim[si]
+        this_decim = _handle_decim(decim[si], raw.info['sfreq'])
+        new_sfreq = raw.info['sfreq'] / this_decim
         if p.disp_files:
             print('    Epoching data (decim=%s -> sfreq=%0.1f Hz).'
-                  % (decim[si], new_sfreq))
+                  % (this_decim, new_sfreq))
         if new_sfreq not in sfreqs:
             if len(sfreqs) > 0:
                 warnings.warn('resulting new sampling frequency %s not equal '
@@ -126,7 +127,7 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
             temp_epochs = Epochs(
                 raw, events, event_id=None, tmin=rtmin, tmax=rtmax,
                 baseline=_get_baseline(p), proj=True, reject=None,
-                flat=None, preload=True, decim=decim[si],
+                flat=None, preload=True, decim=this_decim,
                 reject_by_annotation=p.reject_epochs_by_annot)
             kwargs = dict()
             if 'verbose' in get_args(get_rejection_threshold):
@@ -151,7 +152,8 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
         epochs = Epochs(raw, events, event_id=old_dict, tmin=p.tmin,
                         tmax=p.tmax, baseline=_get_baseline(p),
                         reject=use_reject, flat=use_flat, proj=p.epochs_proj,
-                        preload=True, decim=decim[si], on_missing=p.on_missing,
+                        preload=True, decim=this_decim,
+                        on_missing=p.on_missing,
                         reject_tmin=p.reject_tmin, reject_tmax=p.reject_tmax,
                         reject_by_annotation=p.reject_epochs_by_annot)
         del raw

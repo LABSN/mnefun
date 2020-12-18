@@ -80,6 +80,19 @@ def _handle_dict(entry, subj):
     return out
 
 
+def _handle_decim(decim, sfreq):
+    decim = np.array(decim)
+    assert decim.shape == ()
+    if decim.dtype.char in 'il':
+        return decim
+    else:
+        # float
+        assert decim.dtype.char == 'd', decim.dtype.char
+        got_decim = int(round(sfreq / decim))
+        assert np.isclose(sfreq / got_decim, decim), (sfreq, decim, got_decim)
+        return got_decim
+
+
 def _safe_remove(fnames):
     if isinstance(fnames, str):
         fnames = [fnames]

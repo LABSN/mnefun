@@ -444,9 +444,11 @@ bmin : float
     Lower limit for baseline compensation.
 bmax : float
     Upper limit for baseline compensation.
-decim : int
+decim : int | float | list
     Amount to decimate the data after filtering when epoching data
     (e.g., a factor of 5 on 1000 Hz data yields 200 Hz data).
+    If a float is used, it should be the destination sample rate
+    (e.g., a value of 200. with 1000 Hz data will use  decim=5).
 epochs_type : str | list
     Can be 'fif', 'mat', or a list containing both.
 match_fun : callable | None
