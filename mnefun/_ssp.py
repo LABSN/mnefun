@@ -123,25 +123,18 @@ def _compute_erm_proj(p, subj, projs, kind, bad_file, remove_existing=False,
     flat = _handle_dict(p.flat, subj)
     raw = _raw_LRFCP(
         raw_names=empty_names, sfreq=p.proj_sfreq,
-        l_freq=p.erm_proj_hp_cut, h_freq=p.erm_proj_lp_cut,
+        l_freq=p.cont_hp, h_freq=p.cont_lp,
         n_jobs=p.n_jobs_fir, apply_proj=not remove_existing,
         n_jobs_resample=p.n_jobs_resample, projs=projs,
         bad_file=bad_file, disp_files=disp_files, method='fir',
         filter_length=p.filter_length, force_bads=True,
-        l_trans=p.hp_trans, h_trans=p.lp_trans,
+        l_trans=p.cont_hp_trans, h_trans=p.cont_lp_trans,
         phase=p.phase, fir_window=p.fir_window,
         skip_by_annotation='edge', **fir_kwargs)
     if remove_existing:
         raw.del_proj()
-    raw.filter(p.cont_hp, p.cont_lp, n_jobs=p.n_jobs_fir, method='fir',
-               filter_length=p.filter_length, h_trans_bandwidth=0.5,
-               fir_window=p.fir_window, phase=p.phase,
-               skip_by_annotation='edge', **fir_kwargs)
-    if projs:
-        raw.add_proj(projs)
-    raw.apply_proj()
     raw.pick_types(meg=True, eeg=False, exclude=())  # remove EEG
-    use_reject = p.erm_proj_reject
+    use_reject = p.cont_reject
     if use_reject is None:
         use_reject = p.reject
     use_reject, use_flat = _restrict_reject_flat(
@@ -326,7 +319,7 @@ def do_preprocessing_combined(p, subjects, run_indices):
         #
         # Calculate and apply ERM projectors
         #
-        if not p.erm_proj_as_esss:
+        if not p.cont_as_esss:
             if any(proj_nums[2]):
                 assert proj_nums[2][2] == 0  # no EEG projectors for ERM
                 if len(empty_names) == 0:

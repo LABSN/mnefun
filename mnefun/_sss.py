@@ -414,7 +414,7 @@ def run_sss_locally(p, subjects, run_indices):
                   % (si + 1, len(subjects), subj))
         # compute eSSS basis
         kwargs = dict()
-        if p.erm_proj_as_esss:
+        if p.cont_as_esss:
             assert p.proj_meg == 'combined', 'must be combined for eSSS'
             proj_nums = _proj_nums(p, subj)[2]
             if any(proj_nums):

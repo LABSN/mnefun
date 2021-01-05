@@ -44,7 +44,7 @@ preprocessing:
     tsss_dur: 60.
     st_correlation: 0.98
     trans_to: twa
-    erm_proj_as_esss: True
+    cont_as_esss: True
   filtering:
     lp_cut: 50
     lp_trans: 10
@@ -52,13 +52,14 @@ preprocessing:
     fir_design: firwin
     phase: zero
   ssp:
+    cont_hp: 20
+    cont_hp_trans: 2
+    cont_lp: 40
+    cont_lp_trans: 2
     proj_nums: {
-      subj_01: [[2, 2, 0], [1, 1, 3], [8, 8, 0], [1, 1, 0], [1, 1, 0]],
-      subj_02: [[2, 2, 0], [1, 1, 2], [8, 8, 0]],
+      subj_01: [[2, 2, 0], [1, 1, 3], [3, 3, 0], [1, 1, 0], [1, 1, 0]],
+      subj_02: [[2, 2, 0], [1, 1, 2], [3, 3, 0]],
       }
-    erm_proj_lp_cut: 20
-    erm_proj_lp_cut: 40
-    erm_proj_reject: {'mag': 5.e-11, 'grad': 1.5e-9}
     proj_sfreq: 200
     proj_meg: combined
     eog_f_lims: [1, 10]
@@ -108,7 +109,7 @@ report:
   sensor: [
     {analysis: All, name: All, times: 'peaks', proj: False},
     {analysis: All, name: All, times: 'peaks'},
-    {analysis: All, name: All, times: 'peaks', proj: 'reconstruct'},
+    #{analysis: All, name: All, times: 'peaks', proj: 'reconstruct'},
     ]
   source: {analysis: All, name: All, inv: '%s-50-sss-meg-eeg-free-inv.fif',
            times: 'peaks', views: lat, size: [800, 400]}

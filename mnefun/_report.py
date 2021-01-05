@@ -476,7 +476,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                                                    show=False))
                 if any(proj_nums[2]):  # ERM
                     if 'preproc_cont-proj.fif' in proj_files:
-                        if p.erm_proj_as_esss:
+                        if p.cont_as_esss:
                             extra = ' (eSSS)'
                             use_info = raw.info
                         else:
