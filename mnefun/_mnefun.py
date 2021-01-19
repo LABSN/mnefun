@@ -110,7 +110,7 @@ class Params(Frozen):
         self.cont_hp = None
         self.cont_hp_trans = 0.5
         self.cont_lp = 5.
-        self.cont_lp_trans = None
+        self.cont_lp_trans = 0.5
         self.hp_cut = hp_cut
         self.lp_cut = lp_cut
         self.hp_trans = hp_trans
