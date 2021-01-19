@@ -12,6 +12,9 @@ Changelog
 2020
 ^^^^
 - 2020/12/18:
+    Added ``erm_proj_as_esss``, ``erm_proj_lp_cut``, and ``erm_proj_hp_cut``
+    to support using eSSS for empty-room projectors.
+- 2020/12/18:
     Added ``float`` support for ``params.decim``.
 - 2020/11/02:
     Added :func:`mnefun.repeat_coreg`.

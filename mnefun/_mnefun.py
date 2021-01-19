@@ -108,11 +108,13 @@ class Params(Frozen):
         self.n_jobs_resample = n_jobs_resample
         self.filter_length = filter_length
         self.cont_hp = None
+        self.cont_hp_trans = 0.5
         self.cont_lp = 5.
-        self.lp_cut = lp_cut
+        self.cont_lp_trans = 0.5
         self.hp_cut = hp_cut
-        self.lp_trans = lp_trans
+        self.lp_cut = lp_cut
         self.hp_trans = hp_trans
+        self.lp_trans = lp_trans
         self.phase = 'zero-double'
         self.fir_window = 'hann'
         self.fir_design = 'firwin2'
@@ -267,6 +269,8 @@ class Params(Frozen):
         self.every_other = False
         self.cov_rank_method = 'estimate_rank'
         self.epochs_proj = True
+        self.cont_as_esss = False
+        self.cont_reject = None
         self.freeze()
         # Read static-able paraws from config file
         _set_static(self)

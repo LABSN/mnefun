@@ -43,15 +43,20 @@ def _raw_LRFCP(raw_names, sfreq, l_freq, h_freq, n_jobs, n_jobs_resample,
                skip_by_annotation=('bad', 'skip')):
     """Helper to load, filter, concatenate, then project raw files"""
     from mne.io.proj import _needs_eeg_average_ref_proj
+    from ._sss import _read_raw_prebad
     if isinstance(raw_names, str):
         raw_names = [raw_names]
     if disp_files:
         print(f'    Loading and filtering {len(raw_names)} '
               f'file{_pl(raw_names)}.')
     raw = list()
-    for rn in raw_names:
-        r = read_raw_fif(rn, preload=True, allow_maxshield='yes')
-        r.load_bad_channels(bad_file, force=force_bads)
+    for ri, rn in enumerate(raw_names):
+        if isinstance(bad_file, tuple):
+            p, subj, kwargs = bad_file
+            r = _read_raw_prebad(p, subj, rn, disp=(ri == 0), **kwargs)
+        else:
+            r = read_raw_fif(rn, preload=True, allow_maxshield='yes')
+            r.load_bad_channels(bad_file, force=force_bads)
         if pick:
             r.pick_types(meg=True, eeg=True, eog=True, ecg=True, exclude=[])
         if _needs_eeg_average_ref_proj(r.info):
@@ -87,6 +92,65 @@ def compute_proj_wrap(epochs, average, **kwargs):
         return compute_proj_epochs(epochs, **kwargs)
 
 
+def _get_pca_dir(p, subj):
+    pca_dir = op.join(p.work_dir, subj, p.pca_dir)
+    if not op.isdir(pca_dir):
+        os.mkdir(pca_dir)
+    return pca_dir
+
+
+def _get_proj_kwargs(p):
+    proj_kwargs = dict()
+    p_sl = 1
+    if 'meg' not in get_args(compute_proj_raw):
+        if p.proj_meg != 'separate':
+            raise RuntimeError('MNE is too old for proj_meg option')
+    else:
+        proj_kwargs['meg'] = p.proj_meg
+        if p.proj_meg == 'combined':
+            p_sl = 2
+    return proj_kwargs, p_sl
+
+
+def _compute_erm_proj(p, subj, projs, kind, bad_file, remove_existing=False,
+                      disp_files=None):
+    disp_files = p.disp_files if disp_files is None else disp_files
+    assert kind in ('sss', 'raw')
+    proj_nums = _proj_nums(p, subj)
+    proj_kwargs, p_sl = _get_proj_kwargs(p)
+    empty_names = get_raw_fnames(p, subj, kind, 'only')
+    fir_kwargs, _ = _get_fir_kwargs(p.fir_design)
+    flat = _handle_dict(p.flat, subj)
+    raw = _raw_LRFCP(
+        raw_names=empty_names, sfreq=p.proj_sfreq,
+        l_freq=p.cont_hp, h_freq=p.cont_lp,
+        n_jobs=p.n_jobs_fir, apply_proj=not remove_existing,
+        n_jobs_resample=p.n_jobs_resample, projs=projs,
+        bad_file=bad_file, disp_files=disp_files, method='fir',
+        filter_length=p.filter_length, force_bads=True,
+        l_trans=p.cont_hp_trans, h_trans=p.cont_lp_trans,
+        phase=p.phase, fir_window=p.fir_window,
+        skip_by_annotation='edge', **fir_kwargs)
+    if remove_existing:
+        raw.del_proj()
+    raw.pick_types(meg=True, eeg=False, exclude=())  # remove EEG
+    use_reject = p.cont_reject
+    if use_reject is None:
+        use_reject = p.reject
+    use_reject, use_flat = _restrict_reject_flat(
+        _handle_dict(use_reject, subj), flat, raw)
+    pr = compute_proj_raw(raw, duration=1, n_grad=proj_nums[2][0],
+                          n_mag=proj_nums[2][1], n_eeg=proj_nums[2][2],
+                          reject=use_reject, flat=use_flat,
+                          n_jobs=p.n_jobs_mkl, **proj_kwargs)
+    assert len(pr) == np.sum(proj_nums[2][::p_sl])
+    # When doing eSSS it's a bit weird to put this in pca_dir but why not
+    pca_dir = _get_pca_dir(p, subj)
+    cont_proj = op.join(pca_dir, 'preproc_cont-proj.fif')
+    write_proj(cont_proj, pr)
+    return pr
+
+
 def do_preprocessing_combined(p, subjects, run_indices):
     """Do preprocessing on all raw files together.
 
@@ -109,7 +173,7 @@ def do_preprocessing_combined(p, subjects, run_indices):
         if p.disp_files:
             print('  Preprocessing subject %g/%g (%s).'
                   % (si + 1, len(subjects), subj))
-        pca_dir = op.join(p.work_dir, subj, p.pca_dir)
+        pca_dir = _get_pca_dir(p, subj)
         bad_file = get_bad_fname(p, subj, check_exists=False)
 
         # Create SSP projection vectors after marking bad channels
@@ -227,11 +291,7 @@ def do_preprocessing_combined(p, subjects, run_indices):
         ecg_eve = op.join(pca_dir, 'preproc_ecg-eve.fif')
         ecg_epo = op.join(pca_dir, 'preproc_ecg-epo.fif')
         ecg_proj = op.join(pca_dir, 'preproc_ecg-proj.fif')
-        cont_proj = op.join(pca_dir, 'preproc_cont-proj.fif')
         all_proj = op.join(pca_dir, 'preproc_all-proj.fif')
-
-        if not op.isdir(pca_dir):
-            os.mkdir(pca_dir)
 
         get_projs_from = _handle_dict(p.get_projs_from, subj)
         if get_projs_from is None:
@@ -253,60 +313,26 @@ def do_preprocessing_combined(p, subjects, run_indices):
         if p.proj_extra is not None:
             if p.disp_files:
                 print('    Adding extra projectors from "%s".' % p.proj_extra)
-            extra_proj = op.join(pca_dir, p.proj_extra)
-            projs = read_proj(extra_proj)
+            projs.extend(read_proj(op.join(pca_dir, p.proj_extra)))
 
-        extra_proj = dict()
-        p_sl = 1
-        if 'meg' not in get_args(compute_proj_raw):
-            if p.proj_meg != 'separate':
-                raise RuntimeError('MNE is too old for proj_meg option')
-        else:
-            extra_proj['meg'] = p.proj_meg
-            if p.proj_meg == 'combined':
-                p_sl = 2
-
+        proj_kwargs, p_sl = _get_proj_kwargs(p)
         #
         # Calculate and apply ERM projectors
         #
-        if any(proj_nums[2]):
-            assert proj_nums[2][2] == 0  # no EEG projectors for ERM
-            if len(empty_names) >= 1:
+        if not p.cont_as_esss:
+            if any(proj_nums[2]):
+                assert proj_nums[2][2] == 0  # no EEG projectors for ERM
+                if len(empty_names) == 0:
+                    raise RuntimeError('Cannot compute empty-room projectors '
+                                       'from continuous raw data')
                 if p.disp_files:
                     print('    Computing continuous projectors using ERM.')
                 # Use empty room(s), but processed the same way
-                raw = _raw_LRFCP(
-                    raw_names=empty_names, sfreq=p.proj_sfreq,
-                    l_freq=None, h_freq=None, n_jobs=p.n_jobs_fir,
-                    n_jobs_resample=p.n_jobs_resample, projs=projs,
-                    bad_file=bad_file, disp_files=p.disp_files, method='fir',
-                    filter_length=p.filter_length, force_bads=True,
-                    l_trans=p.hp_trans, h_trans=p.lp_trans,
-                    phase=p.phase, fir_window=p.fir_window,
-                    skip_by_annotation='edge', **fir_kwargs)
+                projs.extend(
+                    _compute_erm_proj(p, subj, 'sss', projs, bad_file))
             else:
-                if p.disp_files:
-                    print('    Computing continuous projectors using data.')
-                raw = raw_orig.copy()
-            raw.filter(p.cont_hp, p.cont_lp, n_jobs=p.n_jobs_fir, method='fir',
-                       filter_length=p.filter_length, h_trans_bandwidth=0.5,
-                       fir_window=p.fir_window, phase=p.phase,
-                       skip_by_annotation='edge', **fir_kwargs)
-            raw.add_proj(projs)
-            raw.apply_proj()
-            raw.pick_types(meg=True, eeg=False, exclude=())  # remove EEG
-            use_reject, use_flat = _restrict_reject_flat(
-                _handle_dict(p.reject, subj), flat, raw)
-            pr = compute_proj_raw(raw, duration=1, n_grad=proj_nums[2][0],
-                                  n_mag=proj_nums[2][1], n_eeg=proj_nums[2][2],
-                                  reject=use_reject, flat=use_flat,
-                                  n_jobs=p.n_jobs_mkl, **extra_proj)
-            assert len(pr) == np.sum(proj_nums[2][::p_sl])
-            write_proj(cont_proj, pr)
-            projs.extend(pr)
-            del raw
-        else:
-            _safe_remove(cont_proj)
+                cont_proj = op.join(pca_dir, 'preproc_cont-proj.fif')
+                _safe_remove(cont_proj)
 
         #
         # Calculate and apply the ECG projectors
@@ -348,7 +374,7 @@ def do_preprocessing_combined(p, subjects, run_indices):
                 pr = compute_proj_wrap(
                     ecg_epochs, p.proj_ave, n_grad=proj_nums[0][0],
                     n_mag=proj_nums[0][1], n_eeg=proj_nums[0][2],
-                    desc_prefix=desc_prefix, **extra_proj)
+                    desc_prefix=desc_prefix, **proj_kwargs)
                 assert len(pr) == np.sum(proj_nums[0][::p_sl])
                 write_proj(ecg_proj, pr)
                 projs.extend(pr)
@@ -367,7 +393,7 @@ def do_preprocessing_combined(p, subjects, run_indices):
         for idx, kind in ((1, 'EOG'), (3, 'HEOG'), (4, 'VEOG')):
             _compute_add_eog(
                 p, subj, raw_orig, projs, proj_nums[idx], kind, pca_dir,
-                flat, extra_proj, old_kwargs, p_sl)
+                flat, proj_kwargs, old_kwargs, p_sl)
         del proj_nums
 
         # save the projectors
@@ -415,7 +441,7 @@ def _proj_nums(p, subj):
 
 
 def _compute_add_eog(p, subj, raw_orig, projs, eog_nums, kind, pca_dir,
-                     flat, extra_proj, old_kwargs, p_sl):
+                     flat, proj_kwargs, old_kwargs, p_sl):
     assert kind in ('EOG', 'HEOG', 'VEOG')
     bk = dict(EOG='blink').get(kind, kind.lower())
     eog_eve = op.join(pca_dir, f'preproc_{bk}-eve.fif')
@@ -456,7 +482,7 @@ def _compute_add_eog(p, subj, raw_orig, projs, eog_nums, kind, pca_dir,
             pr = compute_proj_wrap(
                 eog_epochs, p.proj_ave, n_grad=eog_nums[0],
                 n_mag=eog_nums[1], n_eeg=eog_nums[2],
-                desc_prefix=desc_prefix, **extra_proj)
+                desc_prefix=desc_prefix, **proj_kwargs)
             assert len(pr) == np.sum(eog_nums[::p_sl])
             write_proj(eog_proj, pr)
             projs.extend(pr)

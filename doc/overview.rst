@@ -262,6 +262,10 @@ sss_format : str
     Deprecated. SSS numerical format when using MaxFilter.
 mf_args : str
     Deprecated. Extra arguments for MF SSS.
+cont_as_esss : bool
+    If True (default False), use eSSS to improve the external basis estimate
+    using continuous empty-room projectors (``proj_nums[2]``).
+    Only supported when Python is used for SSS.
 
 
 4. do_ch_fix
@@ -409,8 +413,17 @@ get_projs_from : list of int | dict
     Indices for runs to get projects from.
 cont_hp : float
     Highpass to use for continuous ERM projectors (default None).
+cont_hp_trans : float | None
+    Highpass transition bandwidth to use for continuous ERM projectors
+    (default 0.5).
 cont_lp : float
     Lowpass to use for continuous ERM projectors (default 5).
+cont_lp_trans : float | None
+    Lowpass transition bandwidth for continuous ERM projectors (default None).
+cont_reject : dict | None
+    Rejection parameters for continuous empty-room projection calculations.
+    None (default) will use ``params.reject``.
+    This likely needs to be set when ``cont_as_esss=True``.
 plot_drop_logs : bool
     If True, plot drop logs after preprocessing.
 
