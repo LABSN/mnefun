@@ -382,6 +382,10 @@ def convert_ANTS_surrogate(subject, trans, subjects_dir):
     mne.coreg.scale_mri(subject_to=subject, subjects_dir=subjects_dir,
                         labels=False, annot=False, overwrite=False,
                         **config)
+    bem_path = op.join(
+        out_dir, 'bem', f'{subject}-5120-5120-5120-bem-sol.fif')
+    sol = mne.make_bem_solution(mne.read_bem_surfaces(bem_path[:-8] + '.fif'))
+    mne.write_bem_solution(bem_path, sol)
     # A factor beacuse Christian's MRIs weren't conformed:
     # tra = {
     #     3: [3, 8, 7.5], 6: [-1, 10.5, 10], 12: [0.5, 8, 15],
