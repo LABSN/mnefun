@@ -275,8 +275,8 @@ def repeat_coreg(subject, subjects_dir=None, subjects_dir_old=None,
     This is useful for example when bugs are fixed with
     :func:`mne.scale_mri`.
 
-    .. warn:: This function should not be used when the parameters
-              in ``'MRI scaling parameters.cfg'`` have been changed.
+    .. warning:: This function should not be used when the parameters
+                 in ``'MRI scaling parameters.cfg'`` have been changed.
 
     Parameters
     ----------
