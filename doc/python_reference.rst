@@ -25,6 +25,7 @@ Functions:
 .. autosummary::
    :toctree: generated/
 
+   convert_ANTS_surrogate
    do_processing
    extract_expyfun_events
    get_atlas_mapping
