@@ -275,6 +275,9 @@ def repeat_coreg(subject, subjects_dir=None, subjects_dir_old=None,
     This is useful for example when bugs are fixed with
     :func:`mne.scale_mri`.
 
+    .. warn:: This function should not be used when the parameters
+              in ``'MRI scaling parameters.cfg'`` have been changed.
+
     Parameters
     ----------
     subject : str
@@ -295,6 +298,11 @@ def repeat_coreg(subject, subjects_dir=None, subjects_dir_old=None,
     -------
     out_dir : str
         The output subject directory.
+
+    Notes
+    -----
+    The BEM is not processed, as it's assumed that the same BEM will work
+    and it does not need to be recomputed.
     """
     subjects_dir = mne.utils.get_subjects_dir(subjects_dir)
     if subjects_dir_old is None:
@@ -304,14 +312,8 @@ def repeat_coreg(subject, subjects_dir=None, subjects_dir_old=None,
     assert n_params in (3, 1), n_params
     out_dir = op.join(subjects_dir, subject)
     mne.coreg.scale_mri(subject_to=subject, subjects_dir=subjects_dir,
-                        labels=False, annot=False, overwrite=overwrite,
+                        labels=True, annot=True, overwrite=overwrite,
                         **config)
-    sol_file = op.join(subjects_dir, subject, 'bem',
-                       '%s-5120-bem-sol.fif' % subject)
-    if not op.isfile(sol_file):
-        print('  Computing BEM solution')
-        sol = mne.make_bem_solution(sol_file[:-8] + '.fif')
-        mne.write_bem_solution(sol_file, sol)
     return out_dir
 
 
@@ -380,7 +382,7 @@ def convert_ANTS_surrogate(subject, trans, subjects_dir):
     shutil.move(out_dir, backup_dir)
     print('Rescaling MRI (will be slow)...')
     mne.coreg.scale_mri(subject_to=subject, subjects_dir=subjects_dir,
-                        labels=False, annot=False, overwrite=False,
+                        labels=True, annot=True, overwrite=False,
                         **config)
     bem_path = op.join(
         out_dir, 'bem', f'{subject}-5120-5120-5120-bem-sol.fif')
