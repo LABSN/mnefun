@@ -298,11 +298,6 @@ def repeat_coreg(subject, subjects_dir=None, subjects_dir_old=None,
     -------
     out_dir : str
         The output subject directory.
-
-    Notes
-    -----
-    The BEM is not processed, as it's assumed that the same BEM will work
-    and it does not need to be recomputed.
     """
     subjects_dir = mne.utils.get_subjects_dir(subjects_dir)
     if subjects_dir_old is None:
@@ -314,6 +309,14 @@ def repeat_coreg(subject, subjects_dir=None, subjects_dir_old=None,
     mne.coreg.scale_mri(subject_to=subject, subjects_dir=subjects_dir,
                         labels=True, annot=True, overwrite=overwrite,
                         **config)
+    for pattern in ('-5120', '-5120-5120-5120', 'inner_skull'):
+        fname_bem = op.join(
+            subjects_dir, subject, 'bem', f'{subject}{pattern}-bem.fif')
+        fname_sol = fname_bem[:-4] + '-sol.fif'
+        if op.isfile(fname_bem) and not op.isfile(fname_sol):
+            bem = mne.read_bem_surfaces(fname_bem)
+            sol = mne.make_bem_solution(bem)
+            mne.write_bem_solution(fname_sol, sol)
     return out_dir
 
 
