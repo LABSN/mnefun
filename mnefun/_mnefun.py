@@ -192,7 +192,7 @@ class Params(Frozen):
         # Use more than EXTRA points to fit headshape
         self.dig_with_eeg = False
         # Function to pick a subset of events to use to make a covariance
-        self.pick_events_cov = None
+        self.pick_events_cov = None  # or string 'restrict'
         self.cov_method = cov_method
         self.proj_extra = None
         # These should be overridden by the user unless they are only doing
@@ -219,6 +219,7 @@ class Params(Frozen):
         self.subject_run_indices = None
         self.autoreject_thresholds = False
         self.autoreject_types = ['mag', 'grad', 'eeg']
+        self.pick_events_autoreject = None  # similar to .pick_events_cov
         self.subjects_dir = None
         self.src_pos = 7.
         self.report_params = dict(

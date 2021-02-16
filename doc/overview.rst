@@ -491,6 +491,9 @@ autoreject_types : tuple
     reject trials on basis of EOG.
 reject_epochs_by_annot : bool
     If True, reject epochs by BAD annotations.
+pick_events_autoreject : callable | string | None
+    Function for picking covariance events, or the string "restrict"
+    to limit events to those with an id in ``in_numbers``.
 analyses : list of str
     Lists of analyses of interest.
 in_names : list of str
@@ -526,8 +529,9 @@ cov_method : str
 compute_rank : bool
     Default is False. Set to True to compute rank of the noise covariance
     matrix during inverse kernel computation.
-pick_events_cov : callable | None
-    Function for picking covariance events.
+pick_events_cov : callable | string | None
+    Function for picking covariance events, or the string "restrict"
+    to limit events to those with an id in ``in_numbers``.
 cov_rank : str | int
     Cov rank to use, usually "auto".
 cov_rank_method : str

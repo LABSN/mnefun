@@ -143,17 +143,13 @@ def gen_covariances(p, subjects, run_indices, decim):
             raw = concatenate_raws(raws)
             this_decim = _handle_decim(decim[si], raw.info['sfreq'])
             # read in events
-            events = _read_events(p, subj, ridx, raw)
-            if p.pick_events_cov is not None:
-                old_count = sum(len(e) for e in events)
-                if callable(p.pick_events_cov):
-                    picker = p.pick_events_cov
-                else:
-                    picker = p.pick_events_cov[ii]
-                events = picker(events)
-                new_count = len(events)
-                print('  Using %s/%s events for %s'
-                      % (new_count, old_count, op.basename(cov_name)))
+            picker = p.pick_events_cov  #SMB 2020-02-14
+            if type(picker) is str:
+                assert picker == 'restrict', \
+                    'Only "restrict" is a valid string for p.pick_events_cov'
+            elif picker and not callable(picker):
+                picker = picker[ii]
+            events = _read_events(p, subj, ridx, raw, picker=picker)
             # create epochs
             use_reject, use_flat = _restrict_reject_flat(reject, flat, raw)
             baseline = _get_baseline(p)
