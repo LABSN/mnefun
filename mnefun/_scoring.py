@@ -5,7 +5,6 @@
 import warnings
 
 import numpy as np
-import os.path as op
 from mne import find_events, write_events, read_events, concatenate_events
 from mne.io import read_raw_fif
 
@@ -104,16 +103,18 @@ def extract_expyfun_events(fname, return_offsets=False):
     these_events[:, 2] = event_nums
     return these_events, resps, orig_events
 
-def _pick_events(events, picker):    #SMB 2020-02-14
+
+def _pick_events(events, picker):
     old_cnt = sum(len(e) for e in events)
     events = picker(events)
     new_cnt = len(events)
     print(f'  Using {new_cnt}/{old_cnt} events.')
 
+
 def _read_events(p, subj, ridx, raw, picker=None):
     ridx = np.array(ridx)
     assert ridx.ndim == 1
-    if picker=='restrict':  # events that will be processed
+    if picker == 'restrict':  # limit to events that will be processed
         ids = p.in_numbers
         picker = None
         print('Events restricted to those in params.in_numbers')
@@ -132,7 +133,7 @@ def _read_events(p, subj, ridx, raw, picker=None):
     else:
         first_samps = raw._first_samps
         last_samps = raw._last_samps
-    events = concatenate_events(events, first_samps, last_samps)  #repeats ok?
+    events = concatenate_events(events, first_samps, last_samps)
     if picker:
         events = _pick_events(events, picker)
     if len(np.unique(events[:, 0])) != len(events):

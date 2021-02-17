@@ -143,7 +143,7 @@ def gen_covariances(p, subjects, run_indices, decim):
             raw = concatenate_raws(raws)
             this_decim = _handle_decim(decim[si], raw.info['sfreq'])
             # read in events
-            picker = p.pick_events_cov  #SMB 2020-02-14
+            picker = p.pick_events_cov
             if type(picker) is str:
                 assert picker == 'restrict', \
                     'Only "restrict" is a valid string for p.pick_events_cov'

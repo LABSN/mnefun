@@ -120,7 +120,7 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
             assert all(a in ('mag', 'grad', 'eeg', 'ecg', 'eog')
                        for a in p.autoreject_types)
             from autoreject import get_rejection_threshold
-            picker = p.pick_events_autoreject  #SMB 2020-02-14
+            picker = p.pick_events_autoreject
             if type(picker) is str:
                 assert picker == 'restrict', \
                     'Only "restrict" is valid str for p.pick_events_autoreject'
