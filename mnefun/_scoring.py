@@ -123,9 +123,6 @@ def _read_events(p, subj, ridx, raw, picker=None):
     events = list()
     for fname in get_event_fnames(p, subj, ridx):
         these_events = read_events(fname, include=ids)
-        # if len(np.unique(these_events[:, 0])) != len(these_events):
-        #     raise RuntimeError('Non-unique event samples found in %s'
-        #                        % (fname,))
         events.append(these_events)
     if len(events) == 1 and len(raw._first_samps) > 1:  # for split raw
         first_samps = raw._first_samps[:1]

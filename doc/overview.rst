@@ -492,7 +492,7 @@ autoreject_types : tuple
 reject_epochs_by_annot : bool
     If True, reject epochs by BAD annotations.
 pick_events_autoreject : callable | string | None
-    Function for picking covariance events, or the string "restrict"
+    Function for picking autoreject events, or the string "restrict"
     to limit events to those with an id in ``in_numbers``.
 analyses : list of str
     Lists of analyses of interest.
