@@ -11,6 +11,11 @@ Changelog
 
 2021
 ^^^^
+- 2021/02/23:
+    - Added ``acq_exclude`` to allow excluding folder names when searching for
+      files on a remote acquisition machine.
+    - Modified ``fetch_raw=True`` functionality to be more friendly to data
+      being transferred to NFS mounts by not trying to set as many permissions.
 - 2021/02/18:
     Expanded ``pick_events_cov`` and added ``pick_events_autoreject`` to
     allow control over which events are chosen for the respective epoching

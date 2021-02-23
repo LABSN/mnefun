@@ -82,9 +82,11 @@ def fetch_raw_files(p, subjects, run_indices):
         run_subprocess(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         # move files to root raw_dir
         for fname in remote_fnames:
-            from_ = fname.index(subj)
-            shutil.move(op.join(raw_dir, fname[from_:].lstrip('/')),
-                        op.join(raw_dir, op.basename(fname)))
+            from_ = fname[fname.index(subj):].lstrip('/')
+            to_ = op.basename(fname)
+            if from_ != to_:  # can happen if it's at the root
+                shutil.move(op.join(raw_dir, from_),
+                            op.join(raw_dir, to_))
         # prune the extra directories we made
         for fname in remote_fnames:
             from_ = fname.index(subj)
