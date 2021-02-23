@@ -202,6 +202,7 @@ class Params(Frozen):
         self.dates = None
         self.score = None  # defaults to passing events through
         self.acq_ssh = self.acq_dir = None
+        self.acq_exclude = []
         self.acq_port = 22
         self.sws_ssh = self.sws_dir = None
         self.sws_port = 22

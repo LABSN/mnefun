@@ -68,7 +68,7 @@ def get_event_fnames(p, subj, run_indices=None):
 
 def _regex_convert(f):
     """Regex a given filename (for split file purposes)."""
-    return '.*%s-?[0-9]*.fif$' % op.basename(f)[:-4]
+    return '.*%s-?[0-9]*.fif$' % op.splitext(op.basename(f))[0]
 
 
 def get_raw_fnames(p, subj, which='raw', erm=True, add_splits=False,

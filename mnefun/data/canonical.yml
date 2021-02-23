@@ -11,6 +11,7 @@ fetch_raw:
   acq_ssh:
   acq_dir:
   acq_port:
+  acq_exclude:
   run_names:
   runs_empty:
   subject_run_indices:

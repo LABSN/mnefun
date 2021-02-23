@@ -47,9 +47,21 @@ def fetch_raw_files(p, subjects, run_indices):
                           % remote_fnames[:1])
         # make the name "local" to the acq dir, so that the name works
         # remotely during rsync and locally during copyfile
-        remote_dir = [fn[:fn.index(op.basename(fn))]
-                      for fn in remote_fnames][0]
-        remote_fnames = [op.basename(fname) for fname in remote_fnames]
+        remote_dirs = sorted(set(
+            fn[:fn.index(op.basename(fn))] for fn in remote_fnames))
+        # sometimes there is more than one, for example if someone has done
+        # some processing in the acquistion dir
+        orig_remotes = remote_dirs
+        remote_dirs = [remote_dir for remote_dir in remote_dirs
+                       if not any(x in remote_dir for x in p.acq_exclude)]
+        if len(remote_dirs) != 1:
+            raise IOError('Unable to determine correct remote directory, got '
+                          f'candidates:\n{remote_dirs}\n'
+                          f'pruned from\n{orig_remotes}')
+        remote_dir = remote_dirs[0]
+        del orig_remotes, remote_dirs
+        remote_fnames = sorted(set(
+            op.basename(fname) for fname in remote_fnames))
         want = set(op.basename(fname) for fname in fnames)
         got = set(op.basename(fname) for fname in remote_fnames)
         if want != got.intersection(want):
@@ -60,8 +72,8 @@ def fetch_raw_files(p, subjects, run_indices):
                           'Likely split files were found. Please confirm '
                           'results.')
         print('  Pulling %s files for %s...' % (len(remote_fnames), subj))
-        cmd = ['rsync', '-ave', 'ssh -p %s' % p.acq_port,
-               '--prune-empty-dirs', '--partial',
+        cmd = ['rsync', '-avOe', 'ssh -p %s' % p.acq_port,
+               '--no-perms', '--prune-empty-dirs', '--partial',
                '--include', '*/']
         for fname in remote_fnames:
             cmd += ['--include', op.basename(fname)]

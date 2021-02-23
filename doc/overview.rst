@@ -98,6 +98,10 @@ acq_dir : list of str
     List of paths to search and fetch raw data.
 acq_port : int
     Acquisition port.
+acq_exclude : list of str
+    Names to exclude when trying to find the correct remote directory. This can
+    be useful for example if a subject was run more than once, or someone has
+    done some preprocessing or made copies on the acquisition machine.
 run_names : list of str
     Run names for the paradigm.
 runs_empty : list of str
