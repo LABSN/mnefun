@@ -101,8 +101,7 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
         raw = [read_raw_fif(fname, preload=False) for fname in raw_names]
         _fix_raw_eog_cals(raw)  # EOG epoch scales might be bad!
         raw = concatenate_raws(raw)
-        # read in events
-        events = _read_events(p, subj, run_indices[si], raw)
+        # optionally calculate autoreject thresholds
         this_decim = _handle_decim(decim[si], raw.info['sfreq'])
         new_sfreq = raw.info['sfreq'] / this_decim
         if p.disp_files:
@@ -121,6 +120,11 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
             assert all(a in ('mag', 'grad', 'eeg', 'ecg', 'eog')
                        for a in p.autoreject_types)
             from autoreject import get_rejection_threshold
+            picker = p.pick_events_autoreject
+            if type(picker) is str:
+                assert picker == 'restrict', \
+                    'Only "restrict" is valid str for p.pick_events_autoreject'
+            events = _read_events(p, subj, run_indices[si], raw, picker=picker)
             print('    Computing autoreject thresholds', end='')
             rtmin = p.reject_tmin if p.reject_tmin is not None else p.tmin
             rtmax = p.reject_tmax if p.reject_tmax is not None else p.tmax
@@ -146,7 +150,8 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
             write_hdf5(hdf5_file, use_reject, overwrite=True)
         else:
             use_reject = _handle_dict(p.reject, subj)
-        # create epochs
+        # read in events and create epochs
+        events = _read_events(p, subj, run_indices[si], raw, picker='restrict')
         flat = _handle_dict(p.flat, subj)
         use_reject, use_flat = _restrict_reject_flat(use_reject, flat, raw)
         epochs = Epochs(raw, events, event_id=old_dict, tmin=p.tmin,

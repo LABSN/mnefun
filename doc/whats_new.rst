@@ -9,6 +9,15 @@ master branch and often an up-to-date MNE-Python ``master`` branch.
 Changelog
 ~~~~~~~~~
 
+2021
+^^^^
+- 2021/02/18:
+    Expanded ``pick_events_cov`` and added ``pick_events_autoreject`` to
+    allow control over which events are chosen for the respective epoching
+    steps. In lieu of a function, the string "restrict" is acceptable to
+    choose event ids contained in ``in_numbers``. (Events for final epoching
+    are effectively selected with "restrict".)
+
 2020
 ^^^^
 - 2020/12/18:

@@ -142,7 +142,7 @@ def _flatten_dicts(d, out, keys_to_flatten):
         if key in keys_to_flatten:
             _flatten_dicts(val, out, keys_to_flatten)
         else:
-            assert key not in out
+            assert key not in out, f'parameter {key} may be repeated'
             out[key] = val
 
 

@@ -123,6 +123,7 @@ epoching:
   autoreject_thresholds:
   autoreject_types:
   reject_epochs_by_annot:
+  pick_events_autoreject:
   analyses:
   in_names:
   in_numbers:
