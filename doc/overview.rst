@@ -99,9 +99,18 @@ acq_dir : list of str
 acq_port : int
     Acquisition port.
 acq_exclude : list of str
-    Names to exclude when trying to find the correct remote directory. This can
-    be useful for example if a subject was run more than once, or someone has
-    done some preprocessing or made copies on the acquisition machine.
+    Regular expressions to exclude when trying to find the correct remote
+    directory. This can be useful for example if a subject was run more than
+    once, or someone has done some preprocessing or made copies on the
+    acquisition machine, e.g.::
+
+        ['genz_proc', 'genz_[0-9]+_[0-9]+a']
+
+    which means "exclude anything with 'genz_proc'; or anything starting with
+    'genz_', followed by at least one number, followed by '_', folwwed by at
+    least one number, followed by 'a'" -- the latter being useful when subjects
+    should be named ``genz100_9a`` but have some duplicate directories named
+    ``genz_100_9a``.
 run_names : list of str
     Run names for the paradigm.
 runs_empty : list of str
