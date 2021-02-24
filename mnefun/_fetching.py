@@ -2,6 +2,7 @@
 
 import os
 import os.path as op
+import re
 import shutil
 import subprocess
 import warnings
@@ -12,7 +13,12 @@ from ._paths import get_raw_fnames, _regex_convert, _is_dir
 
 
 def fetch_raw_files(p, subjects, run_indices):
-    """Fetch remote raw recording files (only designed for *nix platforms)"""
+    """Fetch remote raw recording files (only designed for *nix platforms)."""
+    if len(p.acq_exclude):
+        assert isinstance(p.acq_exclude, (list, tuple)), type(p.acq_exclude)
+        excluder = re.compile('|'.join(p.acq_exclude))
+    else:
+        excluder = None
     for si, subj in enumerate(subjects):
         print('  Checking for proper remote filenames for %s...' % subj)
         subj_dir = op.join(p.work_dir, subj)
@@ -51,15 +57,17 @@ def fetch_raw_files(p, subjects, run_indices):
             fn[:fn.index(op.basename(fn))] for fn in remote_fnames))
         # sometimes there is more than one, for example if someone has done
         # some processing in the acquistion dir
-        orig_remotes = remote_dirs
-        remote_dirs = [remote_dir for remote_dir in remote_dirs
-                       if not any(x in remote_dir for x in p.acq_exclude)]
+        if excluder is not None:
+            extra = f'\nPruned (using acq_exclude) from:\n{remote_dirs}.'
+            remote_dirs = [remote_dir for remote_dir in remote_dirs
+                           if not excluder.search(remote_dir)]
+        else:
+            extra = '\nConsider using acq_exclude to exclude directories.'
         if len(remote_dirs) != 1:
             raise IOError('Unable to determine correct remote directory, got '
-                          f'candidates:\n{remote_dirs}\n'
-                          f'pruned from\n{orig_remotes}')
+                          f'candidates:\n{remote_dirs}{extra}')
         remote_dir = remote_dirs[0]
-        del orig_remotes, remote_dirs
+        del remote_dirs
         remote_fnames = sorted(set(
             op.basename(fname) for fname in remote_fnames))
         want = set(op.basename(fname) for fname in fnames)

@@ -106,11 +106,11 @@ run_names : list of str
     Run names for the paradigm.
 runs_empty : list of str
     Empty room run names.
-subject_run_indices : list of array-like | None
+subject_run_indices : list of array-like | dict | None
     Run indices to include for each subject. This can be a list
     (must be same length as ``params.subjects``) or a dict (keys are subject
-    strings, values are the run indices) including a defaultdict. None is an
-    alias for "all runs".
+    strings, values are the run indices) where missing subjects get all runs.
+    None is an alias for "all runs".
 
 2. do_score
 -----------
