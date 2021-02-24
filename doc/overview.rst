@@ -106,11 +106,11 @@ acq_exclude : list of str
 
         ['genz_proc', 'genz_[0-9]+_[0-9]+a']
 
-    which means "exclude anything with 'genz_proc'; or anything starting with
-    'genz\_', followed by at least one number, followed by '_', folwwed by at
-    least one number, followed by 'a'" -- the latter being useful when subjects
-    should be named ``genz100_9a`` but have some duplicate directories named
-    ``genz_100_9a``.
+    which means "exclude anything with 'genz_proc'; or anything with a
+    substring that has 'genz\_', followed by at least one number, followed by
+    '_', followed by at least one number, followed by 'a'" -- the latter being
+    useful when subjects should be named ``genz100_9a`` but have some duplicate
+    directories named ``genz_100_9a``.
 run_names : list of str
     Run names for the paradigm.
 runs_empty : list of str
