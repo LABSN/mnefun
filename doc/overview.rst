@@ -262,6 +262,10 @@ sss_format : str
     Deprecated. SSS numerical format when using MaxFilter.
 mf_args : str
     Deprecated. Extra arguments for MF SSS.
+cont_as_esss : bool
+    If True (default False), use eSSS to improve the external basis estimate
+    using continuous empty-room projectors (``proj_nums[2]``).
+    Only supported when Python is used for SSS.
 
 
 4. do_ch_fix
@@ -319,11 +323,11 @@ auto_bad_reject : str | dict | None
     http://autoreject.github.io/ for details.
 auto_bad_flat : dict | None
     Flat threshold for auto bad.
-auto_bad_eeg_thresh : float | None
-    If more than this proportion of EEG channels is automatically marked bad,
+auto_bad_eeg_thresh : int | None
+    If more than this number of EEG channels is automatically marked bad,
     an error will be raised. This helps ensure that not too many channels
     are marked as bad.
-auto_bad_meg_thresh : float | None
+auto_bad_meg_thresh : int | None
     Same as above but for MEG.
 
 ``preprocessing: ssp``: SSP creation parameters
@@ -409,8 +413,17 @@ get_projs_from : list of int | dict
     Indices for runs to get projects from.
 cont_hp : float
     Highpass to use for continuous ERM projectors (default None).
+cont_hp_trans : float | None
+    Highpass transition bandwidth to use for continuous ERM projectors
+    (default 0.5).
 cont_lp : float
     Lowpass to use for continuous ERM projectors (default 5).
+cont_lp_trans : float | None
+    Lowpass transition bandwidth for continuous ERM projectors (default None).
+cont_reject : dict | None
+    Rejection parameters for continuous empty-room projection calculations.
+    None (default) will use ``params.reject``.
+    This likely needs to be set when ``cont_as_esss=True``.
 plot_drop_logs : bool
     If True, plot drop logs after preprocessing.
 
@@ -444,9 +457,11 @@ bmin : float
     Lower limit for baseline compensation.
 bmax : float
     Upper limit for baseline compensation.
-decim : int
+decim : int | float | list
     Amount to decimate the data after filtering when epoching data
     (e.g., a factor of 5 on 1000 Hz data yields 200 Hz data).
+    If a float is used, it should be the destination sample rate
+    (e.g., a value of 200. with 1000 Hz data will use  decim=5).
 epochs_type : str | list
     Can be 'fif', 'mat', or a list containing both.
 match_fun : callable | None
@@ -476,6 +491,9 @@ autoreject_types : tuple
     reject trials on basis of EOG.
 reject_epochs_by_annot : bool
     If True, reject epochs by BAD annotations.
+pick_events_autoreject : callable | string | None
+    Function for picking autoreject events, or the string "restrict"
+    to limit events to those with an id in ``in_numbers``.
 analyses : list of str
     Lists of analyses of interest.
 in_names : list of str
@@ -511,8 +529,9 @@ cov_method : str
 compute_rank : bool
     Default is False. Set to True to compute rank of the noise covariance
     matrix during inverse kernel computation.
-pick_events_cov : callable | None
-    Function for picking covariance events.
+pick_events_cov : callable | string | None
+    Function for picking covariance events, or the string "restrict"
+    to limit events to those with an id in ``in_numbers``.
 cov_rank : str | int
     Cov rank to use, usually "auto".
 cov_rank_method : str

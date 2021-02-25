@@ -14,7 +14,7 @@ from mne.viz import plot_drop_log
 from ._paths import get_raw_fnames, get_epochs_evokeds_fnames
 from ._scoring import _read_events
 from ._utils import (_fix_raw_eog_cals, _get_baseline, get_args, _handle_dict,
-                     _restrict_reject_flat, _get_epo_kwargs)
+                     _restrict_reject_flat, _get_epo_kwargs, _handle_decim)
 
 
 def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
@@ -101,12 +101,12 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
         raw = [read_raw_fif(fname, preload=False) for fname in raw_names]
         _fix_raw_eog_cals(raw)  # EOG epoch scales might be bad!
         raw = concatenate_raws(raw)
-        # read in events
-        events = _read_events(p, subj, run_indices[si], raw)
-        new_sfreq = raw.info['sfreq'] / decim[si]
+        # optionally calculate autoreject thresholds
+        this_decim = _handle_decim(decim[si], raw.info['sfreq'])
+        new_sfreq = raw.info['sfreq'] / this_decim
         if p.disp_files:
             print('    Epoching data (decim=%s -> sfreq=%0.1f Hz).'
-                  % (decim[si], new_sfreq))
+                  % (this_decim, new_sfreq))
         if new_sfreq not in sfreqs:
             if len(sfreqs) > 0:
                 warnings.warn('resulting new sampling frequency %s not equal '
@@ -120,13 +120,18 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
             assert all(a in ('mag', 'grad', 'eeg', 'ecg', 'eog')
                        for a in p.autoreject_types)
             from autoreject import get_rejection_threshold
+            picker = p.pick_events_autoreject
+            if type(picker) is str:
+                assert picker == 'restrict', \
+                    'Only "restrict" is valid str for p.pick_events_autoreject'
+            events = _read_events(p, subj, run_indices[si], raw, picker=picker)
             print('    Computing autoreject thresholds', end='')
             rtmin = p.reject_tmin if p.reject_tmin is not None else p.tmin
             rtmax = p.reject_tmax if p.reject_tmax is not None else p.tmax
             temp_epochs = Epochs(
                 raw, events, event_id=None, tmin=rtmin, tmax=rtmax,
                 baseline=_get_baseline(p), proj=True, reject=None,
-                flat=None, preload=True, decim=decim[si],
+                flat=None, preload=True, decim=this_decim,
                 reject_by_annotation=p.reject_epochs_by_annot)
             kwargs = dict()
             if 'verbose' in get_args(get_rejection_threshold):
@@ -145,13 +150,15 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
             write_hdf5(hdf5_file, use_reject, overwrite=True)
         else:
             use_reject = _handle_dict(p.reject, subj)
-        # create epochs
+        # read in events and create epochs
+        events = _read_events(p, subj, run_indices[si], raw, picker='restrict')
         flat = _handle_dict(p.flat, subj)
         use_reject, use_flat = _restrict_reject_flat(use_reject, flat, raw)
         epochs = Epochs(raw, events, event_id=old_dict, tmin=p.tmin,
                         tmax=p.tmax, baseline=_get_baseline(p),
                         reject=use_reject, flat=use_flat, proj=p.epochs_proj,
-                        preload=True, decim=decim[si], on_missing=p.on_missing,
+                        preload=True, decim=this_decim,
+                        on_missing=p.on_missing,
                         reject_tmin=p.reject_tmin, reject_tmax=p.reject_tmax,
                         reject_by_annotation=p.reject_epochs_by_annot)
         del raw

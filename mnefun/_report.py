@@ -476,10 +476,16 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                                                    show=False))
                 if any(proj_nums[2]):  # ERM
                     if 'preproc_cont-proj.fif' in proj_files:
-                        comments.append('Continuous')
+                        if p.cont_as_esss:
+                            extra = ' (eSSS)'
+                            use_info = raw.info
+                        else:
+                            extra = ''
+                            use_info = sss_info
+                        comments.append('Continuous%s' % (extra,))
                         figs.append(_proj_fig(op.join(
                             p.work_dir, subj, p.pca_dir,
-                            'preproc_cont-proj.fif'), sss_info,
+                            'preproc_cont-proj.fif'), use_info,
                             proj_nums[2], p.proj_meg, 'ERM', None,
                             duration))
                 if any(proj_nums[0]):  # ECG

@@ -57,6 +57,7 @@ preprocessing:
     cal_file:
     sss_format:
     mf_args:
+    cont_as_esss:
   filtering:
     hp_cut:
     hp_trans:
@@ -98,7 +99,10 @@ preprocessing:
     proj_extra:
     get_projs_from:
     cont_hp:
+    cont_hp_trans:
     cont_lp:
+    cont_lp_trans:
+    cont_reject:
     plot_drop_logs:
 
 epoching:
@@ -119,6 +123,7 @@ epoching:
   autoreject_thresholds:
   autoreject_types:
   reject_epochs_by_annot:
+  pick_events_autoreject:
   analyses:
   in_names:
   in_numbers:

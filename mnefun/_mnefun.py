@@ -108,11 +108,13 @@ class Params(Frozen):
         self.n_jobs_resample = n_jobs_resample
         self.filter_length = filter_length
         self.cont_hp = None
+        self.cont_hp_trans = 0.5
         self.cont_lp = 5.
-        self.lp_cut = lp_cut
+        self.cont_lp_trans = 0.5
         self.hp_cut = hp_cut
-        self.lp_trans = lp_trans
+        self.lp_cut = lp_cut
         self.hp_trans = hp_trans
+        self.lp_trans = lp_trans
         self.phase = 'zero-double'
         self.fir_window = 'hann'
         self.fir_design = 'firwin2'
@@ -190,7 +192,7 @@ class Params(Frozen):
         # Use more than EXTRA points to fit headshape
         self.dig_with_eeg = False
         # Function to pick a subset of events to use to make a covariance
-        self.pick_events_cov = None
+        self.pick_events_cov = None  # or string 'restrict'
         self.cov_method = cov_method
         self.proj_extra = None
         # These should be overridden by the user unless they are only doing
@@ -217,6 +219,7 @@ class Params(Frozen):
         self.subject_run_indices = None
         self.autoreject_thresholds = False
         self.autoreject_types = ['mag', 'grad', 'eeg']
+        self.pick_events_autoreject = None  # similar to .pick_events_cov
         self.subjects_dir = None
         self.src_pos = 7.
         self.report_params = dict(
@@ -267,6 +270,8 @@ class Params(Frozen):
         self.every_other = False
         self.cov_rank_method = 'estimate_rank'
         self.epochs_proj = True
+        self.cont_as_esss = False
+        self.cont_reject = None
         self.freeze()
         # Read static-able paraws from config file
         _set_static(self)
@@ -482,7 +487,7 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
         decim = [decim] * len(p.subjects)
     assert len(decim) == n_subj_orig
     decim = np.array(decim)
-    assert decim.dtype.char in 'il', decim.dtype
+    assert decim.dtype.char in 'ild', (decim.dtype.char, decim.dtype)
     assert decim.shape == (len(p.subjects),), decim.shape
     decim = decim[sinds]
 

@@ -9,8 +9,22 @@ master branch and often an up-to-date MNE-Python ``master`` branch.
 Changelog
 ~~~~~~~~~
 
+2021
+^^^^
+- 2021/02/18:
+    Expanded ``pick_events_cov`` and added ``pick_events_autoreject`` to
+    allow control over which events are chosen for the respective epoching
+    steps. In lieu of a function, the string "restrict" is acceptable to
+    choose event ids contained in ``in_numbers``. (Events for final epoching
+    are effectively selected with "restrict".)
+
 2020
 ^^^^
+- 2020/12/18:
+    Added ``erm_proj_as_esss``, ``erm_proj_lp_cut``, and ``erm_proj_hp_cut``
+    to support using eSSS for empty-room projectors.
+- 2020/12/18:
+    Added ``float`` support for ``params.decim``.
 - 2020/11/02:
     Added :func:`mnefun.repeat_coreg`.
 - 2020/09/28:
