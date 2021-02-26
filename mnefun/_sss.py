@@ -1124,6 +1124,9 @@ def compute_good_coils(raw, t_step=0.01, t_window=0.2, dist_limit=0.005,
         chpi_amps = compute_chpi_amplitudes(
             raw, t_step_min=t_step, t_window=t_window)
         chpi_locs = compute_chpi_locs(raw.info, chpi_amps)
+    if len(chpi_locs['rrs']) == 0:
+        warnings.warn(
+            'No valid cHPI locations found, perhaps cHPI was turned off?')
     from mne.chpi import _get_hpi_initial_fit
     hpi_dig_head_rrs = _get_hpi_initial_fit(raw.info, verbose=False)
     hpi_coil_dists = cdist(hpi_dig_head_rrs, hpi_dig_head_rrs)
