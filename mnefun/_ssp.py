@@ -285,7 +285,7 @@ def do_preprocessing_combined(p, subjects, run_indices):
                   % op.sep.join(bad_file.split(op.sep)[-3:]))
             bad_file = None
 
-        ecg_t_lims = p.ecg_t_lims
+        ecg_t_lims = _handle_dict(p.ecg_t_lims, subj)
         ecg_f_lims = p.ecg_f_lims
 
         ecg_eve = op.join(pca_dir, 'preproc_ecg-eve.fif')
