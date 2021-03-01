@@ -2,6 +2,7 @@
 
 import os
 import os.path as op
+import re
 import shutil
 import subprocess
 import warnings
@@ -12,7 +13,12 @@ from ._paths import get_raw_fnames, _regex_convert, _is_dir
 
 
 def fetch_raw_files(p, subjects, run_indices):
-    """Fetch remote raw recording files (only designed for *nix platforms)"""
+    """Fetch remote raw recording files (only designed for *nix platforms)."""
+    if len(p.acq_exclude):
+        assert isinstance(p.acq_exclude, (list, tuple)), type(p.acq_exclude)
+        excluder = re.compile('|'.join(p.acq_exclude))
+    else:
+        excluder = None
     for si, subj in enumerate(subjects):
         print('  Checking for proper remote filenames for %s...' % subj)
         subj_dir = op.join(p.work_dir, subj)
@@ -47,9 +53,23 @@ def fetch_raw_files(p, subjects, run_indices):
                           % remote_fnames[:1])
         # make the name "local" to the acq dir, so that the name works
         # remotely during rsync and locally during copyfile
-        remote_dir = [fn[:fn.index(op.basename(fn))]
-                      for fn in remote_fnames][0]
-        remote_fnames = [op.basename(fname) for fname in remote_fnames]
+        remote_dirs = sorted(set(
+            fn[:fn.index(op.basename(fn))] for fn in remote_fnames))
+        # sometimes there is more than one, for example if someone has done
+        # some processing in the acquistion dir
+        if excluder is not None:
+            extra = f'\nPruned (using acq_exclude) from:\n{remote_dirs}.'
+            remote_dirs = [remote_dir for remote_dir in remote_dirs
+                           if not excluder.search(remote_dir)]
+        else:
+            extra = '\nConsider using acq_exclude to exclude directories.'
+        if len(remote_dirs) != 1:
+            raise IOError('Unable to determine correct remote directory, got '
+                          f'candidates:\n{remote_dirs}{extra}')
+        remote_dir = remote_dirs[0]
+        del remote_dirs
+        remote_fnames = sorted(set(
+            op.basename(fname) for fname in remote_fnames))
         want = set(op.basename(fname) for fname in fnames)
         got = set(op.basename(fname) for fname in remote_fnames)
         if want != got.intersection(want):
@@ -60,8 +80,8 @@ def fetch_raw_files(p, subjects, run_indices):
                           'Likely split files were found. Please confirm '
                           'results.')
         print('  Pulling %s files for %s...' % (len(remote_fnames), subj))
-        cmd = ['rsync', '-ave', 'ssh -p %s' % p.acq_port,
-               '--prune-empty-dirs', '--partial',
+        cmd = ['rsync', '-avOe', 'ssh -p %s' % p.acq_port,
+               '--no-perms', '--prune-empty-dirs', '--partial',
                '--include', '*/']
         for fname in remote_fnames:
             cmd += ['--include', op.basename(fname)]
@@ -70,9 +90,11 @@ def fetch_raw_files(p, subjects, run_indices):
         run_subprocess(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         # move files to root raw_dir
         for fname in remote_fnames:
-            from_ = fname.index(subj)
-            shutil.move(op.join(raw_dir, fname[from_:].lstrip('/')),
-                        op.join(raw_dir, op.basename(fname)))
+            from_ = fname[fname.index(subj):].lstrip('/')
+            to_ = op.basename(fname)
+            if from_ != to_:  # can happen if it's at the root
+                shutil.move(op.join(raw_dir, from_),
+                            op.join(raw_dir, to_))
         # prune the extra directories we made
         for fname in remote_fnames:
             from_ = fname.index(subj)

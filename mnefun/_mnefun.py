@@ -202,6 +202,7 @@ class Params(Frozen):
         self.dates = None
         self.score = None  # defaults to passing events through
         self.acq_ssh = self.acq_dir = None
+        self.acq_exclude = []
         self.acq_port = 22
         self.sws_ssh = self.sws_dir = None
         self.sws_port = 22
@@ -495,7 +496,7 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
     if run_indices is None:
         run_indices = [None] * len(subjects)
     elif isinstance(run_indices, dict):
-        run_indices = [run_indices[subject] for subject in subjects]
+        run_indices = [run_indices.get(subject, None) for subject in subjects]
     else:
         run_indices = [run_indices[si] for si in sinds]
         assert len(run_indices) == len(subjects)

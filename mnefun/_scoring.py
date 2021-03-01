@@ -109,6 +109,7 @@ def _pick_events(events, picker):
     events = picker(events)
     new_cnt = len(events)
     print(f'  Using {new_cnt}/{old_cnt} events.')
+    return events
 
 
 def _read_events(p, subj, ridx, raw, picker=None):
@@ -117,12 +118,18 @@ def _read_events(p, subj, ridx, raw, picker=None):
     if picker == 'restrict':  # limit to events that will be processed
         ids = p.in_numbers
         picker = None
-        print('Events restricted to those in params.in_numbers')
+        print('    Events restricted to those in params.in_numbers')
     else:
         ids = None
     events = list()
     for fname in get_event_fnames(p, subj, ridx):
-        these_events = read_events(fname, include=ids)
+        # gracefully handle empty events (e.g., resting state)
+        with open(fname, 'r') as fid:
+            content = fid.read().strip()
+        if not content:
+            these_events = np.empty((0, 3), int)
+        else:
+            these_events = read_events(fname, include=ids)
         events.append(these_events)
     if len(events) == 1 and len(raw._first_samps) > 1:  # for split raw
         first_samps = raw._first_samps[:1]
