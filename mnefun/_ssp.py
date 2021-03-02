@@ -413,6 +413,8 @@ def do_preprocessing_combined(p, subjects, run_indices):
         events = fixed_len_events(p, raw_orig)
         reject = _handle_dict(p.reject, subj)
         use_reject, use_flat = _restrict_reject_flat(reject, flat, raw_orig)
+        if p.tmin is None or p.tmax is None:
+            p.tmin, p.tmax = (_get_baseline(p)[0], 1.)
         epochs = Epochs(raw_orig, events, None, p.tmin, p.tmax, preload=False,
                         baseline=_get_baseline(p), reject=use_reject,
                         flat=use_flat, proj=True)
@@ -568,6 +570,9 @@ class FakeEpochs(object):
 
 def fixed_len_events(p, raw):
     """Create fixed length trial events from raw object"""
-    dur = p.tmax - p.tmin
+    if p.tmin is None or p.tmax is None:
+        dur = 1.
+    else:
+        dur = p.tmax - p.tmin
     events = make_fixed_length_events(raw, 1, duration=dur)
     return events
