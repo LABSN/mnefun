@@ -562,17 +562,20 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                                      ('head', 'inner_skull'),
                                      'head',
                                      'inner_skull']
+                        ex = None
                         for surf in try_surfs:
                             try:
                                 mne.viz.plot_alignment(surfaces=surf, **kwargs)
-                            except Exception:
-                                pass
+                            except Exception as exc:
+                                ex = exc
                             else:
                                 break
                         else:
-                            raise RuntimeError('Could not plot any surface '
-                                               'for alignment:\n%s'
-                                               % (try_surfs,))
+                            print(
+                                '\nCould not plot any surface for alignment '
+                                f'for {subj}:\n{try_surfs}\nGot error:\n')
+                            raise ex from None
+                        del ex
                         try:
                             fig.scene.parallel_projection = True
                         except AttributeError:
