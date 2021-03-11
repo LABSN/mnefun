@@ -299,7 +299,7 @@ def _peak_times(evoked, cov, max_peaks=5):
     times = peaks[prms.argsort()[::-1]][:npeaks]
     times.sort()
     if not len(times):  # guarantee at least 1
-        times = gfp.argmax()
+        times = [gfp.argmax()]
     times = evoked.times[times]
     print('    Whitened GFP peak%s (%s):   %s\n                         '
           % (_pl(times), evoked.comment,
