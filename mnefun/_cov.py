@@ -153,8 +153,8 @@ def gen_covariances(p, subjects, run_indices, decim):
             # create epochs
             use_reject, use_flat = _restrict_reject_flat(reject, flat, raw)
             baseline = _get_baseline(p)
-            epochs = Epochs(raw, events, event_id=None, tmin=baseline[0],
-                            tmax=baseline[1], baseline=(None, None),
+            epochs = Epochs(raw, events, event_id=None, tmin=p.bmin,
+                            tmax=p.bmax, baseline=baseline,
                             proj=False,
                             reject=use_reject, flat=use_flat, preload=True,
                             decim=this_decim,
