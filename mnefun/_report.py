@@ -340,7 +340,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
         raise RuntimeError(f'unknown report_params: {sorted(unknown)}')
     preload = p.report_params.get('preload', False)
     for si, subj in enumerate(subjects):
-        struc = structurals[si]
+        struc = structurals[si] if structurals is not None else None
         report = Report(verbose=False)
         print('  Processing subject %s/%s (%s)'
               % (si + 1, len(subjects), subj))
@@ -1177,7 +1177,8 @@ def _proj_fig(fname, info, proj_nums, proj_meg, kind, use_ch, duration):
                 this_evoked.plot(picks='all', axes=[ax])
             for line in ax.lines:
                 line.set(lw=0.5, zorder=3)
-            ax.texts = []
+            for t in list(ax.texts):
+                t.remove()
             scale = 0.8 * np.abs(ax.get_ylim()).max()
             hs, labels = list(), list()
             traces /= np.abs(traces).max()  # uniformly scaled
@@ -1217,7 +1218,8 @@ def _proj_fig(fname, info, proj_nums, proj_meg, kind, use_ch, duration):
                     picks='all', axes=[ax])
             for line in ax.lines[loff:]:
                 line.set(lw=0.5, zorder=4, color='g')
-            ax.texts = []
+            for t in list(ax.texts):
+                t.remove()
             ax.set(title='', xlabel='')
             ax.set(ylabel=f'{type_titles[ch_type]}\n{unit}')
             last_ax[0] = ax

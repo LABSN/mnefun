@@ -129,7 +129,9 @@ def _read_events(p, subj, ridx, raw, picker=None):
         if not content:
             these_events = np.empty((0, 3), int)
         else:
-            these_events = read_events(fname, include=ids)
+            these_events = read_events(fname)
+            if ids is not None:
+                these_events = these_events[np.in1d(these_events[:, 2], ids)]
         events.append(these_events)
     if len(events) == 1 and len(raw._first_samps) > 1:  # for split raw
         first_samps = raw._first_samps[:1]

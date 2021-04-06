@@ -170,6 +170,8 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
             use_reject = _handle_dict(p.reject, subj)
         # read in events and create epochs
         events = _read_events(p, subj, run_indices[si], raw, picker='restrict')
+        if len(events) == 0:
+            raise RuntimeError('Found no valid events')
         flat = _handle_dict(p.flat, subj)
         use_reject, use_flat = _restrict_reject_flat(use_reject, flat, raw)
         epochs = Epochs(raw, events, event_id=old_dict, tmin=p.tmin,
