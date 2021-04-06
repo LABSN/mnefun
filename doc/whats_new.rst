@@ -11,6 +11,8 @@ Changelog
 
 2021
 ^^^^
+- 2021/04/06:
+    Added support for ``reject_epochs_by_annot`` to be a regular expression.
 - 2021/02/23:
     - Added ``acq_exclude`` to allow excluding folder names when searching for
       files on a remote acquisition machine.

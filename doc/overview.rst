@@ -502,8 +502,9 @@ autoreject_types : tuple
     Default is ('mag', 'grad', 'eeg'). Can set to ('mag', 'grad', 'eeg',
     'eog) to use EOG channel rejection criterion from autoreject module to
     reject trials on basis of EOG.
-reject_epochs_by_annot : bool
-    If True, reject epochs by BAD annotations.
+reject_epochs_by_annot : bool | str
+    If True, reject epochs by BAD annotations. If str, will reject epochs by
+    annotations that match the given regular expression ``str``.
 pick_events_autoreject : callable | string | None
     Function for picking autoreject events, or the string "restrict"
     to limit events to those with an id in ``in_numbers``.
