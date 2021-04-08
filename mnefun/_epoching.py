@@ -284,12 +284,13 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
             plot_drop_log(drop_log, threshold=p.drop_thresh, subject=subj)
 
 
-def _concat_resamp_raws(p, fnames):
+def _concat_resamp_raws(p, fnames, fix='EOG', union_bads=False, preload=None):
     raws = []
     first_samps = []
     last_samps = []
     for raw_fname in fnames:
-        raws.append(read_raw_fif(raw_fname, preload=False))
+        raws.append(read_raw_fif(
+            raw_fname, preload=False, allow_maxshield='yes'))
         first_samps.append(raws[-1]._first_samps[0])
         last_samps.append(raws[-1]._last_samps[-1])
     assert len(raws) > 0
@@ -306,7 +307,11 @@ def _concat_resamp_raws(p, fnames):
                 fr, to = raws[0].info['sfreq'], raw.info['sfreq']
                 print(f'    Resampling raw {ri + 1}/{len(raws)} ({fr}→{to})')
                 raw.load_data().resample(raws[0].info['sfreq'])
-    _fix_raw_eog_cals(raws)  # safe b/c cov only needs MEEG
+    _fix_raw_eog_cals(raws, fix)  # safe b/c cov only needs MEEG
     assert len(ratios) == len(fnames)
-    raw = concatenate_raws(raws)
+    if union_bads:
+        bads = sorted(set(sum((r.info['bads'] for r in raws), [])))
+        for r in raws:
+            r.info['bads'] = bads
+    raw = concatenate_raws(raws, preload=preload)
     return raw, ratios

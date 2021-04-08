@@ -22,6 +22,7 @@ from mne.utils import _pl, use_log_level
 from mne.cov import whiten_evoked
 from mne.viz.utils import _triage_rank_sss
 
+from ._epoching import _concat_resamp_raws
 from ._forward import _get_bem_src_trans
 from ._paths import (get_raw_fnames, get_proj_fnames, get_report_fnames,
                      get_bad_fname, get_epochs_evokeds_fnames, safe_inserter)
@@ -352,13 +353,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
             if not op.isfile(fname):
                 raise RuntimeError('Cannot create reports until raw data '
                                    'exist, missing:\n%s' % fname)
-        raw = [_read_raw_prebad(p, subj, fname, False) for fname in fnames]
-        _fix_raw_eog_cals(raw, 'all')
-        # Use the union of bads
-        bads = sorted(set(sum((r.info['bads'] for r in raw), [])))
-        for r in raw:
-            r.info['bads'] = bads
-        raw = mne.concatenate_raws(raw, preload=preload)
+        raw, _ = _concat_resamp_raws(p, fnames, fix='all', union_bads=True)
 
         # sss
         sss_fnames = get_raw_fnames(p, subj, 'sss', False, False,
@@ -380,12 +375,9 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
             these_fnames = get_raw_fnames(
                 p, subj, which, erm, False, run_indices[si])
             if len(these_fnames) and all(op.isfile(f) for f in these_fnames):
-                extra_raws[key] = [
-                    mne.io.read_raw_fif(fname, allow_maxshield='yes')
-                    for fname in these_fnames]
-                _fix_raw_eog_cals(extra_raws[key], 'all')
-                extra_raws[key] = mne.concatenate_raws(
-                    extra_raws[key], preload=preload).apply_proj()
+                extra_raws[key], _ = _concat_resamp_raws(
+                    p, these_fnames, 'all', preload=True)
+                extra_raws[key].apply_proj()
         raw_pca = extra_raws.get('raw_pca', None)
         raw_erm = extra_raws.get('raw_erm', None)
         raw_erm_pca = extra_raws.get('raw_erm_pca', None)
