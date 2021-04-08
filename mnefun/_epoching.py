@@ -20,7 +20,7 @@ from ._utils import (_fix_raw_eog_cals, _get_baseline, get_args, _handle_dict,
 
 def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
                 out_numbers, must_match, decim, run_indices):
-    """Generate epochs from raw data based on events
+    """Generate epochs from raw data based on events.
 
     Can only complete after preprocessing is complete.
 
@@ -93,15 +93,8 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
         # read in raw files
         raw_names = get_raw_fnames(p, subj, 'pca', False, False,
                                    run_indices[si])
-        first_samps = []
-        last_samps = []
-        for raw_fname in raw_names:
-            raw = read_raw_fif(raw_fname, preload=False)
-            first_samps.append(raw._first_samps[0])
-            last_samps.append(raw._last_samps[-1])
-        raw = [read_raw_fif(fname, preload=False) for fname in raw_names]
-        _fix_raw_eog_cals(raw)  # EOG epoch scales might be bad!
-        raw = concatenate_raws(raw)
+        raw, ratios = _concat_resamp_raws(p, raw_names)
+        assert ratios.shape == (len(raw_names),)
         # optionally calculate autoreject thresholds
         this_decim = _handle_decim(decim[si], raw.info['sfreq'])
         new_sfreq = raw.info['sfreq'] / this_decim
@@ -142,7 +135,8 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
             if type(picker) is str:
                 assert picker == 'restrict', \
                     'Only "restrict" is valid str for p.pick_events_autoreject'
-            events = _read_events(p, subj, run_indices[si], raw, picker=picker)
+            events = _read_events(
+                p, subj, run_indices[si], raw, ratios, picker=picker)
             print('    Computing autoreject thresholds', end='')
             rtmin = p.reject_tmin if p.reject_tmin is not None else p.tmin
             rtmax = p.reject_tmax if p.reject_tmax is not None else p.tmax
@@ -169,7 +163,8 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
         else:
             use_reject = _handle_dict(p.reject, subj)
         # read in events and create epochs
-        events = _read_events(p, subj, run_indices[si], raw, picker='restrict')
+        events = _read_events(p, subj, run_indices[si], raw, ratios,
+                              picker='restrict')
         if len(events) == 0:
             raise ValueError('No valid events found')
         flat = _handle_dict(p.flat, subj)
@@ -287,3 +282,31 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
     if p.plot_drop_logs:
         for subj, drop_log in zip(subjects, drop_logs):
             plot_drop_log(drop_log, threshold=p.drop_thresh, subject=subj)
+
+
+def _concat_resamp_raws(p, fnames):
+    raws = []
+    first_samps = []
+    last_samps = []
+    for raw_fname in fnames:
+        raws.append(read_raw_fif(raw_fname, preload=False))
+        first_samps.append(raws[-1]._first_samps[0])
+        last_samps.append(raws[-1]._last_samps[-1])
+    assert len(raws) > 0
+    rates = np.array([r.info['sfreq'] for r in raws], float)
+    ratios = rates[0] / rates
+    assert rates.shape == (len(fnames),)
+    if not (ratios == 1).all():
+        if not p.allow_resample:
+            raise RuntimeError(
+                'Raw sample rates do not match, consider using '
+                f'params.allow_resample=True:\n{rates}')
+        for ri, (raw, ratio) in enumerate(zip(raws[1:], ratios[1:])):
+            if ratio != 1:
+                fr, to = raws[0].info['sfreq'], raw.info['sfreq']
+                print(f'    Resampling raw {ri + 1}/{len(raws)} ({fr}→{to})')
+                raw.load_data().resample(raws[0].info['sfreq'])
+    _fix_raw_eog_cals(raws)  # safe b/c cov only needs MEEG
+    assert len(ratios) == len(fnames)
+    raw = concatenate_raws(raws)
+    return raw, ratios

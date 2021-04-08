@@ -531,6 +531,11 @@ every_other : bool
 epochs_proj : bool | 'delayed'
     The ``proj`` argument in :class:`mne.Epochs`. Should be ``'delayed'`` if
     you want the option of plotting sensor-space data with no projectors.
+allow_resample : bool
+    If True (default False), allow resampling raw instances (and events) to
+    that of the first raw insntance in the case that raws do not all have a
+    matching sample rate. This is useful when recordings were errantly
+    performed at different sample rates.
 
 8. gen_covs
 -----------

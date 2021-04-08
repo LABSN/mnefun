@@ -133,6 +133,7 @@ epoching:
   must_match:
   every_other:
   epochs_proj:
+  allow_resample:
 
 covariance:
   cov_method:

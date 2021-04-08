@@ -131,16 +131,7 @@ def gen_covariances(p, subjects, run_indices, decim):
                 ridx = np.intersect1d(run_indices[si], inv_run)
             # read in raw files
             raw_fnames = get_raw_fnames(p, subj, 'pca', False, False, ridx)
-
-            raws = []
-            first_samps = []
-            last_samps = []
-            for raw_fname in raw_fnames:
-                raws.append(read_raw_fif(raw_fname, preload=False))
-                first_samps.append(raws[-1]._first_samps[0])
-                last_samps.append(raws[-1]._last_samps[-1])
-            _fix_raw_eog_cals(raws)  # safe b/c cov only needs MEEG
-            raw = concatenate_raws(raws)
+            raw, ratios = _concat_resamp_raws(p, raw_fnames)
             this_decim = _handle_decim(decim[si], raw.info['sfreq'])
             # read in events
             picker = p.pick_events_cov
@@ -149,7 +140,7 @@ def gen_covariances(p, subjects, run_indices, decim):
                     'Only "restrict" is a valid string for p.pick_events_cov'
             elif picker and not callable(picker):
                 picker = picker[ii]
-            events = _read_events(p, subj, ridx, raw, picker=picker)
+            events = _read_events(p, subj, ridx, raw, ratios, picker=picker)
             # create epochs
             use_reject, use_flat = _restrict_reject_flat(reject, flat, raw)
             baseline = _get_baseline(p)

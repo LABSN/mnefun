@@ -216,7 +216,7 @@ class Params(Frozen):
         self.out_names = []
         self.out_numbers = []
         self.must_match = []
-        self.on_missing = 'error'  # for epochs
+        self.on_missing = 'raise'  # for epochs
         self.subject_run_indices = None
         self.autoreject_thresholds = False
         self.autoreject_types = ['mag', 'grad', 'eeg']
@@ -273,6 +273,7 @@ class Params(Frozen):
         self.epochs_proj = True
         self.cont_as_esss = False
         self.cont_reject = None
+        self.allow_resample = False
         self.freeze()
         # Read static-able paraws from config file
         _set_static(self)
