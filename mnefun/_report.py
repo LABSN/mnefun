@@ -202,8 +202,9 @@ def _report_raw_segments(report, raw, lowpass=None):
     new_events = np.array([new_events,
                            np.zeros_like(new_events),
                            np.ones_like(new_events)]).T
-    fig = raw_plot.plot(group_by='selection', butterfly=True,
-                        events=new_events, lowpass=lowpass)
+    with mne.utils.use_log_level('error'):
+        fig = raw_plot.plot(group_by='selection', butterfly=True,
+                            events=new_events, lowpass=lowpass)
     fig.axes[0].lines[-1].set_zorder(10)  # events
     fig.axes[0].set(xticks=np.arange(0, len(times)) + 0.5)
     xticklabels = ['%0.1f' % t for t in times]
@@ -899,12 +900,13 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                                 this_evoked.set_eeg_reference(projection=True)
                                 this_evoked.apply_proj()
                                 this_evoked.info['projs'] = all_proj
-                            fig = this_evoked.plot_joint(
-                                times, show=False, picks=picks,
-                                ts_args=dict(proj=proj),
-                                topomap_args=dict(outlines='head', vmin=min_,
-                                                  vmax=max_, cmap=cmap,
-                                                  proj=proj))
+                            with mne.utils.use_log_level('error'):
+                                fig = this_evoked.plot_joint(
+                                    times, show=False, picks=picks,
+                                    ts_args=dict(proj=proj),
+                                    topomap_args=dict(
+                                        outlines='head', vmin=min_, vmax=max_,
+                                        cmap=cmap, proj=proj))
                             assert isinstance(fig, plt.Figure)
                             fig.axes[0].set(ylim=(-max_, max_))
                             t = fig.axes[-1].texts[0]
