@@ -15,6 +15,7 @@ from mne.utils import use_log_level
 
 from ._paths import get_raw_fnames, get_epochs_evokeds_fnames
 from ._scoring import _read_events
+from ._sss import _read_raw_prebad
 from ._utils import (_fix_raw_eog_cals, _get_baseline, get_args, _handle_dict,
                      _restrict_reject_flat, _get_epo_kwargs, _handle_decim)
 
@@ -94,7 +95,7 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
         # read in raw files
         raw_names = get_raw_fnames(p, subj, 'pca', False, False,
                                    run_indices[si])
-        raw, ratios = _concat_resamp_raws(p, raw_names)
+        raw, ratios = _concat_resamp_raws(p, subj, raw_names)
         assert ratios.shape == (len(raw_names),)
         # optionally calculate autoreject thresholds
         this_decim = _handle_decim(decim[si], raw.info['sfreq'])
@@ -290,15 +291,20 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
             plot_drop_log(drop_log, threshold=p.drop_thresh, subject=subj)
 
 
-def _concat_resamp_raws(p, fnames, fix='EOG', union_bads=False, preload=None):
+def _concat_resamp_raws(p, subj, fnames, fix='EOG', prebad=False, preload=None):
     raws = []
     first_samps = []
     last_samps = []
     for raw_fname in fnames:
-        raws.append(read_raw_fif(
-            raw_fname, preload=False, allow_maxshield='yes'))
-        first_samps.append(raws[-1]._first_samps[0])
-        last_samps.append(raws[-1]._last_samps[-1])
+        if prebad:
+            raw = _read_raw_prebad(p, subj, raw_fname, False)
+        else:
+            raw = read_raw_fif(
+                raw_fname, preload=False, allow_maxshield='yes')
+        raws.append(raw)
+        first_samps.append(raw._first_samps[0])
+        last_samps.append(raw._last_samps[-1])
+        del raw
     assert len(raws) > 0
     rates = np.array([r.info['sfreq'] for r in raws], float)
     ratios = rates[0] / rates
@@ -316,7 +322,7 @@ def _concat_resamp_raws(p, fnames, fix='EOG', union_bads=False, preload=None):
     _fix_raw_eog_cals(raws, fix)  # safe b/c cov only needs MEEG
     assert len(ratios) == len(fnames)
     bads = raws[0].info['bads']
-    if union_bads:
+    if prebad:
         bads = sorted(set(sum((r.info['bads'] for r in raws), [])))
         for r in raws:
             r.info['bads'] = bads

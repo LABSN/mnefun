@@ -30,7 +30,7 @@ from ._ssp import _proj_nums
 from ._sss import (_load_trans_to, _read_raw_prebad,
                    _get_t_window, _get_fit_data)
 from ._viz import plot_good_coils, plot_chpi_snr_raw, trim_bg, mlab_offscreen
-from ._utils import _fix_raw_eog_cals, _handle_dict
+from ._utils import _handle_dict
 
 LJUST = 25
 SQRT_2 = np.sqrt(2)
@@ -354,7 +354,8 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
             if not op.isfile(fname):
                 raise RuntimeError('Cannot create reports until raw data '
                                    'exist, missing:\n%s' % fname)
-        raw, _ = _concat_resamp_raws(p, fnames, fix='all', union_bads=True)
+        raw, _ = _concat_resamp_raws(
+            p, subj, fnames, fix='all', prebad=True, preload=preload)
 
         # sss
         sss_fnames = get_raw_fnames(p, subj, 'sss', False, False,
@@ -377,7 +378,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                 p, subj, which, erm, False, run_indices[si])
             if len(these_fnames) and all(op.isfile(f) for f in these_fnames):
                 extra_raws[key], _ = _concat_resamp_raws(
-                    p, these_fnames, 'all', preload=True)
+                    p, subj, these_fnames, 'all', preload=True)
                 extra_raws[key].apply_proj()
         raw_pca = extra_raws.get('raw_pca', None)
         raw_erm = extra_raws.get('raw_erm', None)
@@ -1128,7 +1129,8 @@ def _proj_fig(fname, info, proj_nums, proj_meg, kind, use_ch, duration):
             meg, eeg = ch_type, False
         ch_names = [info['ch_names'][pick]
                     for pick in mne.pick_types(info, meg=meg, eeg=eeg)]
-        idx = np.where([np.in1d(proj['data']['col_names'], ch_names).all()
+        # Some of these will be missing because of prebads
+        idx = np.where([np.in1d(ch_names, proj['data']['col_names']).all()
                         for proj in projs])[0]
         if len(idx) != count:
             raise RuntimeError('Expected %d %s projector%s for channel type '
