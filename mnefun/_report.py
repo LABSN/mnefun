@@ -1128,7 +1128,7 @@ def _proj_fig(fname, info, proj_nums, proj_meg, kind, use_ch, duration):
             meg, eeg = ch_type, False
         ch_names = [info['ch_names'][pick]
                     for pick in mne.pick_types(info, meg=meg, eeg=eeg)]
-        idx = np.where([np.in1d(ch_names, proj['data']['col_names']).all()
+        idx = np.where([np.in1d(proj['data']['col_names'], ch_names).all()
                         for proj in projs])[0]
         if len(idx) != count:
             raise RuntimeError('Expected %d %s projector%s for channel type '

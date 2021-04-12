@@ -11,6 +11,7 @@ from mne.epochs import combine_event_ids
 from mne.externals.h5io import write_hdf5
 from mne.io import read_raw_fif, concatenate_raws
 from mne.viz import plot_drop_log
+from mne.utils import use_log_level
 
 from ._paths import get_raw_fnames, get_epochs_evokeds_fnames
 from ._scoring import _read_events
@@ -251,19 +252,24 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
                         this_e = this_e[1::2]
                     else:
                         assert kind == 'standard'
-                    if len(this_e) > 0:
+                    with use_log_level('error'):
                         ave = this_e.average(picks='all')
                         stde = this_e.standard_error(picks='all')
-                        if kind != 'standard':
-                            ave.comment += ' %s' % (kind,)
-                            stde.comment += ' %s' % (kind,)
-                        evokeds.append(ave)
-                        evokeds.append(stde)
-                        if kind == 'standard':
-                            n_standard += 2
+                    if kind != 'standard':
+                        ave.comment += ' %s' % (kind,)
+                        stde.comment += ' %s' % (kind,)
+                    evokeds.append(ave)
+                    evokeds.append(stde)
+                    if kind == 'standard':
+                        n_standard += 2
             write_evokeds(fn, evokeds)
             naves = [str(n) for n in sorted(set([
                 evoked.nave for evoked in evokeds[:n_standard]]))]
+            n_bad = sum(nave == '0' for nave in naves)
+            if n_bad:
+                warnings.warn(
+                    f'       Got 0 epochs / condition for {n_bad} '
+                    'condition(s)')
             naves = ', '.join(naves)
             if p.disp_files:
                 print('      Analysis "%s": %s epochs / condition'
@@ -309,9 +315,11 @@ def _concat_resamp_raws(p, fnames, fix='EOG', union_bads=False, preload=None):
                 raw.load_data().resample(raws[0].info['sfreq'])
     _fix_raw_eog_cals(raws, fix)  # safe b/c cov only needs MEEG
     assert len(ratios) == len(fnames)
+    bads = raws[0].info['bads']
     if union_bads:
         bads = sorted(set(sum((r.info['bads'] for r in raws), [])))
         for r in raws:
             r.info['bads'] = bads
     raw = concatenate_raws(raws, preload=preload)
+    assert raw.info['bads'] == bads
     return raw, ratios
