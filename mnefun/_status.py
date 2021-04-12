@@ -27,6 +27,8 @@ def print_proc_status(p, subjects, structurals, analyses, run_indices):
 
     # XXX TODO in subsequent PR:
     # * Add modified-date checks to make sure provenance is correct
+    if structurals is None:
+        structurals = [None] * len(subjects)
 
     for subj, struc, runs in zip(subjects, structurals, run_indices):
         fetch_raw = do_score = prebads = coreg = fetch_sss = do_ch_fix = \
@@ -80,11 +82,11 @@ def print_proc_status(p, subjects, structurals, analyses, run_indices):
             gen_covs = 'complete'
 
         # check if forward solution has been calculated
-        if _have_all(fwd_fnames):
+        if _have_all(fwd_fnames) or struc is None:
             gen_fwd = 'complete'
 
         # check if inverses have been calculated
-        if _have_all(inv_fnames):
+        if _have_all(inv_fnames) or struc is None:
             gen_inv = 'complete'
 
         # check if report has been made
