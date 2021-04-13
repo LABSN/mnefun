@@ -178,9 +178,9 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
                         on_missing=p.on_missing,
                         reject_tmin=p.reject_tmin, reject_tmax=p.reject_tmax,
                         reject_by_annotation=reject_epochs_by_annot)
-        del raw
         if epochs.events.shape[0] < 1:
             _raise_bad_epochs(raw, epochs, events)
+        del raw
         drop_logs.append(epochs.drop_log)
         ch_namess.append(epochs.ch_names)
         # only kept trials that were not dropped
@@ -290,7 +290,8 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
             plot_drop_log(drop_log, threshold=p.drop_thresh, subject=subj)
 
 
-def _concat_resamp_raws(p, subj, fnames, fix='EOG', prebad=False, preload=None):
+def _concat_resamp_raws(p, subj, fnames, fix='EOG', prebad=False,
+                        preload=None):
     raws = []
     first_samps = []
     last_samps = []
