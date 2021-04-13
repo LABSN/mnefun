@@ -22,6 +22,7 @@ from mne.utils import _pl, use_log_level
 from mne.cov import whiten_evoked
 from mne.viz.utils import _triage_rank_sss
 
+from ._epoching import _concat_resamp_raws
 from ._forward import _get_bem_src_trans
 from ._paths import (get_raw_fnames, get_proj_fnames, get_report_fnames,
                      get_bad_fname, get_epochs_evokeds_fnames, safe_inserter)
@@ -29,7 +30,7 @@ from ._ssp import _proj_nums
 from ._sss import (_load_trans_to, _read_raw_prebad,
                    _get_t_window, _get_fit_data)
 from ._viz import plot_good_coils, plot_chpi_snr_raw, trim_bg, mlab_offscreen
-from ._utils import _fix_raw_eog_cals, _handle_dict
+from ._utils import _handle_dict
 
 LJUST = 25
 SQRT_2 = np.sqrt(2)
@@ -201,8 +202,9 @@ def _report_raw_segments(report, raw, lowpass=None):
     new_events = np.array([new_events,
                            np.zeros_like(new_events),
                            np.ones_like(new_events)]).T
-    fig = raw_plot.plot(group_by='selection', butterfly=True,
-                        events=new_events, lowpass=lowpass)
+    with mne.utils.use_log_level('error'):
+        fig = raw_plot.plot(group_by='selection', butterfly=True,
+                            events=new_events, lowpass=lowpass)
     fig.axes[0].lines[-1].set_zorder(10)  # events
     fig.axes[0].set(xticks=np.arange(0, len(times)) + 0.5)
     xticklabels = ['%0.1f' % t for t in times]
@@ -340,7 +342,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
         raise RuntimeError(f'unknown report_params: {sorted(unknown)}')
     preload = p.report_params.get('preload', False)
     for si, subj in enumerate(subjects):
-        struc = structurals[si]
+        struc = structurals[si] if structurals is not None else None
         report = Report(verbose=False)
         print('  Processing subject %s/%s (%s)'
               % (si + 1, len(subjects), subj))
@@ -352,13 +354,8 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
             if not op.isfile(fname):
                 raise RuntimeError('Cannot create reports until raw data '
                                    'exist, missing:\n%s' % fname)
-        raw = [_read_raw_prebad(p, subj, fname, False) for fname in fnames]
-        _fix_raw_eog_cals(raw, 'all')
-        # Use the union of bads
-        bads = sorted(set(sum((r.info['bads'] for r in raw), [])))
-        for r in raw:
-            r.info['bads'] = bads
-        raw = mne.concatenate_raws(raw, preload=preload)
+        raw, _ = _concat_resamp_raws(
+            p, subj, fnames, fix='all', prebad=True, preload=preload)
 
         # sss
         sss_fnames = get_raw_fnames(p, subj, 'sss', False, False,
@@ -380,12 +377,9 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
             these_fnames = get_raw_fnames(
                 p, subj, which, erm, False, run_indices[si])
             if len(these_fnames) and all(op.isfile(f) for f in these_fnames):
-                extra_raws[key] = [
-                    mne.io.read_raw_fif(fname, allow_maxshield='yes')
-                    for fname in these_fnames]
-                _fix_raw_eog_cals(extra_raws[key], 'all')
-                extra_raws[key] = mne.concatenate_raws(
-                    extra_raws[key], preload=preload).apply_proj()
+                extra_raws[key], _ = _concat_resamp_raws(
+                    p, subj, these_fnames, 'all', preload=True)
+                extra_raws[key].apply_proj()
         raw_pca = extra_raws.get('raw_pca', None)
         raw_erm = extra_raws.get('raw_erm', None)
         raw_erm_pca = extra_raws.get('raw_erm_pca', None)
@@ -907,12 +901,13 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                                 this_evoked.set_eeg_reference(projection=True)
                                 this_evoked.apply_proj()
                                 this_evoked.info['projs'] = all_proj
-                            fig = this_evoked.plot_joint(
-                                times, show=False, picks=picks,
-                                ts_args=dict(proj=proj),
-                                topomap_args=dict(outlines='head', vmin=min_,
-                                                  vmax=max_, cmap=cmap,
-                                                  proj=proj))
+                            with mne.utils.use_log_level('error'):
+                                fig = this_evoked.plot_joint(
+                                    times, show=False, picks=picks,
+                                    ts_args=dict(proj=proj),
+                                    topomap_args=dict(
+                                        outlines='head', vmin=min_, vmax=max_,
+                                        cmap=cmap, proj=proj))
                             assert isinstance(fig, plt.Figure)
                             fig.axes[0].set(ylim=(-max_, max_))
                             t = fig.axes[-1].texts[0]
@@ -1134,6 +1129,7 @@ def _proj_fig(fname, info, proj_nums, proj_meg, kind, use_ch, duration):
             meg, eeg = ch_type, False
         ch_names = [info['ch_names'][pick]
                     for pick in mne.pick_types(info, meg=meg, eeg=eeg)]
+        # Some of these will be missing because of prebads
         idx = np.where([np.in1d(ch_names, proj['data']['col_names']).all()
                         for proj in projs])[0]
         if len(idx) != count:
@@ -1177,7 +1173,8 @@ def _proj_fig(fname, info, proj_nums, proj_meg, kind, use_ch, duration):
                 this_evoked.plot(picks='all', axes=[ax])
             for line in ax.lines:
                 line.set(lw=0.5, zorder=3)
-            ax.texts = []
+            for t in list(ax.texts):
+                t.remove()
             scale = 0.8 * np.abs(ax.get_ylim()).max()
             hs, labels = list(), list()
             traces /= np.abs(traces).max()  # uniformly scaled
@@ -1217,7 +1214,8 @@ def _proj_fig(fname, info, proj_nums, proj_meg, kind, use_ch, duration):
                     picks='all', axes=[ax])
             for line in ax.lines[loff:]:
                 line.set(lw=0.5, zorder=4, color='g')
-            ax.texts = []
+            for t in list(ax.texts):
+                t.remove()
             ax.set(title='', xlabel='')
             ax.set(ylabel=f'{type_titles[ch_type]}\n{unit}')
             last_ax[0] = ax

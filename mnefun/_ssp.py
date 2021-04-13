@@ -15,6 +15,7 @@ from mne.io import read_raw_fif
 from mne.viz import plot_drop_log
 from mne.utils import _pl
 
+from ._epoching import _raise_bad_epochs
 from ._paths import get_raw_fnames, get_bad_fname
 from ._utils import (get_args, _fix_raw_eog_cals, _handle_dict, _safe_remove,
                      _get_baseline, _restrict_reject_flat, _get_epo_kwargs)
@@ -134,15 +135,31 @@ def _compute_erm_proj(p, subj, projs, kind, bad_file, remove_existing=False,
     if remove_existing:
         raw.del_proj()
     raw.pick_types(meg=True, eeg=False, exclude=())  # remove EEG
-    use_reject = p.cont_reject
+    use_reject, reject_kind = p.cont_reject, 'p.cont_reject'
     if use_reject is None:
-        use_reject = p.reject
+        use_reject, reject_kind = p.reject, 'p.reject'
     use_reject, use_flat = _restrict_reject_flat(
         _handle_dict(use_reject, subj), flat, raw)
-    pr = compute_proj_raw(raw, duration=1, n_grad=proj_nums[2][0],
-                          n_mag=proj_nums[2][1], n_eeg=proj_nums[2][2],
-                          reject=use_reject, flat=use_flat,
-                          n_jobs=p.n_jobs_mkl, **proj_kwargs)
+    bad = False
+    pr = []
+    try:
+        pr = compute_proj_raw(raw, duration=1, n_grad=proj_nums[2][0],
+                              n_mag=proj_nums[2][1], n_eeg=proj_nums[2][2],
+                              reject=use_reject, flat=use_flat,
+                              n_jobs=p.n_jobs_mkl, **proj_kwargs)
+    except RuntimeError as exc:
+        if 'No good epochs' not in str(exc):
+            raise
+        bad = True
+    if bad:
+        events = make_fixed_length_events(raw)
+        epochs = Epochs(raw, events, tmin=0, tmax=1. - 1. / raw.info['sfreq'],
+                        proj=False, baseline=None, reject=use_reject,
+                        flat=use_flat).drop_bad()
+        _raise_bad_epochs(
+            raw, epochs, events,
+            f'1-sec empty room via {reject_kind} = {use_reject} (consider '
+            f'changing p.cont_reject)')
     assert len(pr) == np.sum(proj_nums[2][::p_sl])
     # When doing eSSS it's a bit weird to put this in pca_dir but why not
     pca_dir = _get_pca_dir(p, subj)
@@ -379,10 +396,7 @@ def do_preprocessing_combined(p, subjects, run_indices):
                 write_proj(ecg_proj, pr)
                 projs.extend(pr)
             else:
-                plot_drop_log(ecg_epochs.drop_log)
-                raw.plot(events=ecg_epochs.events)
-                raise RuntimeError('Only %d/%d good ECG epochs found'
-                                   % (len(ecg_epochs), len(ecg_events)))
+                _raise_bad_epochs(raw, ecg_epochs, ecg_events, 'ECG')
             del raw, ecg_epochs, ecg_events
         else:
             _safe_remove([ecg_proj, ecg_eve, ecg_epo])

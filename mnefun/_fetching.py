@@ -41,7 +41,7 @@ def fetch_raw_files(p, subjects, run_indices):
                                              for f in fnames]))
         # Ignore "Permission denied" errors:
         # https://unix.stackexchange.com/questions/42841/how-to-skip-permission-denied-errors-when-running-find-in-linux  # noqa
-        finder += '2>&1 | grep -v "Permission denied"'
+        finder += '2>&1 | (grep -v "Permission denied" || exit 0)'
         stdout_ = run_subprocess(
             ['ssh', '-p', str(p.acq_port), p.acq_ssh, finder],
             stdout=subprocess.PIPE, stderr=subprocess.PIPE)[0]

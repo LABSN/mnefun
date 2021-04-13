@@ -112,7 +112,7 @@ def _pick_events(events, picker):
     return events
 
 
-def _read_events(p, subj, ridx, raw, picker=None):
+def _read_events(p, subj, ridx, raw, ratios, picker=None):
     ridx = np.array(ridx)
     assert ridx.ndim == 1
     if picker == 'restrict':  # limit to events that will be processed
@@ -122,21 +122,32 @@ def _read_events(p, subj, ridx, raw, picker=None):
     else:
         ids = None
     events = list()
-    for fname in get_event_fnames(p, subj, ridx):
+    fnames = get_event_fnames(p, subj, ridx)
+    for fname in fnames:
         # gracefully handle empty events (e.g., resting state)
         with open(fname, 'r') as fid:
             content = fid.read().strip()
         if not content:
             these_events = np.empty((0, 3), int)
         else:
-            these_events = read_events(fname, include=ids)
+            these_events = read_events(fname)
+            if ids is not None:
+                these_events = these_events[np.in1d(these_events[:, 2], ids)]
         events.append(these_events)
+    assert len(events) == len(fnames)
     if len(events) == 1 and len(raw._first_samps) > 1:  # for split raw
         first_samps = raw._first_samps[:1]
         last_samps = raw._last_samps[-1:]
     else:
         first_samps = raw._first_samps
         last_samps = raw._last_samps
+    # deal with resampling
+    ratios = np.array(ratios, float)
+    assert len(events) == len(ratios)
+    if not (ratios == 1).all():
+        # Things have been resampled
+        for ev, ra in zip(events, ratios):
+            ev[:, 0] = np.round(ev[:, 0] * ra).astype(int)
     events = concatenate_events(events, first_samps, last_samps)
     if picker:
         events = _pick_events(events, picker)

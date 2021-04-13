@@ -1,5 +1,6 @@
 import os
 import os.path as op
+import re
 import warnings
 
 import numpy as np
@@ -10,16 +11,18 @@ from mne.epochs import combine_event_ids
 from mne.externals.h5io import write_hdf5
 from mne.io import read_raw_fif, concatenate_raws
 from mne.viz import plot_drop_log
+from mne.utils import use_log_level
 
 from ._paths import get_raw_fnames, get_epochs_evokeds_fnames
 from ._scoring import _read_events
+from ._sss import _read_raw_prebad
 from ._utils import (_fix_raw_eog_cals, _get_baseline, get_args, _handle_dict,
                      _restrict_reject_flat, _get_epo_kwargs, _handle_decim)
 
 
 def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
                 out_numbers, must_match, decim, run_indices):
-    """Generate epochs from raw data based on events
+    """Generate epochs from raw data based on events.
 
     Can only complete after preprocessing is complete.
 
@@ -92,15 +95,8 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
         # read in raw files
         raw_names = get_raw_fnames(p, subj, 'pca', False, False,
                                    run_indices[si])
-        first_samps = []
-        last_samps = []
-        for raw_fname in raw_names:
-            raw = read_raw_fif(raw_fname, preload=False)
-            first_samps.append(raw._first_samps[0])
-            last_samps.append(raw._last_samps[-1])
-        raw = [read_raw_fif(fname, preload=False) for fname in raw_names]
-        _fix_raw_eog_cals(raw)  # EOG epoch scales might be bad!
-        raw = concatenate_raws(raw)
+        raw, ratios = _concat_resamp_raws(p, subj, raw_names)
+        assert ratios.shape == (len(raw_names),)
         # optionally calculate autoreject thresholds
         this_decim = _handle_decim(decim[si], raw.info['sfreq'])
         new_sfreq = raw.info['sfreq'] / this_decim
@@ -115,6 +111,23 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
         epochs_fnames, evoked_fnames = get_epochs_evokeds_fnames(p, subj,
                                                                  analyses)
         mat_file, fif_file = epochs_fnames
+        if isinstance(p.reject_epochs_by_annot, str):
+            reject_epochs_by_annot = True
+            reg = re.compile(p.reject_epochs_by_annot)
+            n_orig = sum(desc.lower().startswith('bad_')
+                         for desc in raw.annotations.description)
+            mask = np.array([reg.match(desc) is not None
+                             for desc in raw.annotations.description], bool)
+            print(f'      Rejecting epochs with via {mask.sum()}  '
+                  'annotation(s) via regex matching '
+                  f'({n_orig} originally were BAD_ type)')
+            # remove the unwanted ones
+            raw.annotations.delete(np.where(~mask)[0])
+            for ii in range(len(raw.annotations)):
+                raw.annotations.description[ii] = 'BAD_REGEX'
+        else:
+            assert isinstance(p.reject_epochs_by_annot, bool)
+            reject_epochs_by_annot = p.reject_epochs_by_annot
         if p.autoreject_thresholds:
             assert len(p.autoreject_types) > 0
             assert all(a in ('mag', 'grad', 'eeg', 'ecg', 'eog')
@@ -124,7 +137,8 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
             if type(picker) is str:
                 assert picker == 'restrict', \
                     'Only "restrict" is valid str for p.pick_events_autoreject'
-            events = _read_events(p, subj, run_indices[si], raw, picker=picker)
+            events = _read_events(
+                p, subj, run_indices[si], raw, ratios, picker=picker)
             print('    Computing autoreject thresholds', end='')
             rtmin = p.reject_tmin if p.reject_tmin is not None else p.tmin
             rtmax = p.reject_tmax if p.reject_tmax is not None else p.tmax
@@ -132,7 +146,7 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
                 raw, events, event_id=None, tmin=rtmin, tmax=rtmax,
                 baseline=_get_baseline(p), proj=True, reject=None,
                 flat=None, preload=True, decim=this_decim,
-                reject_by_annotation=p.reject_epochs_by_annot)
+                reject_by_annotation=reject_epochs_by_annot)
             kwargs = dict()
             if 'verbose' in get_args(get_rejection_threshold):
                 kwargs['verbose'] = False
@@ -151,7 +165,10 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
         else:
             use_reject = _handle_dict(p.reject, subj)
         # read in events and create epochs
-        events = _read_events(p, subj, run_indices[si], raw, picker='restrict')
+        events = _read_events(p, subj, run_indices[si], raw, ratios,
+                              picker='restrict')
+        if len(events) == 0:
+            raise ValueError('No valid events found')
         flat = _handle_dict(p.flat, subj)
         use_reject, use_flat = _restrict_reject_flat(use_reject, flat, raw)
         epochs = Epochs(raw, events, event_id=old_dict, tmin=p.tmin,
@@ -160,11 +177,10 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
                         preload=True, decim=this_decim,
                         on_missing=p.on_missing,
                         reject_tmin=p.reject_tmin, reject_tmax=p.reject_tmax,
-                        reject_by_annotation=p.reject_epochs_by_annot)
-        del raw
+                        reject_by_annotation=reject_epochs_by_annot)
         if epochs.events.shape[0] < 1:
-            epochs.plot_drop_log()
-            raise ValueError('No valid epochs')
+            _raise_bad_epochs(raw, epochs, events)
+        del raw
         drop_logs.append(epochs.drop_log)
         ch_namess.append(epochs.ch_names)
         # only kept trials that were not dropped
@@ -236,19 +252,24 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
                         this_e = this_e[1::2]
                     else:
                         assert kind == 'standard'
-                    if len(this_e) > 0:
+                    with use_log_level('error'):
                         ave = this_e.average(picks='all')
                         stde = this_e.standard_error(picks='all')
-                        if kind != 'standard':
-                            ave.comment += ' %s' % (kind,)
-                            stde.comment += ' %s' % (kind,)
-                        evokeds.append(ave)
-                        evokeds.append(stde)
-                        if kind == 'standard':
-                            n_standard += 2
+                    if kind != 'standard':
+                        ave.comment += ' %s' % (kind,)
+                        stde.comment += ' %s' % (kind,)
+                    evokeds.append(ave)
+                    evokeds.append(stde)
+                    if kind == 'standard':
+                        n_standard += 2
             write_evokeds(fn, evokeds)
             naves = [str(n) for n in sorted(set([
                 evoked.nave for evoked in evokeds[:n_standard]]))]
+            n_bad = sum(nave == '0' for nave in naves)
+            if n_bad:
+                warnings.warn(
+                    f'       Got 0 epochs / condition for {n_bad} '
+                    'condition(s)')
             naves = ', '.join(naves)
             if p.disp_files:
                 print('      Analysis "%s": %s epochs / condition'
@@ -267,3 +288,52 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
     if p.plot_drop_logs:
         for subj, drop_log in zip(subjects, drop_logs):
             plot_drop_log(drop_log, threshold=p.drop_thresh, subject=subj)
+
+
+def _concat_resamp_raws(p, subj, fnames, fix='EOG', prebad=False,
+                        preload=None):
+    raws = []
+    first_samps = []
+    last_samps = []
+    for raw_fname in fnames:
+        if prebad:
+            raw = _read_raw_prebad(p, subj, raw_fname, False)
+        else:
+            raw = read_raw_fif(
+                raw_fname, preload=False, allow_maxshield='yes')
+        raws.append(raw)
+        first_samps.append(raw._first_samps[0])
+        last_samps.append(raw._last_samps[-1])
+        del raw
+    assert len(raws) > 0
+    rates = np.array([r.info['sfreq'] for r in raws], float)
+    ratios = rates[0] / rates
+    assert rates.shape == (len(fnames),)
+    if not (ratios == 1).all():
+        if not p.allow_resample:
+            raise RuntimeError(
+                'Raw sample rates do not match, consider using '
+                f'params.allow_resample=True:\n{rates}')
+        for ri, (raw, ratio) in enumerate(zip(raws[1:], ratios[1:])):
+            if ratio != 1:
+                fr, to = raws[0].info['sfreq'], raw.info['sfreq']
+                print(f'    Resampling raw {ri + 1}/{len(raws)} ({fr}→{to})')
+                raw.load_data().resample(raws[0].info['sfreq'])
+    _fix_raw_eog_cals(raws, fix)  # safe b/c cov only needs MEEG
+    assert len(ratios) == len(fnames)
+    bads = raws[0].info['bads']
+    if prebad:
+        bads = sorted(set(sum((r.info['bads'] for r in raws), [])))
+        for r in raws:
+            r.info['bads'] = bads
+    raw = concatenate_raws(raws, preload=preload)
+    assert raw.info['bads'] == bads
+    return raw, ratios
+
+
+def _raise_bad_epochs(raw, epochs, events, kind=None):
+    extra = '' if kind is None else f' of type {kind} '
+    plot_drop_log(epochs.drop_log)
+    raw.plot(events=events)
+    raise RuntimeError(
+        f'Only {len(epochs)}/{len(events)} good epochs found{extra}')

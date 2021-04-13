@@ -6,18 +6,18 @@ import os.path as op
 import numpy as np
 from scipy import linalg
 from mne import (read_epochs, compute_covariance, write_cov,
-                 compute_raw_covariance, Epochs, concatenate_raws,
-                 compute_rank)
+                 compute_raw_covariance, Epochs, compute_rank)
 from mne.cov import compute_whitener
 from mne.externals.h5io import read_hdf5
 from mne.io import read_raw_fif
 from mne.rank import estimate_rank
 from mne.viz import plot_cov
 
+from ._epoching import _concat_resamp_raws
 from ._paths import get_epochs_evokeds_fnames, get_raw_fnames, safe_inserter
 from ._scoring import _read_events
 from ._utils import (get_args, _get_baseline, _restrict_reject_flat,
-                     _fix_raw_eog_cals, _handle_dict, _handle_decim)
+                     _handle_dict, _handle_decim)
 
 
 def _compute_rank(p, subj, run_indices):
@@ -131,16 +131,7 @@ def gen_covariances(p, subjects, run_indices, decim):
                 ridx = np.intersect1d(run_indices[si], inv_run)
             # read in raw files
             raw_fnames = get_raw_fnames(p, subj, 'pca', False, False, ridx)
-
-            raws = []
-            first_samps = []
-            last_samps = []
-            for raw_fname in raw_fnames:
-                raws.append(read_raw_fif(raw_fname, preload=False))
-                first_samps.append(raws[-1]._first_samps[0])
-                last_samps.append(raws[-1]._last_samps[-1])
-            _fix_raw_eog_cals(raws)  # safe b/c cov only needs MEEG
-            raw = concatenate_raws(raws)
+            raw, ratios = _concat_resamp_raws(p, subj, raw_fnames)
             this_decim = _handle_decim(decim[si], raw.info['sfreq'])
             # read in events
             picker = p.pick_events_cov
@@ -149,7 +140,7 @@ def gen_covariances(p, subjects, run_indices, decim):
                     'Only "restrict" is a valid string for p.pick_events_cov'
             elif picker and not callable(picker):
                 picker = picker[ii]
-            events = _read_events(p, subj, ridx, raw, picker=picker)
+            events = _read_events(p, subj, ridx, raw, ratios, picker=picker)
             # create epochs
             use_reject, use_flat = _restrict_reject_flat(reject, flat, raw)
             baseline = _get_baseline(p)
