@@ -853,11 +853,18 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                     fname_evoked = op.join(inv_dir, '%s_%d%s_%s_%s-ave.fif'
                                            % (analysis, p.lp_cut, p.inv_tag,
                                               p.eq_tag, subj))
+                    bn = op.basename(fname_evoked)
                     if not op.isfile(fname_evoked):
-                        print('    Missing evoked: %s'
-                              % op.basename(fname_evoked), end='')
+                        print(f'    Missing evoked: {bn}', end='')
                         continue
-                    this_evoked = mne.read_evokeds(fname_evoked, name)
+                    try:
+                        this_evoked = mne.read_evokeds(fname_evoked, name)
+                    except ValueError as exc:
+                        a = exc
+                        if 'names in FIF' in str(exc):
+                            print(f'    Evoked has no conditions: {bn}')
+                            continue
+                        raise
                     # Define the time slices to include
                     times = sensor.get('times', [0.1, 0.2])
                     if isinstance(times, str) and times == 'peaks':
