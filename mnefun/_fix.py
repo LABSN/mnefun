@@ -130,7 +130,7 @@ def _all_files_fixed(p, subj, type_='pca'):
 
 
 def _is_file_unfixed(fname, anon=None):
-    """Determine if a file needs reordering or anonymization"""
+    """Determine if a file needs reordering or anonymization."""
     order = np.array(_1_ORDER) - 1
     assert len(order) == 60
     write_key = 'LABSN_EEG_REORDER:' + ','.join([str(o) for o in order])
@@ -141,12 +141,17 @@ def _is_file_unfixed(fname, anon=None):
         else:
             raw = read_raw_fif(fname, preload=False, allow_maxshield='yes')
     picks = pick_types(raw.info, meg=False, eeg=True, exclude=[])
-    if len(picks) == 0:
-        return False, False, None, None, None, None
-    if not len(picks) == len(order):
-        raise RuntimeError('Incorrect number of EEG channels (%i) found '
-                           'in %s' % (len(picks), op.basename(fname)))
-    need_reorder = (write_key not in raw.info['description'])
+    need_reorder = False
+    if len(picks) > 0:
+        if len(picks) == len(order):
+            need_reorder = (write_key not in raw.info['description'])
+        else:
+            msg = (f'Incorrect number of EEG channels ({len(picks)}) found '
+                   f'in {op.basename(fname)}')
+            if len(picks) < 30:  # probably a wacky empty-room file
+                warnings.warn(msg)
+            else:
+                raise RuntimeError(msg)
     need_anon = (anon_key not in raw.info['description'])
     return need_reorder, need_anon, write_key, anon_key, picks, order
 
