@@ -4,7 +4,7 @@ What's new
 .. currentmodule:: mnefun
 
 Using the latest features typically require being on an up-to-date ``mnefun``
-master branch and often an up-to-date MNE-Python ``master`` branch.
+``main`` branch and often an up-to-date MNE-Python ``main`` branch.
 
 Changelog
 ~~~~~~~~~
