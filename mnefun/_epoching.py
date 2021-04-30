@@ -164,6 +164,7 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
             write_hdf5(hdf5_file, use_reject, overwrite=True)
         else:
             use_reject = _handle_dict(p.reject, subj)
+
         # read in events and create epochs
         events = _read_events(p, subj, run_indices[si], raw, ratios,
                               picker='restrict')
@@ -211,7 +212,7 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
                                            ' monotonically increasing')
                     new_numbers.append(num)
             new_numbers = np.array(new_numbers)
-            in_names_match = in_names[match]
+            in_names_match = list(in_names[match])
             # use some variables to allow safe name re-use
             offset = max(epochs.events[:, 2].max(), new_numbers.max()) + 1
             safety_str = '__mnefun_copy__'
@@ -220,6 +221,7 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
                 # first, equalize trial counts (this will make a copy)
                 e = epochs[list(in_names[numbers > 0])]
                 if len(in_names_match) > 1:
+                    print(f'        Equalizing: {in_names_match}')
                     e.equalize_event_counts(in_names_match)
 
                 # second, collapse relevant types
@@ -253,8 +255,12 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
                     else:
                         assert kind == 'standard'
                     with use_log_level('error'):
-                        ave = this_e.average(picks='all')
-                        stde = this_e.standard_error(picks='all')
+                        with warnings.catch_warnings(record=True):
+                            warnings.simplefilter('ignore')
+                            ave = this_e.average(picks='all')
+                            ave.comment = name
+                            stde = this_e.standard_error(picks='all')
+                            stde.comment = name
                     if kind != 'standard':
                         ave.comment += ' %s' % (kind,)
                         stde.comment += ' %s' % (kind,)
@@ -265,11 +271,10 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
             write_evokeds(fn, evokeds)
             naves = [str(n) for n in sorted(set([
                 evoked.nave for evoked in evokeds[:n_standard]]))]
-            n_bad = sum(nave == '0' for nave in naves)
-            if n_bad:
-                warnings.warn(
-                    f'       Got 0 epochs / condition for {n_bad} '
-                    'condition(s)')
+            bad = [evoked.comment for evoked in evokeds[:n_standard:2]
+                   if evoked.nave == 0]
+            if bad:
+                print(f'        Got 0 epochs for: {bad}')
             naves = ', '.join(naves)
             if p.disp_files:
                 print('      Analysis "%s": %s epochs / condition'
