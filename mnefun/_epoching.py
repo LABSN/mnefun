@@ -218,10 +218,17 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
             safety_str = '__mnefun_copy__'
             assert len(new_numbers) == len(names)  # checked above
             if p.match_fun is None:
+                e = None
+            else:  # use custom matching
+                args = [epochs.copy(), analysis, nn, in_names_match, names]
+                if len(get_args(p.match_fun)) > 5:
+                    args = args + [numbers]
+                e = p.match_fun(*args)
+            if e is None:
                 # first, equalize trial counts (this will make a copy)
                 e = epochs[list(in_names[numbers > 0])]
                 if len(in_names_match) > 1:
-                    print(f'        Equalizing: {in_names_match}')
+                    print(f'      Equalizing: {in_names_match}')
                     e.equalize_event_counts(in_names_match)
 
                 # second, collapse relevant types
@@ -235,9 +242,6 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
                     e.events[e.events[:, 2] == num + offset, 2] -= offset
                     e.event_id[name] = num
                     del e.event_id[name + safety_str]
-            else:  # custom matching
-                e = p.match_fun(epochs.copy(), analysis, nn,
-                                in_names_match, names)
 
             # now make evoked for each out type
             evokeds = list()
@@ -274,7 +278,7 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
             bad = [evoked.comment for evoked in evokeds[:n_standard:2]
                    if evoked.nave == 0]
             if bad:
-                print(f'        Got 0 epochs for: {bad}')
+                print(f'      Got 0 epochs for: {bad}')
             naves = ', '.join(naves)
             if p.disp_files:
                 print('      Analysis "%s": %s epochs / condition'
