@@ -11,6 +11,9 @@ Changelog
 
 2021
 ^^^^
+- 2021/05/03:
+    Add support for returning ``None`` from ``p.match_fun`` to use default
+    scoring, and allowing ``numbers`` to be passed to ``p.match_fun``.
 - 2021/04/08:
     Added support for ``allow_resample`` during epoching to deal with sample
     rate mismatches.
