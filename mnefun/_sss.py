@@ -17,11 +17,10 @@ from scipy import linalg
 from scipy.spatial.distance import cdist
 
 try:
-    from mne.chpi import _get_hpi_info
-except Exception:
-    ImportError
-else:
-    from mne.chpi import read_head_pos, write_head_pos, filter_chpi
+    from mne.chpi import get_chpi_info
+except Exception:  # <= 0.23
+    from mne.chpi import _get_hpi_info as get_chpi_info
+from mne.chpi import read_head_pos, write_head_pos, filter_chpi
 from mne.externals.h5io import read_hdf5, write_hdf5
 
 from mne.io import BaseRaw, read_info, read_raw_fif, write_info
@@ -617,8 +616,8 @@ def _get_t_window(p, raw, t_window=None, subj=None):
             t_window = 'auto'
     if t_window == 'auto':
         try:
-            hpi_freqs, _, _ = _get_hpi_info(raw.info, verbose=False)
-        except RuntimeError:
+            hpi_freqs, _, _ = get_chpi_info(raw.info, verbose=False)
+        except (RuntimeError, ValueError):
             t_window = 0.2
         else:
             # Use the longer of 5 cycles and the difference across all
