@@ -900,6 +900,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                         min_ = -max_ if key != 'grad' else 0
                         cmap = 'RdBu_r' if key != 'grad' else 'Reds'
                         for this_evoked in all_evoked:
+                            n_text = f'N={this_evoked.nave}'
                             # Always view EEG data with avg ref applied
                             if key == 'eeg' and proj in ('reconstruct', False):
                                 this_evoked = this_evoked.copy()
@@ -908,19 +909,22 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                                 this_evoked.set_eeg_reference(projection=True)
                                 this_evoked.apply_proj()
                                 this_evoked.info['projs'] = all_proj
-                            with mne.utils.use_log_level('error'):
-                                fig = this_evoked.plot_joint(
-                                    times, show=False, picks=picks,
-                                    ts_args=dict(proj=proj),
-                                    topomap_args=dict(
-                                        outlines='head', vmin=min_, vmax=max_,
-                                        cmap=cmap, proj=proj))
-                            assert isinstance(fig, plt.Figure)
-                            fig.axes[0].set(ylim=(-max_, max_))
-                            t = fig.axes[-1].texts[0]
-                            n_text = f'N={this_evoked.nave}'
-                            t.set_text(
-                                f'{t.get_text()}; {n_text})')
+                            if this_evoked.nave > 0:
+                                with mne.utils.use_log_level('error'):
+                                    fig = this_evoked.plot_joint(
+                                        times, show=False, picks=picks,
+                                        ts_args=dict(proj=proj),
+                                        topomap_args=dict(
+                                            outlines='head',
+                                            vmin=min_, vmax=max_,
+                                            cmap=cmap, proj=proj))
+                                assert isinstance(fig, plt.Figure)
+                                fig.axes[0].set(ylim=(-max_, max_))
+                                t = fig.axes[-1].texts[0]
+                                t.set_text(
+                                    f'{t.get_text()}; {n_text})')
+                            else:
+                                fig = plt.figure()
                             all_figs += [fig]
                             all_captions += [n_text]
                     title = f'{section}: {analysis}["{all_evoked[0].comment}"]'
