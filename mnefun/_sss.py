@@ -2,32 +2,36 @@
 
 import os
 import os.path as op
-import time
 import shutil
 import subprocess
 import sys
+import time
 import warnings
 
 import numpy as np
+from mne import (Annotations, Transform, pick_types, read_annotations,
+                 read_trans)
+from mne.bem import fit_sphere_to_headshape
 from numpy.testing import assert_allclose
 from scipy import linalg
 from scipy.spatial.distance import cdist
 
-from mne import (read_trans, Transform, read_annotations, Annotations,
-                 pick_types)
-from mne.bem import fit_sphere_to_headshape
-from mne.chpi import read_head_pos, write_head_pos, filter_chpi, _get_hpi_info
+try:
+    from mne.chpi import get_chpi_info
+except Exception:  # <= 0.23
+    from mne.chpi import _get_hpi_info as get_chpi_info
+from mne.chpi import read_head_pos, write_head_pos, filter_chpi
 from mne.externals.h5io import read_hdf5, write_hdf5
-from mne.io import read_raw_fif, BaseRaw, write_info, read_info
+
+from mne.io import BaseRaw, read_info, read_raw_fif, write_info
 from mne.preprocessing import maxwell_filter
-from mne.transforms import (quat_to_rot, rot_to_quat, invert_transform,
-                            apply_trans)
-from mne.utils import (_TempDir, run_subprocess, _pl, verbose, logger,
-                       use_log_level)
+from mne.transforms import (apply_trans, invert_transform, quat_to_rot,
+                            rot_to_quat)
+from mne.utils import (_pl, _TempDir, logger, run_subprocess, use_log_level,
+                       verbose)
 
-
-from ._paths import get_raw_fnames, _prebad, _get_config_file
-from ._utils import get_args, _handle_dict
+from ._paths import _get_config_file, _prebad, get_raw_fnames
+from ._utils import _handle_dict, get_args
 
 _data_dir = op.join(op.dirname(__file__), 'data')
 
@@ -400,7 +404,8 @@ def run_sss_locally(p, subjects, run_indices):
     mne.preprocessing.maxwell_filter
     """
     from mne.annotations import _handle_meas_date
-    from ._ssp import _proj_nums, _compute_erm_proj
+
+    from ._ssp import _compute_erm_proj, _proj_nums
     cal_file, ct_file = _get_cal_ct_file(p)
     assert isinstance(p.tsss_dur, float) and p.tsss_dur > 0
     st_duration = p.tsss_dur
@@ -611,8 +616,8 @@ def _get_t_window(p, raw, t_window=None, subj=None):
             t_window = 'auto'
     if t_window == 'auto':
         try:
-            hpi_freqs, _, _ = _get_hpi_info(raw.info, verbose=False)
-        except RuntimeError:
+            hpi_freqs, _, _ = get_chpi_info(raw.info, verbose=False)
+        except (RuntimeError, ValueError):
             t_window = 0.2
         else:
             # Use the longer of 5 cycles and the difference across all
@@ -909,9 +914,10 @@ def info_sss_basis(info, origin='auto', int_order=8, ext_order=3,
         with reference channels is not currently supported.
     """
     from mne import pick_info
-    from mne.preprocessing.maxwell import \
-        _check_origin, _check_regularize, _get_mf_picks_fix_mags, \
-        _prep_mf_coils, _trans_sss_basis, _regularize
+    from mne.preprocessing.maxwell import (_check_origin, _check_regularize,
+                                           _get_mf_picks_fix_mags,
+                                           _prep_mf_coils, _regularize,
+                                           _trans_sss_basis)
     if coord_frame not in ('head', 'meg'):
         raise ValueError('coord_frame must be either "head" or "meg", not "%s"'
                          % coord_frame)
@@ -1052,8 +1058,8 @@ def calc_twa_hp(p, subj, out_file, ridx):
 
 def _old_chpi_locs(raw, t_step, t_window, prefix):
     # XXX we can remove this once people are on 0.20+
-    from mne.chpi import (_get_hpi_initial_fit, _setup_hpi_struct,
-                          _fit_cHPI_amplitudes, _fit_magnetic_dipole)
+    from mne.chpi import (_fit_cHPI_amplitudes, _fit_magnetic_dipole,
+                          _get_hpi_initial_fit, _setup_hpi_struct)
     hpi_dig_head_rrs = _get_hpi_initial_fit(raw.info, verbose=False)
     n_window = (int(round(t_window * raw.info['sfreq'])) // 2) * 2 + 1
     del t_window
@@ -1189,6 +1195,7 @@ def annotate_head_pos(raw, head_pos, rotation_limit=45, translation_limit=0.1,
         The annotations.
     """
     from mne.utils import _mask_to_onsets_offsets
+
     # XXX: Add `sphere_dist_limit` to ensure no sensor collisions at some
     # point
     do_rotation = np.isfinite(rotation_limit) and head_pos is not None
