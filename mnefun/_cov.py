@@ -17,7 +17,7 @@ from ._epoching import _concat_resamp_raws
 from ._paths import get_epochs_evokeds_fnames, get_raw_fnames, safe_inserter
 from ._scoring import _read_events
 from ._utils import (get_args, _get_baseline, _restrict_reject_flat,
-                     _handle_dict, _handle_decim)
+                     _handle_dict, _handle_decim, _check_reject_annot_regex)
 
 
 def _compute_rank(p, subj, run_indices):
