@@ -1,6 +1,5 @@
 import os
 import os.path as op
-import re
 import warnings
 
 import numpy as np
@@ -17,7 +16,8 @@ from ._paths import get_raw_fnames, get_epochs_evokeds_fnames
 from ._scoring import _read_events
 from ._sss import _read_raw_prebad
 from ._utils import (_fix_raw_eog_cals, _get_baseline, get_args, _handle_dict,
-                     _restrict_reject_flat, _get_epo_kwargs, _handle_decim)
+                     _restrict_reject_flat, _get_epo_kwargs, _handle_decim,
+                     _check_reject_annot_regex)
 
 
 def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
@@ -111,23 +111,8 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
         epochs_fnames, evoked_fnames = get_epochs_evokeds_fnames(p, subj,
                                                                  analyses)
         mat_file, fif_file = epochs_fnames
-        if isinstance(p.reject_epochs_by_annot, str):
-            reject_epochs_by_annot = True
-            reg = re.compile(p.reject_epochs_by_annot)
-            n_orig = sum(desc.lower().startswith('bad_')
-                         for desc in raw.annotations.description)
-            mask = np.array([reg.match(desc) is not None
-                             for desc in raw.annotations.description], bool)
-            print(f'      Rejecting epochs with via {mask.sum()}  '
-                  'annotation(s) via regex matching '
-                  f'({n_orig} originally were BAD_ type)')
-            # remove the unwanted ones
-            raw.annotations.delete(np.where(~mask)[0])
-            for ii in range(len(raw.annotations)):
-                raw.annotations.description[ii] = 'BAD_REGEX'
-        else:
-            assert isinstance(p.reject_epochs_by_annot, bool)
-            reject_epochs_by_annot = p.reject_epochs_by_annot
+        # handle regex-based reject_epochs_by_annot defs
+        reject_epochs_by_annot = _check_reject_annot_regex(p, raw)
         if p.autoreject_thresholds:
             assert len(p.autoreject_types) > 0
             assert all(a in ('mag', 'grad', 'eeg', 'ecg', 'eog')
