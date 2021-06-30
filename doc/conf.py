@@ -27,7 +27,7 @@ copyright = u'2013-{0}, mnefun Developers'.format(date.today().year)
 version = mnefun.__version__
 release = version
 exclude_trees = ['_build']
-default_role = 'autolink'
+default_role = 'py:obj'
 pygments_style = 'manni'
 modindex_common_prefix = ['mnefun.']
 
