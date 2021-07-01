@@ -212,6 +212,9 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
             if e is None:
                 # first, equalize trial counts (this will make a copy)
                 e = epochs[list(in_names[numbers > 0])]
+                # some could be missing
+                in_names_match = [
+                    name for name in in_names_match if name in e.event_id]
                 if len(in_names_match) > 1:
                     print(f'      Equalizing: {in_names_match}')
                     e.equalize_event_counts(in_names_match)
