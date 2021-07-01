@@ -734,9 +734,10 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                                 ax = axes[-1:]
                             else:
                                 ax = axes[si * n_e:(si + 1) * n_e]
-                            this_max = max(np.max(np.abs(line.get_ydata()))
+                            this_max = max(np.nanmax(np.abs(line.get_ydata()))
                                            for a in ax
                                            for line in a.lines)
+                            this_max = 1 if np.isnan(this_max) else this_max
                             if si == n_s:
                                 ax[0].set(ylim=[0, this_max], xlim=xlim)
                             else:
@@ -802,8 +803,13 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                         for ei, evoked in enumerate(all_evoked):
                             if ei != 0:
                                 evoked.data *= SQRT_2
-                            plot_snr_estimate(
-                                evoked, inv, axes=ax, verbose='error')
+                            orig = evoked.nave
+                            try:
+                                evoked.nave = max(orig, 1)
+                                plot_snr_estimate(
+                                    evoked, inv, axes=ax, verbose='error')
+                            finally:
+                                evoked.nave = orig
                         if len(all_evoked) > 1:
                             ax.set_title(
                                 f'{all_evoked[0].comment} (halves {SQ2STR})')
@@ -972,6 +978,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                     # Generate the STC
                     inv = mne.minimum_norm.read_inverse_operator(fname_inv)
                     this_evoked = mne.read_evokeds(fname_evoked, name)
+                    this_evoked.nave = max(this_evoked.nave, 1)
                     stc = mne.minimum_norm.apply_inverse(
                         this_evoked, inv,
                         lambda2=source.get('lambda2', 1. / 9.),
@@ -998,6 +1005,8 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                             clim = out[1]  # new MNE (0.17+)
                         del out
                         clim = dict(kind='value', lims=clim)
+                    if not np.isfinite(clim.get('lims', [0])).all():
+                        clim['lims'] = [0, 1, 2]
                     assert isinstance(stc, (mne.SourceEstimate,
                                             mne.VolSourceEstimate))
                     bem, _, _, _ = _get_bem_src_trans(
@@ -1034,8 +1043,14 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                         if ei == 1 and method in ('dSPM', 'sLORETA'):
                             clim['lims'] = np.array(clim['lims']) / SQRT_2
                         figs = list()
-                        stc = mne.minimum_norm.apply_inverse(
-                            this_evoked, inv, lambda2=lambda2, method=method)
+                        orig = this_evoked.nave
+                        try:
+                            this_evoked.nave = max(this_evoked.nave, 1)
+                            stc = mne.minimum_norm.apply_inverse(
+                                this_evoked, inv, lambda2=lambda2,
+                                method=method)
+                        finally:
+                            this_evoked.nave = orig
                         stc = abs(stc)
                         if isinstance(stc, mne.SourceEstimate):
                             with mlab_offscreen():
