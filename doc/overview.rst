@@ -140,7 +140,7 @@ on_process : callable
 
 .. warning:: Before running SSS, set ``params.mf_prebad[SUBJ]`` to a
              list of bad MEG channels (str), or (old way) create
-             `SUBJ/raw_fif/SUBJ_prebad.txt`` with space-separated list of bad
+             ``SUBJ/raw_fif/SUBJ_prebad.txt`` with space-separated list of bad
              MEG channel numbers (int).
              Using ``p.mf_autobad=True`` can help fill in missed bad channels,
              but is not as reliable as experienced analyst inspection.
@@ -720,7 +720,7 @@ Preparing your machine for MaxFilter use
              deprecated.
 
 Parameters for remotely connecting to SSS workstation ('sws') can be set
-by adding a file `~/.mnefun/mnefun.json` with contents like:
+by adding a file :file:`~/.mnefun/mnefun.json` with contents like:
 
 .. code-block:: console
 
