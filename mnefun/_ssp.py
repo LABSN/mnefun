@@ -159,7 +159,8 @@ def _compute_erm_proj(p, subj, projs, kind, bad_file, remove_existing=False,
         _raise_bad_epochs(
             raw, epochs, events,
             f'1-sec empty room via {reject_kind} = {use_reject} (consider '
-            f'changing p.cont_reject)')
+            f'changing p.cont_reject)',
+            plot=p.plot_drop_logs)
     assert len(pr) == np.sum(proj_nums[2][::p_sl])
     # When doing eSSS it's a bit weird to put this in pca_dir but why not
     pca_dir = _get_pca_dir(p, subj)
@@ -396,7 +397,8 @@ def do_preprocessing_combined(p, subjects, run_indices):
                 write_proj(ecg_proj, pr)
                 projs.extend(pr)
             else:
-                _raise_bad_epochs(raw, ecg_epochs, ecg_events, 'ECG')
+                _raise_bad_epochs(raw, ecg_epochs, ecg_events, 'ECG',
+                                  plot=p.plot_drop_logs)
             del raw, ecg_epochs, ecg_events
         else:
             _safe_remove([ecg_proj, ecg_eve, ecg_epo])
