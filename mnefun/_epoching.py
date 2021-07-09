@@ -180,7 +180,7 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
                         reject_tmin=p.reject_tmin, reject_tmax=p.reject_tmax,
                         reject_by_annotation=reject_epochs_by_annot)
         if epochs.events.shape[0] < 1:
-            _raise_bad_epochs(raw, epochs, events)
+            _raise_bad_epochs(raw, epochs, events, plot=p.plot_drop_logs)
         del raw
         drop_logs.append(epochs.drop_log)
         ch_namess.append(epochs.ch_names)
@@ -343,9 +343,10 @@ def _concat_resamp_raws(p, subj, fnames, fix='EOG', prebad=False,
     return raw, ratios
 
 
-def _raise_bad_epochs(raw, epochs, events, kind=None):
+def _raise_bad_epochs(raw, epochs, events, kind=None, plot=True):
     extra = '' if kind is None else f' of type {kind} '
-    plot_drop_log(epochs.drop_log)
-    raw.plot(events=events)
+    if plot:
+        plot_drop_log(epochs.drop_log)
+        raw.plot(events=events)
     raise RuntimeError(
         f'Only {len(epochs)}/{len(events)} good epochs found{extra}')
