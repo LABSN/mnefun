@@ -49,6 +49,24 @@ else:
         return raw
 
 
+def _check_skip(p, subj, run_idx):
+    raw_files = get_raw_fnames(p, subj, 'raw', erm=False,
+                               run_indices=run_idx)
+    if all('meg' in read_raw_fif(fname, allow_maxshield='yes')
+           for fname in raw_files):
+        return False  # don't skip SSS
+    print(f'    Skipping SSS for {subj} as no MEG data found')
+    # copy files
+    raw_files_out = get_raw_fnames(p, subj, 'sss', erm=False,
+                                   run_indices=run_idx)
+    raw_files += get_raw_fnames(p, subj, 'raw', 'only')
+    raw_files_out += get_raw_fnames(p, subj, 'sss', 'only')
+    os.makedirs(op.dirname(raw_files_out[0]), exist_ok=True)
+    for a, b in zip(raw_files, raw_files_out):
+        shutil.copyfile(a, b)
+    return True
+
+
 def run_sss(p, subjects, run_indices):
     """Run SSS preprocessing remotely (only designed for *nix platforms) or
     locally using Maxwell filtering in mne-python"""
@@ -58,6 +76,8 @@ def run_sss(p, subjects, run_indices):
         run_sss_locally(p, subjects, run_indices)
     else:
         for si, subj in enumerate(subjects):
+            if _check_skip(p, subj, run_indices[si]):
+                continue
             files = get_raw_fnames(p, subj, 'raw', False, True,
                                    run_indices[si])
             n_files = len(files)
@@ -414,6 +434,8 @@ def run_sss_locally(p, subjects, run_indices):
     reg = p.sss_regularize
 
     for si, subj in enumerate(subjects):
+        if _check_skip(subj, subj, run_indices[si]):
+            continue
         if p.disp_files:
             print('    Maxwell filtering subject %g/%g (%s).'
                   % (si + 1, len(subjects), subj))
