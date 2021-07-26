@@ -730,8 +730,10 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                                 evo.data *= SQRT_2
                             sl = slice(ei, n_e * n_s, n_e)
                             these_axes = list(axes[sl]) + [axes[-1]]
-                            evo.plot_white(
-                                noise_cov, verbose='error', axes=these_axes)
+                            if evo.nave > 0:
+                                evo.plot_white(
+                                    noise_cov, axes=these_axes,
+                                    verbose='error')
                             for ax in these_axes[:-1]:
                                 n_text = 'N=%d' % (evo.nave,)
                                 if ei != 0:
@@ -748,9 +750,13 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                                 ax = axes[-1:]
                             else:
                                 ax = axes[si * n_e:(si + 1) * n_e]
-                            this_max = max(np.nanmax(np.abs(line.get_ydata()))
-                                           for a in ax
-                                           for line in a.lines)
+                            lines = sum((list(a.lines) for a in ax), [])
+                            if len(lines):
+                                this_max = max(
+                                    np.nanmax(np.abs(line.get_ydata()))
+                                    for line in lines)
+                            else:
+                                this_max = np.nan
                             this_max = 1 if np.isnan(this_max) else this_max
                             if si == n_s:
                                 ax[0].set(ylim=[0, this_max], xlim=xlim)
@@ -769,7 +775,8 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                                 else:
                                     line.set(alpha=0.5, linewidth=1)
                                 n_real += 1
-                        assert n_real == n_e * n_s
+                        # not true when some conditions are empty
+                        # assert n_real == n_e * n_s
                         axes[-1].legend(hs, labels)
                         if n_e > 1:
                             axes[-1].set_title(
