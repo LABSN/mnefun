@@ -274,6 +274,11 @@ class Params(Frozen):
         self.cont_as_esss = False
         self.cont_reject = None
         self.allow_resample = False
+        self.fix_eeg_order = True
+        self.erm_cov_from_task = False
+        self.notch_filter = None
+        self.ssp_ecg_baseline = None
+        self.ssp_eog_baseline = None
         self.freeze()
         # Read static-able paraws from config file
         _set_static(self)

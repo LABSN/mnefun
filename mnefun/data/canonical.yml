@@ -15,6 +15,7 @@ fetch_raw:
   run_names:
   runs_empty:
   subject_run_indices:
+  fix_eeg_order:
 
 scoring:
   score:
@@ -68,6 +69,7 @@ preprocessing:
     fir_design:
     fir_window:
     phase:
+    notch_filter:
   ssp:
     auto_bad:
     auto_bad_reject:
@@ -81,6 +83,8 @@ preprocessing:
     plot_raw:
     ssp_eog_reject:
     ssp_ecg_reject:
+    ssp_eog_baseline:
+    ssp_ecg_baseline:
     eog_channel:
     heog_channel:
     veog_channel:
@@ -143,6 +147,7 @@ covariance:
   cov_rank_method:
   cov_rank_tol:
   force_erm_cov_rank_full:
+  erm_cov_from_task:
 
 forward:
   bem_type:

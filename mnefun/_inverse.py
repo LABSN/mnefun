@@ -15,7 +15,7 @@ from mne.utils import get_subjects_dir, verbose, logger
 
 from ._cov import _compute_rank
 from ._paths import (get_epochs_evokeds_fnames, safe_inserter,
-                     get_cov_fwd_inv_fnames)
+                     get_cov_fwd_inv_fnames, get_erm_cov_fname)
 
 try:
     from mne import spatial_src_adjacency
@@ -46,7 +46,6 @@ def gen_inverses(p, subjects, run_indices):
         cov_dir = op.join(p.work_dir, subj, p.cov_dir)
         if not op.isdir(inv_dir):
             os.mkdir(inv_dir)
-        make_erm_inv = len(p.runs_empty) > 0
 
         epochs_fnames, _ = get_epochs_evokeds_fnames(p, subj, p.analyses)
         _, fif_file = epochs_fnames
@@ -71,11 +70,12 @@ def gen_inverses(p, subjects, run_indices):
             rank = _compute_rank(p, subj, run_indices[si])
         else:
             rank = None  # should be safe from our gen_covariances step
+        erm_name = get_erm_cov_fname(p, subj)
+        empty_cov = None
+        make_erm_inv = erm_name is not None
         if make_erm_inv:
             # We now process the empty room with "movement
             # compensation" so it should get the same rank!
-            erm_name = op.join(cov_dir, safe_inserter(p.runs_empty[0], subj) +
-                               p.pca_extra + p.inv_tag + '-cov.fif')
             empty_cov = read_cov(erm_name)
             if p.force_erm_cov_rank_full and p.cov_method == 'empirical':
                 empty_cov = regularize(
@@ -100,6 +100,7 @@ def gen_inverses(p, subjects, run_indices):
                 temp_name = subj
                 cov = empty_cov
                 tag = p.inv_erm_tag
+                assert cov is not None
             else:
                 s_name = safe_inserter(name, subj)
                 temp_name = s_name + ('-%d' % p.lp_cut) + p.inv_tag
@@ -117,7 +118,9 @@ def gen_inverses(p, subjects, run_indices):
                         inv_dir, temp_name + f + tag + s + '-inv.fif')
                     kwargs = dict(loose=l_, depth=d, fixed=x, use_cps=True,
                                   verbose='error')
-                    if name is not True or not e:
+                    if (name is not True or
+                        (not e) or
+                            p.erm_cov_from_task):
                         inv = make_inverse_operator(
                             epochs.info, fwd_restricted, cov, rank=rank,
                             **kwargs)

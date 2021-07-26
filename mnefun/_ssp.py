@@ -41,7 +41,7 @@ def _raw_LRFCP(raw_names, sfreq, l_freq, h_freq, n_jobs, n_jobs_resample,
                force_bads=False, l_trans=0.5, h_trans=0.5,
                allow_maxshield=False, phase='zero-double', fir_window='hann',
                fir_design='firwin2', pick=True,
-               skip_by_annotation=('bad', 'skip')):
+               skip_by_annotation=('bad', 'skip'), notch=None):
     """Helper to load, filter, concatenate, then project raw files"""
     from mne.io.proj import _needs_eeg_average_ref_proj
     from ._sss import _read_raw_prebad
@@ -71,6 +71,9 @@ def _raw_LRFCP(raw_names, sfreq, l_freq, h_freq, n_jobs, n_jobs_resample,
                      filter_length=filter_length, phase=phase,
                      l_trans_bandwidth=l_trans, h_trans_bandwidth=h_trans,
                      fir_window=fir_window, **fir_kwargs)
+        if notch is not None:
+            assert isinstance(notch, dict), type(notch)
+            r.notch_filter(**notch)
         raw.append(r)
     _fix_raw_eog_cals(raw)
     raws_del = raw[1:]
@@ -130,7 +133,7 @@ def _compute_erm_proj(p, subj, projs, kind, bad_file, remove_existing=False,
         bad_file=bad_file, disp_files=disp_files, method='fir',
         filter_length=p.filter_length, force_bads=True,
         l_trans=p.cont_hp_trans, h_trans=p.cont_lp_trans,
-        phase=p.phase, fir_window=p.fir_window,
+        phase=p.phase, fir_window=p.fir_window, notch=p.notch_filter,
         skip_by_annotation='edge', **fir_kwargs)
     if remove_existing:
         raw.del_proj()
@@ -203,6 +206,7 @@ def do_preprocessing_combined(p, subjects, run_indices):
                 raise NameError('File not found (' + r + ')')
 
         fir_kwargs, old_kwargs = _get_fir_kwargs(p.fir_design)
+        notch = _handle_dict(p.notch_filter, subj)
         if isinstance(p.auto_bad, float):
             print('    Creating post SSS bad channel file:\n'
                   '        %s' % bad_file)
@@ -214,6 +218,7 @@ def do_preprocessing_combined(p, subjects, run_indices):
                              l_trans=p.hp_trans, h_trans=p.lp_trans,
                              phase=p.phase, fir_window=p.fir_window,
                              pick=True, skip_by_annotation='edge',
+                             notch=notch,
                              **fir_kwargs)
             events = fixed_len_events(p, raw)
             rtmin = p.reject_tmin \
@@ -325,7 +330,7 @@ def do_preprocessing_combined(p, subjects, run_indices):
             method='fir', filter_length=p.filter_length, force_bads=False,
             l_trans=p.hp_trans, h_trans=p.lp_trans, phase=p.phase,
             fir_window=p.fir_window, pick=True, skip_by_annotation='edge',
-            **fir_kwargs)
+            notch=notch, **fir_kwargs)
 
         # Apply any user-supplied extra projectors
         if p.proj_extra is not None:
@@ -382,7 +387,8 @@ def do_preprocessing_combined(p, subjects, run_indices):
                 _handle_dict(p.ssp_ecg_reject, subj), flat, raw)
             ecg_epochs = Epochs(
                 raw, ecg_events, 999, ecg_t_lims[0], ecg_t_lims[1],
-                baseline=None, reject=use_reject, flat=use_flat, preload=True)
+                baseline=p.ssp_ecg_baseline, reject=use_reject, flat=use_flat,
+                preload=True)
             print('  obtained %d epochs from %d events.' % (len(ecg_epochs),
                                                             len(ecg_events)))
             if len(ecg_epochs) >= 20:
@@ -487,7 +493,8 @@ def _compute_add_eog(p, subj, raw_orig, projs, eog_nums, kind, pca_dir,
             _handle_dict(p.ssp_eog_reject, subj), flat, raw)
         eog_epochs = Epochs(
             raw, eog_events, 998, eog_t_lims[0], eog_t_lims[1],
-            baseline=None, reject=use_reject, flat=use_flat, preload=True)
+            baseline=p.ssp_eog_baseline, reject=use_reject, flat=use_flat,
+            preload=True)
         print('  obtained %d epochs from %d events.' % (len(eog_epochs),
                                                         len(eog_events)))
         del eog_events
@@ -542,6 +549,7 @@ def apply_preprocessing_combined(p, subjects, run_indices):
         all_proj = op.join(pca_dir, 'preproc_all-proj.fif')
         projs = read_proj(all_proj)
         fir_kwargs = _get_fir_kwargs(p.fir_design)[0]
+        notch = _handle_dict(p.notch_filter, subj)
         if len(erm_in) > 0:
             for ii, (r, o) in enumerate(zip(erm_in, erm_out)):
                 if p.disp_files:
@@ -554,7 +562,7 @@ def apply_preprocessing_combined(p, subjects, run_indices):
                 apply_proj=False, filter_length=p.filter_length,
                 force_bads=True, l_trans=p.hp_trans, h_trans=p.lp_trans,
                 phase=p.phase, fir_window=p.fir_window, pick=False,
-                **fir_kwargs)
+                notch=notch, **fir_kwargs)
             raw.save(o, overwrite=True, buffer_size_sec=None)
         for ii, (r, o) in enumerate(zip(names_in, names_out)):
             if p.disp_files:
@@ -567,7 +575,7 @@ def apply_preprocessing_combined(p, subjects, run_indices):
                 apply_proj=False, filter_length=p.filter_length,
                 force_bads=False, l_trans=p.hp_trans, h_trans=p.lp_trans,
                 phase=p.phase, fir_window=p.fir_window, pick=False,
-                **fir_kwargs)
+                notch=notch, **fir_kwargs)
             raw.save(o, overwrite=True, buffer_size_sec=None)
         # look at raw_clean for ExG events
         if p.plot_raw:

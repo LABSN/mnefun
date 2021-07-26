@@ -14,7 +14,8 @@ from mne.rank import estimate_rank
 from mne.viz import plot_cov
 
 from ._epoching import _concat_resamp_raws
-from ._paths import get_epochs_evokeds_fnames, get_raw_fnames, safe_inserter
+from ._paths import (get_epochs_evokeds_fnames, get_raw_fnames, safe_inserter,
+                     get_erm_cov_fname)
 from ._scoring import _read_events
 from ._utils import (get_args, _get_baseline, _restrict_reject_flat,
                      _handle_dict, _handle_decim)
@@ -72,11 +73,9 @@ def gen_covariances(p, subjects, run_indices, decim):
     for si, subj in enumerate(subjects):
         print('  Subject %2d/%2d...' % (si + 1, len(subjects)), end='')
         cov_dir = op.join(p.work_dir, subj, p.cov_dir)
-        if not op.isdir(cov_dir):
-            os.mkdir(cov_dir)
+        os.makedirs(cov_dir, exist_ok=True)
         has_rank_arg = 'rank' in get_args(compute_covariance)
-        kwargs = dict()
-        kwargs_erm = dict()
+        kwargs = dict(method=p.cov_method)
         if p.cov_rank == 'full':  # backward compat
             if has_rank_arg:
                 kwargs['rank'] = 'full'
@@ -90,7 +89,7 @@ def gen_covariances(p, subjects, run_indices, decim):
                 kwargs['rank'] = _compute_rank(p, subj, run_indices[si])
             else:
                 kwargs['rank'] = p.cov_rank
-        kwargs_erm['rank'] = kwargs['rank']
+        kwargs_erm = kwargs.copy()
         if p.force_erm_cov_rank_full and has_rank_arg:
             kwargs_erm['rank'] = 'full'
         # Use the same thresholds we used for primary Epochs
@@ -103,22 +102,25 @@ def gen_covariances(p, subjects, run_indices, decim):
         flat = _handle_dict(p.flat, subj)
 
         # Make empty room cov
-        if p.runs_empty:
-            if len(p.runs_empty) > 1:
-                raise ValueError('Too many empty rooms; undefined output!')
-            new_run = safe_inserter(p.runs_empty[0], subj)
-            empty_cov_name = op.join(cov_dir, new_run + p.pca_extra +
-                                     p.inv_tag + '-cov.fif')
-            empty_fif = get_raw_fnames(p, subj, 'pca', 'only', False)[0]
-            raw = read_raw_fif(empty_fif, preload=True)
-            raw.pick_types(meg=True, eog=True, exclude='bads')
+        empty_cov_name = get_erm_cov_fname(p, subj)
+        if empty_cov_name is not None:
+            if p.erm_cov_from_task:
+                # read in raw files
+                raw_fnames = get_raw_fnames(
+                    p, subj, 'pca', False, False, run_indices[si])
+                raw, ratios = _concat_resamp_raws(p, subj, raw_fnames)
+                raw.pick_types(meg=True, eeg=True, eog=True, exclude='bads')
+            else:
+                empty_fif = get_raw_fnames(p, subj, 'pca', 'only', False)[0]
+                raw = read_raw_fif(empty_fif, preload=True)
+                raw.pick_types(meg=True, eog=True, exclude='bads')
             use_reject, use_flat = _restrict_reject_flat(reject, flat, raw)
             if 'eeg' in use_reject:
                 del use_reject['eeg']
             if 'eeg' in use_flat:
                 del use_flat['eeg']
             cov = compute_raw_covariance(raw, reject=use_reject, flat=use_flat,
-                                         method=p.cov_method, **kwargs_erm)
+                                         **kwargs_erm)
             write_cov(empty_cov_name, cov)
 
         # Make evoked covariances
@@ -153,8 +155,7 @@ def gen_covariances(p, subjects, run_indices, decim):
                             on_missing=p.on_missing,
                             reject_by_annotation=p.reject_epochs_by_annot)
             epochs.pick_types(meg=True, eeg=True, exclude=[])
-            cov = compute_covariance(epochs, method=p.cov_method,
-                                     **kwargs)
+            cov = compute_covariance(epochs, **kwargs)
             if kwargs.get('rank', None) not in (None, 'full'):
                 want_rank = sum(kwargs['rank'].values())
                 out_rank = compute_whitener(
