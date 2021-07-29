@@ -3,6 +3,7 @@
 from functools import reduce
 import os
 import os.path as op
+import re
 import shutil
 import subprocess
 import warnings
@@ -213,6 +214,26 @@ def _get_epo_kwargs():
     if 'overwrite' in _get_args(Epochs.save):
         epo_kwargs['overwrite'] = True
     return epo_kwargs
+
+
+def _check_reject_annot_regex(params, raw):
+    if isinstance(params.reject_epochs_by_annot, str):
+        reject_epochs_by_annot = True
+        reg = re.compile(params.reject_epochs_by_annot)
+        n_orig = sum(desc.lower().startswith('bad_')
+                     for desc in raw.annotations.description)
+        mask = np.array([reg.match(desc) is not None
+                         for desc in raw.annotations.description], bool)
+        print(f'      Rejecting {mask.sum()} epochs with annotation(s) via '
+              f'regex matching ({n_orig} originally were BAD_ type)')
+        # remove the unwanted ones
+        raw.annotations.delete(np.where(~mask)[0])
+        for ii in range(len(raw.annotations)):
+            raw.annotations.description[ii] = 'BAD_REGEX'
+    else:
+        assert isinstance(params.reject_epochs_by_annot, bool)
+        reject_epochs_by_annot = params.reject_epochs_by_annot
+    return reject_epochs_by_annot
 
 
 @verbose

@@ -17,7 +17,7 @@ from ._epoching import _concat_resamp_raws
 from ._paths import get_epochs_evokeds_fnames, get_raw_fnames, safe_inserter
 from ._scoring import _read_events
 from ._utils import (get_args, _get_baseline, _restrict_reject_flat,
-                     _handle_dict, _handle_decim)
+                     _handle_dict, _handle_decim, _check_reject_annot_regex)
 
 
 def _compute_rank(p, subj, run_indices):
@@ -141,6 +141,8 @@ def gen_covariances(p, subjects, run_indices, decim):
             elif picker and not callable(picker):
                 picker = picker[ii]
             events = _read_events(p, subj, ridx, raw, ratios, picker=picker)
+            # handle regex-based reject_epochs_by_annot defs
+            reject_epochs_by_annot = _check_reject_annot_regex(p, raw)
             # create epochs
             use_reject, use_flat = _restrict_reject_flat(reject, flat, raw)
             baseline = _get_baseline(p)
@@ -151,7 +153,7 @@ def gen_covariances(p, subjects, run_indices, decim):
                             decim=this_decim,
                             verbose='error',  # ignore decim-related warnings
                             on_missing=p.on_missing,
-                            reject_by_annotation=p.reject_epochs_by_annot)
+                            reject_by_annotation=reject_epochs_by_annot)
             epochs.pick_types(meg=True, eeg=True, exclude=[])
             cov = compute_covariance(epochs, method=p.cov_method,
                                      **kwargs)
