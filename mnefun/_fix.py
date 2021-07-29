@@ -13,6 +13,7 @@ from mne.io import Raw, read_raw_fif
 from mne import pick_types
 
 from ._paths import get_raw_fnames
+from ._utils import _handle_dict
 
 
 _1_ORDER = (1, 2, 3, 5, 6, 7, 9, 10,
@@ -46,6 +47,7 @@ def fix_eeg_files(p, subjects, structurals=None, dates=None, run_indices=None):
     if run_indices is None:
         run_indices = [None] * len(subjects)
     for si, subj in enumerate(subjects):
+        fix_eeg = _handle_dict(p.fix_eeg_order, subj)
         if p.disp_files:
             print('  Fixing subject %g/%g.' % (si + 1, len(subjects)))
         raw_names = get_raw_fnames(p, subj, 'sss', True, False,
@@ -64,10 +66,10 @@ def fix_eeg_files(p, subjects, structurals=None, dates=None, run_indices=None):
                         birthday=dates[si])
         else:
             anon = None
-        fix_eeg_channels(names, anon)
+        fix_eeg_channels(names, anon, fix_eeg=fix_eeg)
 
 
-def fix_eeg_channels(raw_files, anon=None, verbose=True):
+def fix_eeg_channels(raw_files, anon=None, fix_eeg=True, verbose=True):
     """Reorder EEG channels based on UW cap setup
 
     Parameters
@@ -88,7 +90,7 @@ def fix_eeg_channels(raw_files, anon=None, verbose=True):
     # actually do the reordering
     for ri, raw_file in enumerate(raw_files):
         need_reorder, need_anon, write_key, anon_key, picks, order = \
-            _is_file_unfixed(raw_file, anon)
+            _is_file_unfixed(raw_file, anon, fix_eeg)
         if need_anon or need_reorder:
             to_do = []
             if need_reorder:
@@ -123,13 +125,14 @@ def fix_eeg_channels(raw_files, anon=None, verbose=True):
                 print('    File %i already corrected' % (ri + 1))
 
 
-def _all_files_fixed(p, subj, type_='pca'):
-    """Determine if all files have been fixed for a subject"""
-    return all(op.isfile(fname) and not any(_is_file_unfixed(fname)[:2])
+def _all_files_fixed(p, subj, type_='pca', fix_eeg=True):
+    """Determine if all files have been fixed for a subject."""
+    kw = dict(fix_eeg=_handle_dict(p.fix_eeg_order, subj))
+    return all(op.isfile(fname) and not any(_is_file_unfixed(fname, **kw)[:2])
                for fname in get_raw_fnames(p, subj, type_))
 
 
-def _is_file_unfixed(fname, anon=None):
+def _is_file_unfixed(fname, anon=None, fix_eeg=True):
     """Determine if a file needs reordering or anonymization."""
     order = np.array(_1_ORDER) - 1
     assert len(order) == 60
@@ -142,7 +145,7 @@ def _is_file_unfixed(fname, anon=None):
             raw = read_raw_fif(fname, preload=False, allow_maxshield='yes')
     picks = pick_types(raw.info, meg=False, eeg=True, exclude=[])
     need_reorder = False
-    if len(picks) > 0:
+    if len(picks) > 0 and fix_eeg:
         if len(picks) == len(order):
             need_reorder = (write_key not in raw.info['description'])
         else:
@@ -152,7 +155,7 @@ def _is_file_unfixed(fname, anon=None):
                 warnings.warn(msg)
             else:
                 raise RuntimeError(msg)
-    need_anon = (anon_key not in raw.info['description'])
+    need_anon = (anon_key not in (raw.info['description'] or ''))
     return need_reorder, need_anon, write_key, anon_key, picks, order
 
 

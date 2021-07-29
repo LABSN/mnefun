@@ -49,7 +49,8 @@ def print_proc_status(p, subjects, structurals, analyses, run_indices):
 
         # check if coreg has been done
         if struc is None or \
-                op.isfile(op.join(subj, 'trans', subj + '-trans.fif')):
+                op.isfile(op.join(p.work_dir, subj, 'trans',
+                                  f'{subj}-trans.fif')):
             coreg = 'complete'
 
         # check if sss has been fetched (+1 is for erm)

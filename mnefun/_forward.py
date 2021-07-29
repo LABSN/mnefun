@@ -46,8 +46,8 @@ def gen_forwards(p, subjects, structurals, run_indices):
         if not getattr(p, 'translate_positions', True):
             raise RuntimeError('Not translating positions is no longer '
                                'supported')
-        print('  Creating forward solution(s) using a %s for %s...'
-              % (bem_type, subj), end='')
+        print(f'  Creating forward solution(s) using a {bem_type} for '
+              f'{subj} ({struc})...', end='')
         # XXX Don't actually need to generate a different fwd for each inv
         # anymore, since all runs are included, but changing the filename
         # would break a lot of existing pipelines :(
@@ -110,8 +110,8 @@ def _get_bem_src_trans(p, info, subj, struc):
             if op.isfile(src_space_file):
                 break
         else:  # if neither exists, use last filename
-            print('    Creating %s%s source space for %s...'
-                  % (kind, num, subj))
+            print(f'    Creating {kind}{num} source space for {subj} '
+                  f'({struc})...')
             if kind == 'oct':
                 src = setup_source_space(
                     struc, spacing='%s%s' % (kind, num),

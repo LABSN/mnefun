@@ -13,6 +13,7 @@ from scipy.signal import find_peaks, peak_prominences
 
 import mne
 from mne import read_proj, read_epochs, find_events, pick_types
+from mne.channels.channels import _get_ch_info
 from mne.io import BaseRaw
 from mne.viz import (plot_projs_topomap, plot_cov, plot_snr_estimate,
                      plot_events)
@@ -25,7 +26,8 @@ from mne.viz.utils import _triage_rank_sss
 from ._epoching import _concat_resamp_raws
 from ._forward import _get_bem_src_trans
 from ._paths import (get_raw_fnames, get_proj_fnames, get_report_fnames,
-                     get_bad_fname, get_epochs_evokeds_fnames, safe_inserter)
+                     get_bad_fname, get_epochs_evokeds_fnames, safe_inserter,
+                     get_cov_fwd_inv_fnames)
 from ._ssp import _proj_nums
 from ._sss import (_load_trans_to, _read_raw_prebad,
                    _get_t_window, _get_fit_data)
@@ -179,7 +181,7 @@ def _report_events(report, fnames, p=None, subj=None):
     print('%5.1f sec' % ((time.time() - t0),))
 
 
-def _report_raw_segments(report, raw, lowpass=None):
+def _report_raw_segments(report, raw, lowpass=None, **kwargs):
     t0 = time.time()
     section = 'Raw segments'
     print(('    %s ... ' % section).ljust(LJUST), end='')
@@ -202,9 +204,14 @@ def _report_raw_segments(report, raw, lowpass=None):
     new_events = np.array([new_events,
                            np.zeros_like(new_events),
                            np.ones_like(new_events)]).T
+    if _get_ch_info(raw_plot.info)[1]:  # has_vv_grad
+        group_by = 'selection'
+    else:
+        group_by = 'position'
     with mne.utils.use_log_level('error'):
-        fig = raw_plot.plot(group_by='selection', butterfly=True,
-                            events=new_events, lowpass=lowpass)
+        fig = raw_plot.plot(group_by=group_by, butterfly=True,
+                            events=new_events, lowpass=lowpass,
+                            **kwargs)
     fig.axes[0].lines[-1].set_zorder(10)  # events
     fig.axes[0].set(xticks=np.arange(0, len(times)) + 0.5)
     xticklabels = ['%0.1f' % t for t in times]
@@ -344,22 +351,26 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
     for si, subj in enumerate(subjects):
         struc = structurals[si] if structurals is not None else None
         report = Report(verbose=False)
+        run_idx = run_indices[si]
         print('  Processing subject %s/%s (%s)'
               % (si + 1, len(subjects), subj))
 
         # raw
         fnames = get_raw_fnames(p, subj, 'raw', erm=False, add_splits=False,
-                                run_indices=run_indices[si])
+                                run_indices=run_idx)
         for fname in fnames:
             if not op.isfile(fname):
                 raise RuntimeError('Cannot create reports until raw data '
                                    'exist, missing:\n%s' % fname)
         raw, _ = _concat_resamp_raws(
             p, subj, fnames, fix='all', prebad=True, preload=preload)
+        raw.info['projs'] = []
+        if 'eeg' in raw:
+            raw.set_eeg_reference(projection=True, verbose='error')
+            raw.apply_proj()
 
         # sss
-        sss_fnames = get_raw_fnames(p, subj, 'sss', False, False,
-                                    run_indices[si])
+        sss_fnames = get_raw_fnames(p, subj, 'sss', False, False, run_idx)
         has_sss = all(op.isfile(fname) for fname in sss_fnames)
         sss_info = mne.io.read_raw_fif(sss_fnames[0]) if has_sss else None
         bad_file = get_bad_fname(p, subj)
@@ -375,7 +386,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                 ('raw_erm', 'raw', 'only'),
                 ('raw_erm_pca', 'pca', 'only')]:
             these_fnames = get_raw_fnames(
-                p, subj, which, erm, False, run_indices[si])
+                p, subj, which, erm, False, run_idx)
             if len(these_fnames) and all(op.isfile(f) for f in these_fnames):
                 extra_raws[key], _ = _concat_resamp_raws(
                     p, subj, these_fnames, 'all', preload=True)
@@ -427,16 +438,18 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
             # Head movement
             #
             if p.report_params.get('head_movement', True) and p.movecomp:
-                _report_head_movement(report, fnames, p, subj, run_indices[si])
+                _report_head_movement(report, fnames, p, subj, run_idx)
             else:
                 print('    Head movement skipped')
 
             #
             # Raw segments
             #
-            if p.report_params.get('raw_segments', True) and \
-                    raw_pca is not None:
-                _report_raw_segments(report, raw_pca)
+            raw_segments = p.report_params.get('raw_segments', True)
+            if raw_segments and raw_pca is not None:
+                kw = {} if raw_segments is True else raw_segments
+                assert isinstance(kw, dict), type(raw_segments)
+                _report_raw_segments(report, raw_pca, lowpass=None, **kw)
             else:
                 print('    Raw segments skipped')
 
@@ -651,7 +664,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                 t0 = time.time()
                 print(('    %s ... ' % section).ljust(LJUST), end='')
                 cov_name = p.report_params.get('covariance', None)
-                cov_name = _get_cov_name(p, subj, cov_name)
+                cov_name = _get_cov_name(p, subj, cov_name, run_idx)
                 if cov_name is None:
                     print('    Missing covariance: %s'
                           % op.basename(cov_name), end='')
@@ -683,7 +696,8 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                     assert isinstance(whitening, dict)
                     analysis = whitening['analysis']
                     name = whitening['name']
-                    cov_name = _get_cov_name(p, subj, whitening.get('cov'))
+                    cov_name = _get_cov_name(
+                        p, subj, whitening.get('cov'), run_idx)
                     # Load the inverse
                     fname_evoked = op.join(inv_dir, '%s_%d%s_%s_%s-ave.fif'
                                            % (analysis, p.lp_cut, p.inv_tag,
@@ -716,8 +730,10 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                                 evo.data *= SQRT_2
                             sl = slice(ei, n_e * n_s, n_e)
                             these_axes = list(axes[sl]) + [axes[-1]]
-                            evo.plot_white(
-                                noise_cov, verbose='error', axes=these_axes)
+                            if evo.nave > 0:
+                                evo.plot_white(
+                                    noise_cov, axes=these_axes,
+                                    verbose='error')
                             for ax in these_axes[:-1]:
                                 n_text = 'N=%d' % (evo.nave,)
                                 if ei != 0:
@@ -734,9 +750,13 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                                 ax = axes[-1:]
                             else:
                                 ax = axes[si * n_e:(si + 1) * n_e]
-                            this_max = max(np.nanmax(np.abs(line.get_ydata()))
-                                           for a in ax
-                                           for line in a.lines)
+                            lines = sum((list(a.lines) for a in ax), [])
+                            if len(lines):
+                                this_max = max(
+                                    np.nanmax(np.abs(line.get_ydata()))
+                                    for line in lines)
+                            else:
+                                this_max = np.nan
                             this_max = 1 if np.isnan(this_max) else this_max
                             if si == n_s:
                                 ax[0].set(ylim=[0, this_max], xlim=xlim)
@@ -755,7 +775,8 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                                 else:
                                     line.set(alpha=0.5, linewidth=1)
                                 n_real += 1
-                        assert n_real == n_e * n_s
+                        # not true when some conditions are empty
+                        # assert n_real == n_e * n_s
                         axes[-1].legend(hs, labels)
                         if n_e > 1:
                             axes[-1].set_title(
@@ -874,7 +895,8 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                     # Define the time slices to include
                     times = sensor.get('times', [0.1, 0.2])
                     if isinstance(times, str) and times == 'peaks':
-                        cov_name = _get_cov_name(p, subj, sensor.get('cov'))
+                        cov_name = _get_cov_name(
+                            p, subj, sensor.get('cov'), run_idx)
                         times = _get_memo_times(
                             this_evoked, cov_name, (fname_evoked, name),
                             times_memo)
@@ -1028,7 +1050,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                     times = source.get('times', [0.1, 0.2])
                     if isinstance(times, str) and times == 'peaks':
                         cov_name = _get_cov_name(
-                            p, subj, source.get('cov'))
+                            p, subj, source.get('cov'), run_idx)
                         times = _get_memo_times(
                             this_evoked, cov_name, (fname_evoked, name),
                             times_memo)
@@ -1203,7 +1225,8 @@ def _proj_fig(fname, info, proj_nums, proj_meg, kind, use_ch, duration):
                 t.remove()
             scale = 0.8 * np.abs(ax.get_ylim()).max()
             hs, labels = list(), list()
-            traces /= np.abs(traces).max()  # uniformly scaled
+            with np.errstate(invalid='raise'):
+                traces /= np.abs(traces).max()  # uniformly scaled
             for ti, trace in enumerate(traces):
                 hs.append(ax.plot(
                     this_evoked.times, trace * scale,
@@ -1254,18 +1277,14 @@ def _proj_fig(fname, info, proj_nums, proj_meg, kind, use_ch, duration):
     return fig
 
 
-def _get_cov_name(p, subj, cov_name=None):
+def _get_cov_name(p, subj, cov_name, run_idx):
     # just the first for now
     if cov_name is None or cov_name is True:
-        if p.inv_names:
-            cov_name = (safe_inserter(p.inv_names[0], subj) +
-                        ('-%d' % p.lp_cut) + p.inv_tag + '-cov.fif')
-        elif p.runs_empty:  # erm cov
-            new_run = safe_inserter(p.runs_empty[0], subj)
-            cov_name = new_run + p.pca_extra + p.inv_tag + '-cov.fif'
-    if cov_name is not None:
+        cov_name = get_cov_fwd_inv_fnames(p, subj, run_idx)[0][0]
+    else:  # user-provided string (relative path)
         cov_dir = op.join(p.work_dir, subj, p.cov_dir)
         cov_name = op.join(cov_dir, safe_inserter(cov_name, subj))
-        if not op.isfile(cov_name):
-            cov_name = None
+    if not op.isfile(cov_name):
+        warnings.warn(f'Could not find covariance: {cov_name}')
+        cov_name = None
     return cov_name

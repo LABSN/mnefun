@@ -135,7 +135,8 @@ def get_cov_fwd_inv_fnames(p, subj, run_indices):
     inv_dir = op.join(p.work_dir, subj, p.inverse_dir)
     fwd_dir = op.join(p.work_dir, subj, p.forward_dir)
     cov_dir = op.join(p.work_dir, subj, p.cov_dir)
-    make_erm_inv = len(p.runs_empty) > 0
+    erm_cov_fname = get_erm_cov_fname(p, subj)
+    make_erm_inv = erm_cov_fname is not None
 
     # Shouldn't matter which raw file we use
     raw_fname = get_raw_fnames(p, subj, 'pca', True, False, run_indices)[0]
@@ -169,11 +170,10 @@ def get_cov_fwd_inv_fnames(p, subj, run_indices):
                 inv_fnames += [op.join(inv_dir,
                                        temp_name + f + s + '-inv.fif')]
     if make_erm_inv:
-        cov_fnames += [op.join(cov_dir, safe_inserter(p.runs_empty[0], subj) +
-                               p.pca_extra + p.inv_tag + '-cov.fif')]
+        cov_fnames += [erm_cov_fname]
         for f, m, e in zip(out_flags, meg_bools, eeg_bools):
             for s in [p.inv_fixed_tag, '']:
-                if (not e):
+                if (p.erm_cov_from_task or not e):
                     inv_fnames += [op.join(inv_dir, subj + f +
                                            p.inv_erm_tag + s + '-inv.fif')]
     return cov_fnames, fwd_fnames, inv_fnames
@@ -242,3 +242,18 @@ def _is_dir(d):
 
 def _get_config_file():
     return op.expanduser(op.join('~', '.mnefun', 'mnefun.json'))
+
+
+def get_erm_cov_fname(p, subj):
+    """Get the continuous (empty-room) covariance filename."""
+    cov_dir = op.join(p.work_dir, subj, p.cov_dir)
+    fname = None
+    if p.erm_cov_from_task:
+        fname = f'{subj}-cont'
+    elif len(p.runs_empty):
+        if len(p.runs_empty) > 1:
+            raise ValueError('Too many empty rooms; undefined output!')
+        fname = safe_inserter(p.runs_empty[0], subj)
+    if fname is not None:
+        fname = op.join(cov_dir, f'{fname}{p.pca_extra}{p.inv_tag}-cov.fif')
+    return fname

@@ -120,6 +120,10 @@ subject_run_indices : list of array-like | dict | None
     (must be same length as ``params.subjects``) or a dict (keys are subject
     strings, values are the run indices) where missing subjects get all runs.
     None is an alias for "all runs".
+fix_eeg_order : bool | dict
+    Whether or not to fix the EEG order for a given subject (dict) or all
+    subjects (bool). Default is True, which is appropriate for use with the
+    mis-ordered Neuromag caps.
 
 2. do_score
 -----------
@@ -318,6 +322,13 @@ fir_window : str
     See :func:`mne.filter.create_filter`.
 phase : str
     See :func:`mne.filter.create_filter`.
+notch_filter : None | dict
+    If None (default), perform no FIR-based notch filtering (MEG data will
+    by default still have a notch filter applied during the Maxwell filtering
+    step). If ``dict``, arguments are passed directly to
+    :meth:`mne.io.Raw.notch_filter`, e.g.::
+
+        params.notch_filter = dict(freqs=[60], notch_widths=1, trans_bandwidth=0.5)
 
 .. _preprocessing_auto_bads:
 
@@ -383,6 +394,10 @@ ssp_eog_reject : dict | None
 ssp_ecg_reject : dict | None
     Amplitude rejection criteria for ECG SSP computation. None will
     use the mne-python default.
+ssp_eog_baseline : None | tuple
+    The baseline to use when constructing EOG epochs (default None).
+ssp_ecg_baseline : None | tuple
+    The baseline to use when constructing ECG epochs (default None).
 eog_channel : str | dict | None
     The channel to use to detect blink events. None will use EOG* channels.
     In lieu of an EOG recording, MEG1411 may work.
@@ -564,7 +579,10 @@ force_erm_cov_rank_full : bool
     If True, force the ERM cov to be full rank.
     Usually not needed, but might help when the empty-room data
     is short and/or there are a lot of head movements.
-
+erm_cov_from_task : bool
+    If True (default False), use the task runs to compute the "empty-room"
+    covariance rather than any empty-room run(s). This should only be used
+    with EEG data, and should be interpreted with caution.
 
 9. gen_fwd
 ----------
@@ -625,8 +643,11 @@ good_hpi_count : bool
     Number of good HPI coils (default True).
 head_movement : bool
     Head movement (default True).
-raw_segments : bool
-    10 evenly spaced raw data segments (default True).
+raw_segments : bool | dict
+    10 evenly spaced raw data segments (default True). Can also be a dict
+    of keyword arguments to pass to :meth:`mne.Epochs.plot`, e.g.::
+
+        raw_segments=dict(scalings=dict(eeg=100e-6))
 psd : bool
     Raw PSDs, often slow (default True).
 ssp_topomaps : bool
