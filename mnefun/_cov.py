@@ -148,7 +148,7 @@ def gen_covariances(p, subjects, run_indices, decim):
             baseline = _get_baseline(p)
             epochs = Epochs(raw, events, event_id=None, tmin=p.bmin,
                             tmax=p.bmax, baseline=baseline,
-                            proj=False,
+                            proj='delayed',
                             reject=use_reject, flat=use_flat, preload=True,
                             decim=this_decim,
                             verbose='error',  # ignore decim-related warnings
