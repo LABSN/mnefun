@@ -12,7 +12,7 @@ Changelog
 2021
 ^^^^
 - 2021/07/29:
-    Change ``proj=True`` to ``proj='delayed'`` when epoching during covariance
+    Change ``proj=False`` to ``proj='delayed'`` when epoching during covariance
     computation, to accord with the fact that the rejection thresholds may have
     been determined from projected data.
 - 2021/05/03:
