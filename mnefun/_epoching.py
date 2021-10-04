@@ -302,7 +302,7 @@ def _concat_resamp_raws(p, subj, fnames, fix='EOG', prebad=False,
         raws.append(raw)
         first_samps.append(raw._first_samps[0])
         last_samps.append(raw._last_samps[-1])
-        fixed_dht = raw.info['dev_head_t'] if ri==0 else fixed_dht
+        fixed_dht = raw.info['dev_head_t'] if ri == 0 else fixed_dht
         if set_dev_head_t:
             raw.info['dev_head_t'] = fixed_dht
         del raw
