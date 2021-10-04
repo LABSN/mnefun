@@ -288,11 +288,12 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
 
 
 def _concat_resamp_raws(p, subj, fnames, fix='EOG', prebad=False,
-                        preload=None):
+                        preload=None, set_dev_head_t=False):
     raws = []
     first_samps = []
     last_samps = []
-    for raw_fname in fnames:
+    fixed_dht = 0
+    for ri, raw_fname in enumerate(fnames):
         if prebad:
             raw = _read_raw_prebad(p, subj, raw_fname, False)
         else:
@@ -301,6 +302,9 @@ def _concat_resamp_raws(p, subj, fnames, fix='EOG', prebad=False,
         raws.append(raw)
         first_samps.append(raw._first_samps[0])
         last_samps.append(raw._last_samps[-1])
+        fixed_dht = raw.info['dev_head_t'] if ri==0 else fixed_dht
+        if set_dev_head_t:
+            raw.info['dev_head_t'] = fixed_dht
         del raw
     assert len(raws) > 0
     rates = np.array([r.info['sfreq'] for r in raws], float)
