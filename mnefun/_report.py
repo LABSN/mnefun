@@ -355,7 +355,8 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                 raise RuntimeError('Cannot create reports until raw data '
                                    'exist, missing:\n%s' % fname)
         raw, _ = _concat_resamp_raws(
-            p, subj, fnames, fix='all', prebad=True, preload=preload)
+            p, subj, fnames, fix='all', prebad=True, preload=preload,
+            set_dev_head_t=True)
 
         # sss
         sss_fnames = get_raw_fnames(p, subj, 'sss', False, False,
