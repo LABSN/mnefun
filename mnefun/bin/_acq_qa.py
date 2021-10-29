@@ -175,6 +175,7 @@ def _generate_report(raw, report_fname, quit_on_error):
                            _report_events, _report_raw_psd)
     report = mne.Report(verbose=False)
     raw.load_data()
+    subj = 'report'
     with report_context():
         import matplotlib.pyplot as plt
         p = mne.utils.Bunch(
@@ -182,10 +183,11 @@ def _generate_report(raw, report_fname, quit_on_error):
             tmpdir=mne.utils._TempDir(),
             coil_dist_limit=0.01, coil_t_window='auto', coil_gof_limit=0.95,
             coil_t_step_min=0.01, lp_trans=10, lp_cut=40, movecomp=True,
-            coil_bad_count_duration_limit=np.inf, sss_origin='auto')
+            coil_bad_count_duration_limit=np.inf, sss_origin='auto',
+            filter_chpi_t_window=None)
         maxbad_file = op.join(p.tmpdir, 'maxbad.txt')
         _set_static(p)
-        _maxbad(p, raw, maxbad_file)
+        _maxbad(p, raw, maxbad_file, subj)
         # Maxbads
         _load_meg_bads(raw, maxbad_file, disp=False)
         section = 'MF Autobad'
