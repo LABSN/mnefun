@@ -462,6 +462,10 @@ def run_sss_locally(p, subjects, run_indices):
 
             # For the empty room files, mimic the necessary components
             if r in erm_files:
+                try:
+                    raw.info._unlocked = True
+                except Exception:
+                    pass
                 for key in ('dev_head_t', 'hpi_meas', 'hpi_subsystem', 'dig'):
                     raw.info[key] = raw_info[key]
                 if raw_head_pos is not None:

@@ -6,11 +6,9 @@ fetch_raw:
   subjects: ['subj_01', 'subj_02']
   structurals: ['AKCLEE_107_slim', 'AKCLEE_110_slim']
   dates: [[2014, 2, 14], null]
-  acq_ssh: sinuhe.ilabs.uw.edu
+  acq_ssh: kasga.ilabs.uw.edu
   acq_dir:
-    - /data01/eric_non_space
-    - /data02/eric_non_space
-    - /data03/eric_non_space
+    - /brainstudio/eric_non_space
   run_names: ['%s_funloc']
   runs_empty: ['%s_erm']
   subject_run_indices: [null, [0]]

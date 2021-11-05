@@ -57,6 +57,53 @@ def report_context():
         raise
 
 
+# Backward compat wrappers for MNE 1.0+
+def _add_figs_to_section(report, figs, captions, section, image_format='png'):
+    try:
+        report.add_figure
+    except AttributeError:
+        report.add_figs_to_section(figs, captions, section,
+                                   image_format=image_format)
+    else:
+        # MNE 1.0+
+        if isinstance(captions, (list, tuple)):
+            assert isinstance(figs, (list, tuple))
+            for f, c in zip(figs, captions):
+                report.add_figure(
+                    f, title=section, caption=c,
+                    image_format=image_format,
+                    tags=(section.replace(' ', '_'),))
+        else:
+            assert not isinstance(figs, (list, tuple))
+            report.add_figure(
+                figs, title=section, caption=captions,
+                image_format=image_format,
+                tags=(section.replace(' ', '_'),))
+
+
+def _add_slider_to_section(report, figs, captions, section, title,
+                           image_format='png'):
+    try:
+        report.add_figure
+    except AttributeError:
+        report.add_slider_to_section(
+            report, figs, captions=captions, section=section, title=title,
+            image_format=image_format)
+    else:
+        report.add_figure(
+            figs, title=title, caption=captions, image_format=image_format,
+            tags=(section.replace(' ', '_'),))
+
+
+def _add_bem_to_section(report, struc, caption, section, **kwargs):
+    try:
+        report.add_bem
+    except AttributeError:
+        report.add_bem_to_section(struc, caption, section, **kwargs)
+    else:
+        report.add_bem(struc, title=section, **kwargs)  # caption not used
+
+
 def _check_fname_raw(fname, p, subj):
     if isinstance(fname, str):
         raw = _read_raw_prebad(p, subj, fname, disp=False)
@@ -84,8 +131,8 @@ def _report_good_hpi(report, fnames, p=None, subj=None):
         fig.tight_layout()
         figs.append(fig)
         captions.append('%s: %s' % (section, op.basename(fname)))
-    report.add_figs_to_section(figs, captions, section,
-                               image_format='png')
+    _add_figs_to_section(
+        report, figs, captions, section, image_format='png')
     print('%5.1f sec' % ((time.time() - t0),))
 
 
@@ -107,8 +154,8 @@ def _report_chpi_snr(report, fnames, p=None, subj=None):
                             wspace=0, hspace=0.5)
         figs.append(fig)
         captions.append('%s: %s' % (section, op.basename(fname)))
-    report.add_figs_to_section(figs, captions, section,
-                               image_format='png')  # svd too slow
+    _add_figs_to_section(
+        report, figs, captions, section, image_format='png')  # svd too slow
     print('%5.1f sec' % ((time.time() - t0),))
 
 
@@ -153,8 +200,7 @@ def _report_head_movement(report, fnames, p=None, subj=None, run_indices=None):
         figs.append(fig)
         captions.append('%s: %s' % (section, op.basename(fname)))
     del trans_to
-    report.add_figs_to_section(figs, captions, section,
-                               image_format='png')
+    _add_figs_to_section(report, figs, captions, section, image_format='png')
     print('%5.1f sec' % ((time.time() - t0),))
 
 
@@ -175,7 +221,8 @@ def _report_events(report, fnames, p=None, subj=None):
             figs.append(fig)
             captions.append('%s: %s' % (section, op.basename(fname)))
     if len(figs):
-        report.add_figs_to_section(figs, captions, section, image_format='png')
+        _add_figs_to_section(
+            report, figs, captions, section, image_format='png')
     print('%5.1f sec' % ((time.time() - t0),))
 
 
@@ -216,7 +263,7 @@ def _report_raw_segments(report, raw, lowpass=None):
     fig.set(figheight=(fig.axes[0].get_yticks() != 0).sum(),
             figwidth=12)
     fig.subplots_adjust(0.025, 0.0, 1, 1, 0, 0)
-    report.add_figs_to_section(fig, section, section, image_format='png')
+    _add_figs_to_section(report, fig, section, section, image_format='png')
     print('%5.1f sec' % ((time.time() - t0),))
 
 
@@ -258,8 +305,8 @@ def _report_raw_psd(report, raw, raw_pca=None, raw_erm=None, raw_erm_pca=None,
         for ax in axes:
             ax.set_ylim(ylims)
             ax.set(title='')
-    report.add_figs_to_section(figs, captions, section,
-                               image_format='png')
+    _add_figs_to_section(
+        report, figs, captions, section, image_format='png')
     print('%5.1f sec' % ((time.time() - t0),))
 
 
@@ -505,9 +552,8 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                                 proj_nums[idx], p.proj_meg, kind, eog_channel,
                                 duration))
                 captions = ['SSP epochs: %s' % c for c in comments]
-                report.add_figs_to_section(
-                    figs, captions, section, image_format='png',
-                    comments=comments)
+                _add_figs_to_section(
+                    report, figs, captions, section, image_format='png')
                 print('%5.1f sec' % ((time.time() - t0),))
             else:
                 print('    %s skipped' % section)
@@ -592,7 +638,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                             from mayavi import mlab
                             mlab.close(fig)
                     view = trim_bg(np.concatenate(view, axis=1), 0)
-                    report.add_figs_to_section(view, captions, section)
+                    _add_figs_to_section(report, [view], captions, section)
                 print('%5.1f sec' % ((time.time() - t0),))
             else:
                 print('    %s skipped' % section)
@@ -607,8 +653,8 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                 epo = read_epochs(epochs_fname)
                 figs = [epo.plot_drop_log(subject=subj, show=False)]
                 captions = [repr(epo)]
-                report.add_figs_to_section(figs, captions, section,
-                                           image_format='svg')
+                _add_figs_to_section(
+                    report, figs, captions, section, image_format='svg')
                 print('%5.1f sec' % ((time.time() - t0),))
             else:
                 print('    %s skipped' % section)
@@ -635,9 +681,9 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                         t0 = time.time()
                         print(('    %s ... ' % section).ljust(LJUST), end='')
                         with use_log_level('error'):
-                            report.add_bem_to_section(
-                                struc, caption, section, decim=10, n_jobs=1,
-                                subjects_dir=subjects_dir)
+                            _add_bem_to_section(
+                                report, struc, caption, section, decim=10,
+                                n_jobs=1, subjects_dir=subjects_dir)
                         print('%5.1f sec' % ((time.time() - t0),))
                 else:
                     print('    %s skipped (sphere)' % section)
@@ -663,8 +709,9 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                         noise_cov, info, show=False, verbose='error')
                     captions = ['%s: %s' % (section, kind)
                                 for kind in ('images', 'SVDs')]
-                    report.add_figs_to_section(
-                        figs, captions, section=section, image_format='png')
+                    _add_figs_to_section(
+                        report, figs, captions, section=section,
+                        image_format='png')
                 print('%5.1f sec' % ((time.time() - t0),))
             else:
                 print('    %s skipped' % section)
@@ -763,8 +810,9 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                                 f'{axes[-1].get_title()} (halves {SQ2STR})')
                         axes[-1]
                         figs.tight_layout()
-                        report.add_figs_to_section(
-                            figs, captions, section=section,
+                        figs = [figs]
+                        _add_figs_to_section(
+                            report, figs, captions, section=section,
                             image_format='png')
                 print('%5.1f sec' % ((time.time() - t0),))
             else:
@@ -835,8 +883,8 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                                        '/'.join(str(e.nave)
                                                 for e in all_evoked)))
                         figs.tight_layout()
-                        report.add_figs_to_section(
-                            figs, captions, section=section,
+                        _add_figs_to_section(
+                            report, figs, captions, section=section,
                             image_format='png')
                 print('%5.1f sec' % ((time.time() - t0),))
 
@@ -912,10 +960,12 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                             if key == 'eeg' and proj in ('reconstruct', False):
                                 this_evoked = this_evoked.copy()
                                 all_proj = this_evoked.info['projs']
-                                this_evoked.info['projs'] = []
+                                for pr in this_evoked.info['projs']:
+                                    pr['active'] = False
+                                this_evoked.del_proj()
                                 this_evoked.set_eeg_reference(projection=True)
                                 this_evoked.apply_proj()
-                                this_evoked.info['projs'] = all_proj
+                                this_evoked.add_proj(all_proj)
                             if this_evoked.nave > 0:
                                 with mne.utils.use_log_level('error'):
                                     fig = this_evoked.plot_joint(
@@ -941,8 +991,8 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                         title += ' : SSP+recon'
                     else:
                         title += ' : SSP on'
-                    report.add_slider_to_section(
-                        all_figs, all_captions, section=section,
+                    _add_slider_to_section(
+                        report, all_figs, all_captions, section=section,
                         title=title, image_format='png')
                     del this_evoked, all_evoked
                 print('%5.1f sec' % ((time.time() - t0),))
@@ -1085,8 +1135,10 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                                  % (section, analysis, name, extra,
                                     this_evoked.nave,))
                         captions = ['%2.3f sec' % t for t in times]
-                        report.add_slider_to_section(
-                            figs, captions=captions, section=section,
+                        print(f'add {repr(title)}')
+                        print(repr(captions))
+                        _add_slider_to_section(
+                            report, figs, captions=captions, section=section,
                             title=title, image_format='png')
 
                 print('%5.1f sec' % ((time.time() - t0),))

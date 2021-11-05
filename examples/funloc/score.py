@@ -78,14 +78,25 @@ def pre_fun(report, p, subject, **kwargs):
         return  # do nothing
     with open(fname, 'r') as fid:
         content = fid.read()
-    report.add_htmls_to_section(
-        f'<p align="center">{content}</p>',
-        captions='Behavioral', section='Behavioral')
+    html = f'<p align="center">{content}</p>'
+    title = 'Behavioral'
+    try:
+        report.add_html
+    except AttributeError:
+        report.add_htmls_to_section(
+            html, captions=title, section=title)
+    else:
+        report.add_html(html, title, tags=('Behavioral',))
 
 
 def post_fun(report, p, subject, **kwargs):
     """Report function to run at the end."""
-    report.add_htmls_to_section(
-        '<p align="center">Report generation took '
-        f'{time.time() - _start:0.1f} sec</p>',
-        captions='Timing', section='Report info')
+    html = ('<p align="center">Report generation took '
+            f'{time.time() - _start:0.1f} sec</p>')
+    title = 'Timing'
+    try:
+        report.add_html
+    except AttributeError:
+        report.add_htmls_to_section(html, captions=title, section=title)
+    else:
+        report.add_html(html, title, tags=('Timing',))
