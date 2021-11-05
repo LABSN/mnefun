@@ -67,11 +67,18 @@ def _add_figs_to_section(report, figs, captions, section, image_format='png'):
     else:
         # MNE 1.0+
         if isinstance(captions, (list, tuple)):
+            assert isinstance(figs, (list, tuple))
             for f, c in zip(figs, captions):
                 report.add_figure(
                     f, title=section, caption=c,
                     image_format=image_format,
                     tags=(section.replace(' ', '_'),))
+        else:
+            assert not isinstance(figs, (list, tuple))
+            report.add_figure(
+                figs, title=section, caption=captions,
+                image_format=image_format,
+                tags=(section.replace(' ', '_'),))
 
 
 def _add_slider_to_section(report, figs, captions, section, title,
@@ -631,7 +638,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                             from mayavi import mlab
                             mlab.close(fig)
                     view = trim_bg(np.concatenate(view, axis=1), 0)
-                    _add_figs_to_section(report, view, captions, section)
+                    _add_figs_to_section(report, [view], captions, section)
                 print('%5.1f sec' % ((time.time() - t0),))
             else:
                 print('    %s skipped' % section)
