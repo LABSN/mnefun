@@ -2,8 +2,7 @@
 
 import os
 
-import setuptools  # noqa : we are using a setuptools namespace
-from numpy.distutils.core import setup
+from setuptools import setup
 
 version = "0.1"
 descr = """Methods for integrating LABSN with mne-python"""
