@@ -2,7 +2,7 @@
 
 import os
 
-from setuptools import setup
+from setuptools import setup, find_packages
 
 version = "0.1"
 descr = """Methods for integrating LABSN with mne-python"""
@@ -39,7 +39,7 @@ if __name__ == "__main__":
         classifiers=[],
         platforms='any',
         install_requires=['mne', 'h5io'],
-        packages=setuptools.find_packages(),
+        packages=find_packages(),
         package_data={'mnefun': [
             'run_sss.sh',
             os.path.join('data', 'sss_cal.dat'),
