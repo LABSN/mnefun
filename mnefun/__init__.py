@@ -18,7 +18,7 @@ from ._utils import (make_montage, compute_auc, make_dipole_projectors,
                      repeat_coreg, convert_ANTS_surrogate)
 from ._stats import (anova_time, hotelling_t2, hotelling_t2_baseline,
                      partial_conjunction)
-from ._viz import trim_bg
+from ._viz import trim_bg, plot_good_coils, plot_chpi_snr_raw
 from ._yaml import read_params
 
 __version__ = '0.2.0.dev0'

@@ -7,7 +7,6 @@ from scipy import io as spio
 from mne import Epochs, write_evokeds
 from mne.defaults import DEFAULTS
 from mne.epochs import combine_event_ids
-from mne.externals.h5io import write_hdf5
 from mne.io import read_raw_fif, concatenate_raws
 from mne.viz import plot_drop_log
 from mne.utils import use_log_level
@@ -17,7 +16,7 @@ from ._scoring import _read_events
 from ._sss import _read_raw_prebad
 from ._utils import (_fix_raw_eog_cals, _get_baseline, get_args, _handle_dict,
                      _restrict_reject_flat, _get_epo_kwargs, _handle_decim,
-                     _check_reject_annot_regex)
+                     _check_reject_annot_regex, write_hdf5)
 
 
 def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
