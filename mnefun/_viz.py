@@ -8,7 +8,7 @@ import numpy as np
 from scipy import linalg
 
 from mne import read_proj, read_events, pick_types
-from mne.utils import verbose
+from mne.utils import verbose, ProgressBar, logger
 from mne.viz.utils import tight_layout, plt_show
 
 from ._sss import compute_good_coils
@@ -170,8 +170,9 @@ def plot_reconstruction(evoked, origin=(0., 0., 0.04)):
     return fig
 
 
-def plot_chpi_snr_raw(raw, win_length, n_harmonics=None, show=True,
-                      verbose=True):
+@verbose
+def plot_chpi_snr_raw(raw, win_length, n_harmonics=None, show=True, *,
+                      verbose=None):
     """Compute and plot cHPI SNR from raw data
 
     Parameters
@@ -185,6 +186,7 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics=None, show=True,
         use all harmonics up to the MEG analog lowpass corner.
     show : bool
         Show figure if True.
+    %(verbose)s
 
     Returns
     -------
@@ -233,12 +235,11 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics=None, show=True,
     if buflen <= 0:
         raise ValueError('Window length should be >0')
     cfreqs = get_chpi_info(raw.info, verbose=False)[0]
-    if verbose:
-        print('Nominal cHPI frequencies: %s Hz' % cfreqs)
-        print('Sampling frequency: %s Hz' % sfreq)
-        print('Using line freqs: %s Hz' % linefreqs)
-        print('Using buffers of %s samples = %s seconds\n'
-              % (buflen, buflen / sfreq))
+    logger.info(f'Nominal cHPI frequencies: {cfreqs} Hz')
+    logger.info(f'Sampling frequency: {sfreq:0.1f} Hz')
+    logger.info(f'Using line freqs: {linefreqs} Hz')
+    logger.info(f'Using buffers of {buflen} samples = '
+                f'{buflen / sfreq:0.3f} seconds')
 
     pick_meg = pick_types(raw.info, meg=True, exclude=[])
     pick_mag = pick_types(raw.info, meg='mag', exclude=[])
@@ -266,9 +267,8 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics=None, show=True,
     hpi_pow_grad = np.zeros([len(cfreqs), len(bufs)])
     snr_avg_mag = np.zeros([len(cfreqs), len(bufs)])
     resid_vars = np.zeros([nchan, len(bufs)])
-    for ind, buf0 in enumerate(bufs):
-        if verbose:
-            print('Buffer %s/%s' % (ind + 1, len(bufs)))
+    pb = ProgressBar(bufs, mesg='Buffer')
+    for ind, buf0 in enumerate(pb):
         megbuf = raw[pick_meg, buf0:buf0 + buflen][0].T
         coeffs = np.dot(inv_model, megbuf)
         coeffs_hpi = coeffs[2 + 2 * len(linefreqs):]
@@ -282,6 +282,7 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics=None, show=True,
             resid_vars[pick_grad_, ind].mean()
         snr_avg_mag[:, ind] = hpi_pow[:, pick_mag_].mean(1) / \
             resid_vars[pick_mag_, ind].mean()
+    logger.info('[done]')
 
     cfreqs_legend = ['%s Hz' % fre for fre in cfreqs]
     fig, axs = plt.subplots(4, 1, sharex=True)

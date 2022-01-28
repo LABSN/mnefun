@@ -21,17 +21,16 @@ try:
 except Exception:  # <= 0.23
     from mne.chpi import _get_hpi_info as get_chpi_info
 from mne.chpi import read_head_pos, write_head_pos, filter_chpi
-from mne.externals.h5io import read_hdf5, write_hdf5
 
 from mne.io import BaseRaw, read_info, read_raw_fif, write_info
 from mne.preprocessing import maxwell_filter
 from mne.transforms import (apply_trans, invert_transform, quat_to_rot,
                             rot_to_quat)
 from mne.utils import (_pl, _TempDir, logger, run_subprocess, use_log_level,
-                       verbose)
+                       verbose, ProgressBar)
 
 from ._paths import _get_config_file, _prebad, get_raw_fnames
-from ._utils import _handle_dict, get_args
+from ._utils import _handle_dict, get_args, read_hdf5, write_hdf5
 
 _data_dir = op.join(op.dirname(__file__), 'data')
 
@@ -1126,6 +1125,7 @@ def _old_chpi_locs(raw, t_step, t_window, prefix):
 def compute_good_coils(raw, t_step=0.01, t_window=0.2, dist_limit=0.005,
                        prefix='', gof_limit=0.98, verbose=None):
     """Compute time-varying coil distances."""
+    logger.info('Computing good coil counts')
     try:
         from mne.chpi import compute_chpi_amplitudes, compute_chpi_locs
     except ImportError:
@@ -1142,8 +1142,9 @@ def compute_good_coils(raw, t_step=0.01, t_window=0.2, dist_limit=0.005,
     hpi_coil_dists = cdist(hpi_dig_head_rrs, hpi_dig_head_rrs)
 
     counts = np.empty(len(chpi_locs['times']), int)
+    pb = ProgressBar(chpi_locs['gofs'], mesg='Coil distances')
     for ii, (t, coil_dev_rrs, gof) in enumerate(zip(
-            chpi_locs['times'], chpi_locs['rrs'], chpi_locs['gofs'])):
+            chpi_locs['times'], chpi_locs['rrs'], pb)):
         these_dists = cdist(coil_dev_rrs, coil_dev_rrs)
         these_dists = np.abs(hpi_coil_dists - these_dists)
         # there is probably a better algorithm for finding the bad ones...
@@ -1163,6 +1164,7 @@ def compute_good_coils(raw, t_step=0.01, t_window=0.2, dist_limit=0.005,
                 use_mask[exclude_coils] = False
         counts[ii] = use_mask.sum()
     t = chpi_locs['times'] - raw.first_samp / raw.info['sfreq']
+    logger.info('[done]')
     return t, counts, len(hpi_dig_head_rrs), chpi_locs
 
 

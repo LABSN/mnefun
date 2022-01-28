@@ -2,8 +2,7 @@
 
 import os
 
-import setuptools  # noqa : we are using a setuptools namespace
-from numpy.distutils.core import setup
+from setuptools import setup, find_packages
 
 version = "0.1"
 descr = """Methods for integrating LABSN with mne-python"""
@@ -39,7 +38,8 @@ if __name__ == "__main__":
         zip_safe=False,  # the package can run out of an .egg file
         classifiers=[],
         platforms='any',
-        packages=setuptools.find_packages(),
+        install_requires=['mne', 'h5io'],
+        packages=find_packages(),
         package_data={'mnefun': [
             'run_sss.sh',
             os.path.join('data', 'sss_cal.dat'),
