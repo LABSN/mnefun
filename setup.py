@@ -39,7 +39,7 @@ if __name__ == "__main__":
         zip_safe=False,  # the package can run out of an .egg file
         classifiers=[],
         platforms='any',
-        install_requires=['mne'],
+        install_requires=['mne', 'h5io'],
         packages=setuptools.find_packages(),
         package_data={'mnefun': [
             'run_sss.sh',
