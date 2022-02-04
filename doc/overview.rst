@@ -139,7 +139,7 @@ Run OTP processing.
 
 1. Run OTP locally using :func:`mne.preprocessing.oversampled_temporal_projection`.
 
-parameters
+``preprocessing: otp``: OTP parameters
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 otp_dur : None | float
 The window duration (in seconds) to use. Must be > or equal to tsss_dur if combining with tSSS processing.
