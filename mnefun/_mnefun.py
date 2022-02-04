@@ -181,7 +181,7 @@ class Params(Frozen):
         self.hp_type = 'maxfilter'
         self.mf_args = ''
         self.tsss_dur = 60.
-        self.opt_dur = 60.
+        self.otp_dur = None
         self.trans_to = 'median'  # where to transform head positions to
         self.sss_format = 'float'  # output type for MaxFilter
         self.movecomp = 'inter'
