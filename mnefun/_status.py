@@ -6,20 +6,20 @@ from os import path as op
 
 from .externals import tabulate
 from ._paths import (get_raw_fnames, get_event_fnames, get_cov_fwd_inv_fnames,
-                     get_epochs_evokeds_fnames, get_report_fnames)
-from ._reorder import _all_files_fixed
+                     get_epochs_evokeds_fnames, get_report_fnames, _prebad)
+from ._fix import _all_files_fixed
 
 # make our table tighter
 tabulate.MIN_PADDING = 0
 
 
 def _have_all(fnames):
-    """Check to make sure all files exist"""
+    """Check to make sure all files exist."""
     return all(op.isfile(fname) for fname in fnames)
 
 
 def print_proc_status(p, subjects, structurals, analyses, run_indices):
-    """Print status update"""
+    """Print status update."""
     steps_all = []
     status_mapping = dict(missing=' ',
                           complete='X',
@@ -27,6 +27,8 @@ def print_proc_status(p, subjects, structurals, analyses, run_indices):
 
     # XXX TODO in subsequent PR:
     # * Add modified-date checks to make sure provenance is correct
+    if structurals is None:
+        structurals = [None] * len(subjects)
 
     for subj, struc, runs in zip(subjects, structurals, run_indices):
         fetch_raw = do_score = prebads = coreg = fetch_sss = do_ch_fix = \
@@ -42,7 +44,7 @@ def print_proc_status(p, subjects, structurals, analyses, run_indices):
             do_score = 'complete'
 
         # check if prebads created
-        if op.isfile(op.join(subj, 'raw_fif', subj + '_prebad.txt')):
+        if subj in p.mf_prebad or op.isfile(_prebad(p, subj)):
             prebads = 'complete'
 
         # check if coreg has been done
@@ -80,11 +82,11 @@ def print_proc_status(p, subjects, structurals, analyses, run_indices):
             gen_covs = 'complete'
 
         # check if forward solution has been calculated
-        if _have_all(fwd_fnames):
+        if _have_all(fwd_fnames) or struc is None:
             gen_fwd = 'complete'
 
         # check if inverses have been calculated
-        if _have_all(inv_fnames):
+        if _have_all(inv_fnames) or struc is None:
             gen_inv = 'complete'
 
         # check if report has been made

@@ -1,25 +1,23 @@
 language: python
-
-virtualenv:
-    system_site_packages: true
-
+dist: xenial
+cache:
+  pip: true
 env:
-    - PYTHON=2.7
-    - PYTHON=3.3
+  global: OPENBLAS_NUM_THREADS=1
 
-before_install:
-    - if [ "${PYTHON}" != "2.7" ]; then
-        wget http://repo.continuum.io/miniconda/Miniconda-2.2.2-Linux-x86_64.sh -O miniconda.sh;
-        chmod +x miniconda.sh;
-        ./miniconda.sh -b;
-        export PATH=/home/$USER/anaconda/bin:$PATH;
-        conda update --yes conda;
-      fi;
+python:
+  - "3.8"
 
 install:
-    # Install mnefun
-    - python setup.py build
-    - python setup.py install
+  # Install mnefun
+  - pip install --upgrade --only-binary=":all:" numpy scipy matplotlib
+  - pip install --upgrade pyyaml patsy pytest pytest-cov codecov flake8 pydocstyle numpydoc https://github.com/mne-tools/mne-python/archive/main.zip
+  - pip install -ve .
 
 script:
-    - make flake
+  - pytest mnefun
+  - make flake
+  # make pydocstyle  # someday, currently too bad
+
+after_script:
+  - codecov

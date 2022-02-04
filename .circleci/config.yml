@@ -1,0 +1,67 @@
+version: 2
+jobs:
+  build_docs:
+    docker:
+      - image: circleci/python:3.7-buster
+    steps:
+      # Get our data and merge with upstream
+      - checkout
+      - run: sudo apt-get install graphviz-dev graphviz
+      - run: python -m pip install --quiet --upgrade --user pip
+      - run: python -m pip install --quiet --upgrade --user numpy scipy https://github.com/mne-tools/mne-python/zipball/main numpydoc sphinx sphinx_fontawesome sphinx_bootstrap_theme pygraphviz
+      - run: python -c "import mne; mne.sys_info()"
+      - run: python setup.py develop --user
+      - run: cd doc && make html
+
+      - store_artifacts:
+          path: doc/_build/html/
+          destination: html
+
+      - persist_to_workspace:
+          root: doc/_build
+          paths:
+            - html
+
+
+  deploy:
+    docker:
+      - image: circleci/python:3.6-stretch
+    steps:
+      - add_ssh_keys:
+          fingerprints:
+            # ssh-keygen -t rsa -b 4096 -m PEM -C "circle@labsn.github.io"
+            - fd:c7:7b:64:4c:35:25:a9:94:b4:bf:51:35:ee:22:e7
+      - attach_workspace:
+          at: /tmp/_build
+      - run:
+          name: upload
+          command: |
+            echo "Deploying docs."
+            mkdir -p ~/.ssh
+            chmod 700 ~/.ssh
+            touch ~/.ssh/known_hosts
+            chmod 600 ~/.ssh/*
+            ssh-keyscan github.com >> ~/.ssh/known_hosts
+            git clone git@github.com:/LABSN/labsn.github.io.git ~/labsn.github.io --depth=1
+            git config --global user.email "circle@labsn.github.io"
+            git config --global user.name "Circle CI"
+            cd ~/labsn.github.io
+            git checkout main
+            git pull origin main
+            rm -Rf ~/labsn.github.io/mnefun
+            cp -a /tmp/_build/html ~/labsn.github.io/mnefun
+            git add -A
+            git commit --allow-empty -m "CircleCI update of docs (${CIRCLE_BUILD_NUM})."
+            git push origin main
+
+workflows:
+  version: 2
+  build_and_deploy:
+    jobs:
+      - build_docs
+      - deploy:
+          requires:
+            - build_docs
+          filters:
+            branches:
+              only: main

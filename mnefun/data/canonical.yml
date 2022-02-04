@@ -1,0 +1,206 @@
+general:
+  work_dir: '.'
+  subjects_dir:
+  subject_indices:
+  disp_files:
+
+fetch_raw:
+  subjects:
+  structurals:
+  dates:
+  acq_ssh:
+  acq_dir:
+  acq_port:
+  acq_exclude:
+  run_names:
+  runs_empty:
+  subject_run_indices:
+
+scoring:
+  score:
+  on_process:
+
+preprocessing:
+  multithreading:
+    n_jobs:
+    n_jobs_mkl:
+    n_jobs_fir:
+    n_jobs_resample:
+  bads:
+    mf_prebad:
+    mf_autobad:
+    mf_autobad_type:
+    mf_badlimit:
+  head_position_estimation:
+    coil_t_window:
+    coil_t_step_min:
+    coil_dist_limit:
+    coil_gof_limit:
+  annotations:
+    coil_bad_count_duration_limit:
+    rotation_limit:
+    translation_limit:
+  sss:
+    movecomp:
+    hp_type:
+    sss_type:
+    int_order:
+    ext_order:
+    sss_regularize:
+    tsss_dur:
+    st_correlation:
+    filter_chpi:
+    filter_chpi_t_window:
+    trans_to:
+    sss_origin:
+    dig_with_eeg:
+    ct_file:
+    cal_file:
+    sss_format:
+    mf_args:
+    cont_as_esss:
+  filtering:
+    hp_cut:
+    hp_trans:
+    lp_cut:
+    lp_trans:
+    filter_length:
+    fir_design:
+    fir_window:
+    phase:
+  ssp:
+    auto_bad:
+    auto_bad_reject:
+    auto_bad_flat:
+    auto_bad_eeg_thresh:
+    auto_bad_meg_thresh:
+    proj_nums:
+    proj_sfreq:
+    proj_meg:
+    drop_thresh:
+    plot_raw:
+    ssp_eog_reject:
+    ssp_ecg_reject:
+    eog_channel:
+    heog_channel:
+    veog_channel:
+    ecg_channel:
+    eog_t_lims:
+    heog_t_lims:
+    veog_t_lims:
+    ecg_t_lims:
+    eog_f_lims:
+    heog_f_lims:
+    veog_f_lims:
+    ecg_f_lims:
+    eog_thresh:
+    heog_thresh:
+    veog_thresh:
+    proj_ave:
+    proj_extra:
+    get_projs_from:
+    cont_hp:
+    cont_hp_trans:
+    cont_lp:
+    cont_lp_trans:
+    cont_reject:
+    plot_drop_logs:
+
+epoching:
+  tmin:
+  tmax:
+  t_adjust:
+  baseline:
+  bmin:
+  bmax:
+  decim:
+  epochs_type:
+  match_fun:
+  reject:
+  flat:
+  reject_tmin:
+  reject_tmax:
+  on_missing:
+  autoreject_thresholds:
+  autoreject_types:
+  reject_epochs_by_annot:
+  pick_events_autoreject:
+  analyses:
+  in_names:
+  in_numbers:
+  out_names:
+  out_numbers:
+  must_match:
+  every_other:
+  epochs_proj:
+  allow_resample:
+
+covariance:
+  cov_method:
+  compute_rank:
+  pick_events_cov:
+  cov_rank:
+  cov_rank_method:
+  cov_rank_tol:
+  force_erm_cov_rank_full:
+
+forward:
+  bem_type:
+  src:
+  src_pos:
+  fwd_mindist:
+
+inverse:
+  inv_names:
+  inv_runs:
+
+report:
+  pre_fun:
+  chpi_snr:
+  good_hpi_count:
+  head_movement:
+  raw_segments:
+  psd:
+  ssp_topomaps:
+  source_alignment:
+  drop_log:
+  bem:
+  covariance:
+  snr:
+  whitening:
+  sensor:
+  source:
+  post_fun:
+  preload:
+
+naming:
+  scoring:
+    list_dir:
+  bads:
+    bad_dir:
+    bad_tag:
+  raw:
+    raw_dir:
+    keep_orig:
+    raw_fif_tag:
+    sss_fif_tag:
+  preprocessing:
+    sss_dir:
+    pca_dir:
+  epochs:
+    epochs_dir:
+    epochs_prefix:
+    epochs_tag:
+    eq_tag:
+  covariance:
+    cov_dir:
+  forward:
+    forward_dir:
+    trans_dir:
+  inverse:
+    inverse_dir:
+    inv_tag:
+    inv_erm_tag:
+    inv_fixed_tag:
+    inv_loose_tag:
+    inv_free_tag:

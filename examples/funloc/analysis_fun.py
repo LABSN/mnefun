@@ -1,6 +1,4 @@
 # -*- coding: utf-8 -*-
-# Copyright (c) 2014, LABS^N
-# Distributed under the (new) BSD License. See LICENSE.txt for more info.
 """
 ----------------------------------
 Example experiment analysis script
@@ -13,10 +11,10 @@ The experiment was a simple audio/visual oddball detection task. One
 potential purpose would be e.g. functional localization of auditory and
 visual cortices.
 
-Note that you will need to change the "acq_ssh" and "sss_ssh" parameters
+Note that you will need to change the "acq_ssh" parameter
 to reflect your username/password on the relevant machines. You will also
 need to set up public key authentication between your machine and the
-two remote machines (acquisition/minea and SSS/kasga). Tutorial here:
+acquisition machine. Tutorial here:
 
     * https://help.ubuntu.com/community/SSH/OpenSSH/Keys
 
@@ -24,125 +22,19 @@ The deidentified structural directories for the one subject is needed
 to do the forward and inverse solutions, extract this into your
 SUBJECTS_DIR directory:
 
-    * http://lester.ilabs.uw.edu/files/AKCLEE_110_slim.tar.gz
+    * http://staff.washington.edu/larsoner/AKCLEE_107_slim.tar.gz
+    * http://staff.washington.edu/larsoner/AKCLEE_110_slim.tar.gz
 
-"""
+"""  # noqa: E501
 
 import mnefun
-from score import score
-import numpy as np
+from score import score, pre_fun, post_fun
 
-try:
-    # Use niprov as handler for events if it's installed
-    from niprov.mnefunsupport import handler
-except ImportError:
-    handler = None
-
-params = mnefun.Params(tmin=-0.2, tmax=0.5, t_adjust=-4e-3,
-                       n_jobs=6, n_jobs_mkl=1,
-                       n_jobs_fir='cuda', n_jobs_resample='cuda',
-                       decim=5, proj_sfreq=200, filter_length='auto')
-
-params.subjects = ['subj_01', 'subj_02']
-params.structurals = [None, 'AKCLEE_110_slim']  # None means use sphere
-params.dates = [(2014, 2, 14), None]  # Use "None" to more fully anonymize
-params.score = score  # Scoring function used to slice data into trials
-params.subject_indices = np.arange(2)  # Define which subjects to run
-params.plot_drop_logs = False  # Turn off so plots do not halt processing
-
-# The default is to use the median (across runs) of the starting head positions
-# individually for each subject.
-# params.trans_to = 'median'
-
-# You can also use a translation, plus x-axis rotation (-30 means backward 30°)
-# params.trans_to = (0., 0., 0.05, -30)
-
-# Or you can transform to the time-weighted average head pos
-# for each subject individually.
-params.trans_to = 'twa'
-
-# Set the parameters for head position estimation:
-params.coil_t_window = 'auto'  # use the smallest reasonable window size
-params.coil_t_step_min = 0.01  # this is generally a good value
-params.coil_dist_limit = 0.005  # same as MaxFilter, can be made more lenient
-
-# Data can be annotated for omission (from epoching and destination head
-# position calculation) by setting parameters like these (these are quite
-# stringent!)
-params.rotation_limit = 0.2  # deg/s
-params.translation_limit = 0.0001  # m/s
-# remove segments with < 3 good coils for at least 100 ms
-params.coil_bad_count_duration_limit = 0.1
-
-# Set parameters for remotely connecting to acquisition computer
-params.acq_ssh = 'minea'  # Could also be e.g., "eric@minea.ilabs.uw.edu"
-# Pass list of paths to search and fetch raw data
-params.acq_dir = ['/sinuhe_data01/eric_non_space',
-                  '/data101/eric_non_space',
-                  '/sinuhe/data01/eric_non_space',
-                  '/sinuhe/data02/eric_non_space',
-                  '/sinuhe/data03/eric_non_space']
-
-# Set parameters for remotely connecting to SSS workstation ('sws')
-params.sws_ssh = 'kasga'
-params.sws_dir = '/data06/larsoner'
-
-# Set the niprov handler to deal with events:
-params.on_process = handler
-
-params.run_names = ['%s_funloc']
-params.get_projs_from = np.arange(1)
-params.inv_names = ['%s']
-params.inv_runs = [np.arange(1)]
-params.runs_empty = ['%s_erm']  # Define empty room runs
-params.compute_rank = True  # compute rank of the noise covariance matrix
-
-# Define number of SSP projectors. Columns correspond to Grad/Mag/EEG chans
-params.proj_nums = [[1, 1, 0],  # ECG
-                    [1, 1, 2],  # EOG
-                    [0, 0, 0]]  # Continuous (from ERM)
-params.proj_ave = True  # better projections by averaging ECG/EOG epochs
-
-# Set to True to use Autoreject module to set global epoch rejection thresholds
-params.autoreject_thresholds = False
-# Set to ('meg', 'eeg', eog') to reject trials based on EOG
-params.autoreject_types = ('mag', 'grad', 'eeg')
-params.cov_method = 'shrunk'  # Cleaner noise covariance regularization
-# python | maxfilter for choosing SSS applied using either Maxfilter or MNE
-params.sss_type = 'python'
-# The scoring function needs to produce an event file with these values
-params.in_numbers = [10, 11, 20, 21]
-# Those values correspond to real categories as:
-params.in_names = ['Auditory/Standard', 'Visual/Standard',
-                   'Auditory/Deviant', 'Visual/Deviant']
-
-# Define how to translate the above event types into evoked files
-params.analyses = [
-    'All',
-    'AV',
-]
-params.out_names = [
-    ['All'],
-    params.in_names,
-]
-params.out_numbers = [
-    [1, 1, 1, 1],       # Combine all trials
-    params.in_numbers,  # Leave events split the same way they were scored
-]
-params.must_match = [
-    [],
-    [0, 1],  # Only ensure the standard event counts match
-]
-
-params.report_params.update(  # add a couple of nice diagnostic plots
-    whitening=dict(analysis='All', name='All',
-                   cov='%s-55-sss-cov.fif'),
-    sensor=dict(analysis='All', name='All', times=[0.1, 0.2]),
-    source=dict(analysis='All', name='All',
-                inv='%s-55-sss-meg-eeg-free-inv.fif', times=[0.1, 0.2],
-                views='lat', size=(800, 400)),
-    psd=False,  # often slow
-)
+params = mnefun.read_params('funloc_params.yml')
+params.score = score
+params.report_params['pre_fun'] = pre_fun
+params.report_params['post_fun'] = post_fun
+params.subject_indices = [0, 1]
 
 # Set what processing steps will execute
 default = False
@@ -153,9 +45,7 @@ mnefun.do_processing(
 
     # Before running SSS, make SUBJ/raw_fif/SUBJ_prebad.txt file with
     # space-separated list of bad MEG channel numbers
-    push_raw=default,      # Push raw files and SSS script to SSS workstation
-    do_sss=default,        # Run SSS remotely (on sws) or locally with MNE
-    fetch_sss=default,     # Fetch SSSed files from SSS workstation
+    do_sss=default,        # Run SSS locally with MNE
     do_ch_fix=default,     # Fix channel ordering
 
     # Before running SSP, examine SSS'ed files and make

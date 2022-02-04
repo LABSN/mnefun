@@ -11,7 +11,7 @@ from mne.io import Raw
 
 
 def safe_inserter(string, inserter):
-    """Helper to insert a subject name into a string if %s is present
+    """Insert a subject name into a string if %s is present.
 
     Parameters
     ----------
@@ -32,7 +32,7 @@ def safe_inserter(string, inserter):
 
 
 def get_event_fnames(p, subj, run_indices=None):
-    """Get event filenames for a subject
+    """Get event filenames for a subject.
 
     Parameters
     ----------
@@ -67,13 +67,13 @@ def get_event_fnames(p, subj, run_indices=None):
 
 
 def _regex_convert(f):
-    """Helper to regex a given filename (for split file purposes)"""
-    return '.*%s-?[0-9]*.fif$' % op.basename(f)[:-4]
+    """Regex a given filename (for split file purposes)."""
+    return '.*%s-?[0-9]*.fif$' % op.splitext(op.basename(f))[0]
 
 
 def get_raw_fnames(p, subj, which='raw', erm=True, add_splits=False,
                    run_indices=None):
-    """Get raw filenames
+    """Get raw filenames.
 
     Parameters
     ----------
@@ -129,9 +129,8 @@ def get_raw_fnames(p, subj, which='raw', erm=True, add_splits=False,
 
 
 def get_cov_fwd_inv_fnames(p, subj, run_indices):
-    """Get covariance, forward, and inverse filenames for a subject"""
+    """Get covariance, forward, and inverse filenames for a subject."""
     cov_fnames = []
-    fwd_fnames = []
     inv_fnames = []
     inv_dir = op.join(p.work_dir, subj, p.inverse_dir)
     fwd_dir = op.join(p.work_dir, subj, p.forward_dir)
@@ -159,33 +158,34 @@ def get_cov_fwd_inv_fnames(p, subj, run_indices):
         out_flags += ['-meg-eeg']
         meg_bools += [True]
         eeg_bools += [True]
-    if make_erm_inv:
-        cov_fnames += [op.join(cov_dir, safe_inserter(p.runs_empty[0], subj) +
-                               p.pca_extra + p.inv_tag + '-cov.fif')]
+    fwd_fnames = [op.join(fwd_dir, subj + p.inv_tag + '-fwd.fif')]
     for name in p.inv_names:
         s_name = safe_inserter(name, subj)
         temp_name = s_name + ('-%d' % p.lp_cut) + p.inv_tag
-        fwd_fnames += [op.join(fwd_dir, s_name + p.inv_tag + '-fwd.fif')]
         cov_fnames += [op.join(cov_dir, safe_inserter(name, subj) +
                                ('-%d' % p.lp_cut) + p.inv_tag + '-cov.fif')]
         for f, m, e in zip(out_flags, meg_bools, eeg_bools):
-            for l, s, x in zip([None, 0.2], [p.inv_fixed_tag, ''],
-                               [True, False]):
+            for s in [p.inv_fixed_tag, '']:
                 inv_fnames += [op.join(inv_dir,
                                        temp_name + f + s + '-inv.fif')]
-                if (not e) and make_erm_inv:
-                    inv_fnames += [op.join(inv_dir, temp_name + f +
+    if make_erm_inv:
+        cov_fnames += [op.join(cov_dir, safe_inserter(p.runs_empty[0], subj) +
+                               p.pca_extra + p.inv_tag + '-cov.fif')]
+        for f, m, e in zip(out_flags, meg_bools, eeg_bools):
+            for s in [p.inv_fixed_tag, '']:
+                if (not e):
+                    inv_fnames += [op.join(inv_dir, subj + f +
                                            p.inv_erm_tag + s + '-inv.fif')]
     return cov_fnames, fwd_fnames, inv_fnames
 
 
 def get_epochs_evokeds_fnames(p, subj, analyses, remove_unsaved=False):
-    """Get epochs and evoked filenames for a subject"""
+    """Get epochs and evoked filenames for a subject."""
     epochs_dir = op.join(p.work_dir, subj, p.epochs_dir)
     evoked_dir = op.join(p.work_dir, subj, p.inverse_dir)
-    mat_file = op.join(epochs_dir, 'All_%d' % p.lp_cut +
+    mat_file = op.join(epochs_dir, '%s_%d' % (p.epochs_prefix, p.lp_cut) +
                        p.inv_tag + '_' + subj + p.epochs_tag + '.mat')
-    fif_file = op.join(epochs_dir, 'All_%d' % p.lp_cut +
+    fif_file = op.join(epochs_dir, '%s_%d' % (p.epochs_prefix, p.lp_cut) +
                        p.inv_tag + '_' + subj + p.epochs_tag + '.fif')
     epochs_fnames = [fname
                      for fname, c in zip([mat_file, fif_file], ['mat', 'fif'])
@@ -201,17 +201,44 @@ def get_epochs_evokeds_fnames(p, subj, analyses, remove_unsaved=False):
 
 
 def get_report_fnames(p, subj):
-    """Get filenames of report files"""
+    """Get filenames of report files."""
     fnames = [op.join(p.work_dir, subj, '%s_fil%d_report.html'
                       % (subj, p.lp_cut))]
     return fnames
 
-def get_proj_fnames(p, subj, ):
-    """Get filenames of projections files"""
+
+def get_proj_fnames(p, subj):
+    """Get filenames of projections files."""
     proj_fnames = []
     proj_dir = op.join(p.work_dir, subj, p.pca_dir)
     for fn in ['preproc_all-proj.fif', 'preproc_ecg-proj.fif',
-               'preproc_blink-proj.fif', 'preproc_cont-proj.fif']:
+               'preproc_blink-proj.fif', 'preproc_cont-proj.fif',
+               'preproc_heog-proj.fif', 'preproc_veog-proj.fif']:
         if op.isfile(op.join(proj_dir, fn)):
             proj_fnames.append(fn)
     return proj_fnames
+
+
+def get_bad_fname(p, subj, check_exists=True):
+    """Get filename for post-SSS bad channels."""
+    bad_dir = op.join(p.work_dir, subj, p.bad_dir)
+    if not op.isdir(bad_dir):
+        os.mkdir(bad_dir)
+    bad_file = op.join(bad_dir, 'bad_ch_' + subj + p.bad_tag)
+    if check_exists:
+        bad_file = None if not op.isfile(bad_file) else bad_file
+    return bad_file
+
+
+def _prebad(p, subj):
+    """File containing bad channels during acq."""
+    return op.join(p.work_dir, subj, p.raw_dir, subj + '_prebad.txt')
+
+
+def _is_dir(d):
+    """Safely check for a directory (allowing symlinks)."""
+    return op.isdir(op.abspath(d))
+
+
+def _get_config_file():
+    return op.expanduser(op.join('~', '.mnefun', 'mnefun.json'))
