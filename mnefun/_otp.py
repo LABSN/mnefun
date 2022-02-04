@@ -12,7 +12,7 @@ def run_otp(p, subjects, run_indices):
     assert isinstance(p.otp_dur, float) and p.tsss_dur > 0
     duration = p.otp_dur
     if p.otp_dur is not None:
-        assert p.otp_dur == p.tsss_dur
+        assert p.otp_dur >= p.tsss_dur
 
     for si, subj in enumerate(subjects):
         if p.disp_files:
