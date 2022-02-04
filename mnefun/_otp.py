@@ -1,11 +1,9 @@
 import os
 import os.path as op
-import subprocess
 import time
-from mne import pick_types, read_raw_fif
 from ._paths import get_raw_fnames
 from mne.preprocessing import oversampled_temporal_projection
-from ._sss import _maxbad, _read_raw_prebad, _load_meg_bads, _python_autobads
+from ._sss import _read_raw_prebad
 
 def run_otp(p, subjects, run_indices):
     """ Run Oversampled Temporal Projection (OTP) on raw data.
