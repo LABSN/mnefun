@@ -40,6 +40,8 @@ preprocessing:
     coil_bad_count_duration_limit:
     rotation_limit:
     translation_limit:
+  otp:
+    otp_dur:
   sss:
     movecomp:
     hp_type:
@@ -183,8 +185,10 @@ naming:
     raw_dir:
     keep_orig:
     raw_fif_tag:
+    otp_fif_tag:
     sss_fif_tag:
   preprocessing:
+    otp_dir:
     sss_dir:
     pca_dir:
   epochs:
