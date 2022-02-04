@@ -157,9 +157,9 @@ class Params(Frozen):
         self.trans_dir = 'trans'
         self.bad_dir = 'bads'
         self.raw_dir = 'raw_fif'
+        self.otp_dir = 'otp_fif'
         self.sss_dir = 'sss_fif'
         self.pca_dir = 'sss_pca_fif'
-        self.otp_dir = 'otp_fif'
 
         self.epochs_tag = '-epo'
         self.inv_tag = '-sss'
@@ -181,7 +181,7 @@ class Params(Frozen):
         self.hp_type = 'maxfilter'
         self.mf_args = ''
         self.tsss_dur = 60.
-        self.opt_dur = None
+        self.opt_dur = 60.
         self.trans_to = 'median'  # where to transform head positions to
         self.sss_format = 'float'  # output type for MaxFilter
         self.movecomp = 'inter'
