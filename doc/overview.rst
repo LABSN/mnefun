@@ -141,8 +141,8 @@ Run OTP processing.
 
 ``preprocessing: otp``: OTP parameters
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-otp_dur : None | float
-The window duration (in seconds) to use. Must be > or equal to tsss_dur if combining with tSSS processing.
+otp_dur : float | None
+    The window duration (in seconds) to use. Must be > or equal to tsss_dur if combining with tSSS processing.
 
 
 4. do_sss
