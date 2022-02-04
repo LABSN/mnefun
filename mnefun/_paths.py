@@ -109,7 +109,7 @@ def get_raw_fnames(p, subj, which='raw', erm=True, add_splits=False,
         raw_dir = op.join(p.work_dir, subj, p.pca_dir)
         tag = p.pca_extra + p.sss_fif_tag
     elif which == 'otp':
-        otp_dir = op.join(p.work_dir, subj, p.otp_dir)
+        raw_dir = op.join(p.work_dir, subj, p.otp_dir)
         tag = p.otp_fif_tag
 
     if run_indices is None:
