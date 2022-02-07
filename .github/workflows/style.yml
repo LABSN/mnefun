@@ -1,0 +1,30 @@
+name: 'linux'
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.number }}-${{ github.event.ref }}
+  cancel-in-progress: true
+on:
+  push:
+    branches:
+      - '*'
+  pull_request:
+    branches:
+      - '*'
+
+jobs:
+  job:
+    name: 'py3.10'
+    runs-on: ubuntu-20.04
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-python@v2
+        with:
+          python-version: '3.10'
+        name: 'Setup python'
+      - shell: bash -el {0}
+        run: |
+          pip install --upgrade flake8 pydocstyle
+      - shell: bash -el {0}
+        run: make flake

@@ -31,13 +31,11 @@ jobs:
       - shell: bash -el {0}
         run: |
           pip install --upgrade --only-binary=":all:" numpy scipy matplotlib
-          pip install --upgrade pyyaml patsy pytest pytest-cov codecov flake8 pydocstyle numpydoc https://github.com/mne-tools/mne-python/archive/main.zip
+          pip install --upgrade pyyaml patsy pytest pytest-cov codecov https://github.com/mne-tools/mne-python/archive/main.zip
           pip install -ve .
       - shell: bash -el {0}
         run: pytest mnefun
         name: 'Run tests'
-      - shell: bash -el {0}
-        run: make flake
       - uses: codecov/codecov-action@v1
         if: success()
         name: 'Upload coverage to CodeCov'
