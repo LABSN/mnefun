@@ -10,8 +10,8 @@ jobs:
           name: Setup CI
           command: |
             set -e
-            sudo apt update
-            sudo apt install graphviz-dev graphviz python3.9
+            sudo apt update -q
+            sudo apt install -q graphviz-dev graphviz python3.9-venv
             echo "set -e" >> $BASH_ENV
             python3.9 -m venv ~/python_env
             source ~/python_env/bin/activate
