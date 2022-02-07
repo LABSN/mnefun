@@ -10,16 +10,17 @@ jobs:
           name: Setup CI
           command: |
             set -e
-            sudo apt update -qq
-            sudo apt install -qq graphviz-dev graphviz python3.9-venv python3-dev
             echo "set -e" >> $BASH_ENV
+            sudo apt update -qq
+            sudo apt install -qq graphviz-dev graphviz python3-venv python3.9-venv python3-dev
             python3.9 -m venv ~/python_env
             source ~/python_env/bin/activate
             echo "source ~/python_env/bin/activate" >> $BASH_ENV
             mkdir -p ~/.local/bin
             ln -s ~/python_env/bin/python ~/.local/bin/python
-            python -m pip install --quiet --upgrade pip
-            python -m pip install --quiet --upgrade numpy scipy https://github.com/mne-tools/mne-python/zipball/main numpydoc sphinx sphinx_fontawesome sphinx_bootstrap_theme pygraphviz
+            pip install --quiet --upgrade pip
+            pip install --quiet --upgrade numpy scipy https://github.com/mne-tools/mne-python/zipball/main numpydoc sphinx sphinx_fontawesome sphinx_bootstrap_theme
+            pip install --upgrade pygraphviz
             python -c "import mne; mne.sys_info()"
             pip install -ve .
       - run:
