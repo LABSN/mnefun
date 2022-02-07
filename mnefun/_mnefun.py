@@ -369,7 +369,7 @@ def _set_static(p):
                           ' processing will fail.' % (key,))
 
 
-def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
+def do_processing(p, *, fetch_raw=False, do_score=False, push_raw=False,
                   do_otp=False, do_sss=False, fetch_sss=False,
                   do_ch_fix=False, gen_ssp=False, apply_ssp=False,
                   write_epochs=False, gen_covs=False, gen_fwd=False,
