@@ -577,7 +577,7 @@ force_erm_cov_rank_full : bool
 
 
 10. gen_fwd
-----------
+-----------
 .. warning:: Make SUBJ/trans/SUBJ-trans.fif using :ref:`mne:mne coreg`.
 
 Generate forward solutions (and source space if necessary).

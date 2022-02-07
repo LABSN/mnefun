@@ -29,8 +29,8 @@ _REPORT_KEYS = {
 _KEYS_TO_FLATTEN = {
     'general', 'naming', 'fetch_raw', 'scoring', 'bads', 'raw', 'annotations',
     'multithreading',
-    'preprocessing', 'head_position_estimation', 'sss', 'filtering', 'ssp',
-    'epochs', 'epoching',
+    'preprocessing', 'head_position_estimation', 'otp', 'sss', 'filtering',
+    'ssp', 'epochs', 'epoching',
     'covariance', 'forward', 'inverse',
 }
 
