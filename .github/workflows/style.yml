@@ -1,4 +1,4 @@
-name: 'linux'
+name: 'style'
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.number }}-${{ github.event.ref }}
   cancel-in-progress: true
@@ -12,7 +12,7 @@ on:
 
 jobs:
   job:
-    name: 'py3.10'
+    name: 'flake8 + pydocstyle'
     runs-on: ubuntu-20.04
     defaults:
       run:
