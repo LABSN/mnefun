@@ -5,10 +5,9 @@ from ._paths import get_raw_fnames
 from mne.preprocessing import oversampled_temporal_projection
 from ._sss import _read_raw_prebad
 
+
 def run_otp(p, subjects, run_indices):
-    """ Run Oversampled Temporal Projection (OTP) on raw data.
-    """
-    
+    """ Run Oversampled Temporal Projection (OTP) on raw data."""
     assert isinstance(p.otp_dur, float) and p.tsss_dur > 0
     duration = p.otp_dur
     if p.otp_dur is not None:
