@@ -21,15 +21,18 @@ jobs:
       - run:
           name: Setup Python env
           command: |
+            echo "Pip..."
             pip install --quiet --upgrade pip
+            echo "Dependencies..."
             pip install --quiet --upgrade numpy scipy https://github.com/mne-tools/mne-python/zipball/main numpydoc sphinx sphinx_fontawesome sphinx_bootstrap_theme
+            echo "PyGraphViz..."
             pip install --upgrade pygraphviz
             python -c "import mne; mne.sys_info()"
             pip install -ve .
       - run:
           name: Build docs
           command: |
-            make -C doc make html
+            make -C doc html
 
       - store_artifacts:
           path: doc/_build/html/
