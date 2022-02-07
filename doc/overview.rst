@@ -683,8 +683,6 @@ bad_tag : str
     Tag for bid channel filename, usually "_post-sss.txt".
 raw_dir : str
     Raw directory, usually "raw_fif".
-otp_dir : str
-    Directory for OTP-processed files, usually "otp_fif".
 keep_orig : bool
     Keep original files after anonymization.
 raw_fif_tag : str
@@ -693,6 +691,8 @@ otp_fif_tag : str
     File tag for OTP-processed files, usually "_raw_otp.fif".
 sss_fif_tag : str
     File tag for SSS-processed files, usually "_raw_sss.fif".
+otp_dir : str
+    Directory for OTP-processed files, usually "otp_fif".
 sss_dir : str
     Directory to use for SSS processed files, usually "sss_fif".
 pca_dir : str

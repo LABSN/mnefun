@@ -21,6 +21,8 @@ scoring:
   on_process:
 
 preprocessing:
+  otp:
+    otp_dur:
   multithreading:
     n_jobs:
     n_jobs_mkl:
@@ -40,8 +42,6 @@ preprocessing:
     coil_bad_count_duration_limit:
     rotation_limit:
     translation_limit:
-  otp:
-    otp_dur:
   sss:
     movecomp:
     hp_type:

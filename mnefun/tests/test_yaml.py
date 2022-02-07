@@ -48,5 +48,6 @@ def test_params_io(tmpdir, fname):
         del orig['preprocessing']['sss'][key]
     del orig['epoching']['decim']
     del orig['forward']['bem_type']
+    del read['preprocessing']['otp']
     for key in orig.keys():
         assert orig[key] == read[key]
