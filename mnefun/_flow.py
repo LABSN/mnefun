@@ -45,7 +45,7 @@ def _create_flowchart(fname):
         aan='./SUBJ/raw_fif/\n*-annot.fif',
         cov='./SUBJ/cov/\n*-cov.fif',
         lst='./SUBJ/lists/\nALL_*-eve.lst',
-        raw='./SUBJ/raw_fif/\n*_raw.fif'
+        raw='./SUBJ/raw_fif/\n*_raw.fif',
         otp='./SUBJ/otp_fif/\n*_raw_otp.fif',
         sss='./SUBJ/sss_fif/\n*_raw_sss.fif',
         pca='./SUBJ/sss_pca_fif/\n*_fil55_raw_sss.fif',
