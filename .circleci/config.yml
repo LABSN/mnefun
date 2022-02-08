@@ -2,16 +2,37 @@ version: 2
 jobs:
   build_docs:
     docker:
-      - image: circleci/python:3.7-buster
+      - image: cimg/base:stable-20.04
     steps:
       # Get our data and merge with upstream
       - checkout
-      - run: sudo apt-get install graphviz-dev graphviz
-      - run: python -m pip install --quiet --upgrade --user pip
-      - run: python -m pip install --quiet --upgrade --user numpy scipy https://github.com/mne-tools/mne-python/zipball/main numpydoc sphinx sphinx_fontawesome sphinx_bootstrap_theme pygraphviz
-      - run: python -c "import mne; mne.sys_info()"
-      - run: python setup.py develop --user
-      - run: cd doc && make html
+      - run:
+          name: Setup system
+          command: |
+            set -e
+            echo "set -e" >> $BASH_ENV
+            sudo apt update -qq
+            sudo apt install -qq graphviz-dev graphviz python3-venv python3.9-venv python3.9-dev
+            python3.9 -m venv ~/python_env
+            source ~/python_env/bin/activate
+            echo "source ~/python_env/bin/activate" >> $BASH_ENV
+            mkdir -p ~/.local/bin
+            ln -s ~/python_env/bin/python ~/.local/bin/python
+      - run:
+          name: Setup Python env
+          command: |
+            echo "Pip..."
+            pip install --quiet --upgrade pip
+            echo "Dependencies..."
+            pip install --quiet --upgrade numpy scipy https://github.com/mne-tools/mne-python/zipball/main numpydoc sphinx sphinx_fontawesome sphinx_bootstrap_theme
+            echo "PyGraphViz..."
+            pip install --upgrade pygraphviz
+            python -c "import mne; mne.sys_info()"
+            pip install -ve .
+      - run:
+          name: Build docs
+          command: |
+            make -C doc html
 
       - store_artifacts:
           path: doc/_build/html/
@@ -25,7 +46,7 @@ jobs:
 
   deploy:
     docker:
-      - image: circleci/python:3.6-stretch
+      - image: cimg/base:stable-20.04
     steps:
       - add_ssh_keys:
           fingerprints:

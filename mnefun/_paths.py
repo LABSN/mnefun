@@ -82,7 +82,7 @@ def get_raw_fnames(p, subj, which='raw', erm=True, add_splits=False,
     subj : str
         Subject name.
     which : str
-        Type of raw filenames. Must be 'sss', 'raw', or 'pca'.
+        Type of raw filenames. Must be 'sss', 'raw', 'pca' or 'otp'.
     erm : bool | str
         If True, include empty-room files (appended to end). If 'only', then
         only return empty-room files.
@@ -98,7 +98,7 @@ def get_raw_fnames(p, subj, which='raw', erm=True, add_splits=False,
     fnames : list
         List of filenames.
     """
-    assert which in ('sss', 'raw', 'pca')
+    assert which in ('sss', 'raw', 'pca', 'otp')
     if which == 'sss':
         raw_dir = op.join(p.work_dir, subj, p.sss_dir)
         tag = p.sss_fif_tag
@@ -108,6 +108,9 @@ def get_raw_fnames(p, subj, which='raw', erm=True, add_splits=False,
     elif which == 'pca':
         raw_dir = op.join(p.work_dir, subj, p.pca_dir)
         tag = p.pca_extra + p.sss_fif_tag
+    elif which == 'otp':
+        raw_dir = op.join(p.work_dir, subj, p.otp_dir)
+        tag = p.otp_fif_tag
 
     if run_indices is None:
         run_indices = np.arange(len(p.run_names))

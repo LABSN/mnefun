@@ -25,6 +25,7 @@ from ._inverse import gen_inverses
 from ._status import print_proc_status
 from ._paths import _get_config_file
 from ._utils import timestring
+from ._otp import run_otp
 
 
 # Class adapted from:
@@ -156,6 +157,7 @@ class Params(Frozen):
         self.trans_dir = 'trans'
         self.bad_dir = 'bads'
         self.raw_dir = 'raw_fif'
+        self.otp_dir = 'otp_fif'
         self.sss_dir = 'sss_fif'
         self.pca_dir = 'sss_pca_fif'
 
@@ -167,6 +169,7 @@ class Params(Frozen):
         self.inv_erm_tag = '-erm'
         self.eq_tag = 'eq'
         self.sss_fif_tag = '_raw_sss.fif'
+        self.otp_fif_tag = '_raw_otp.fif'
         self.bad_tag = '_post-sss.txt'
         self.keep_orig = False
         # This is used by fix_eeg_channels to fix original files
@@ -178,6 +181,7 @@ class Params(Frozen):
         self.hp_type = 'maxfilter'
         self.mf_args = ''
         self.tsss_dur = 60.
+        self.otp_dur = None
         self.trans_to = 'median'  # where to transform head positions to
         self.sss_format = 'float'  # output type for MaxFilter
         self.movecomp = 'inter'
@@ -365,9 +369,9 @@ def _set_static(p):
                           ' processing will fail.' % (key,))
 
 
-def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
-                  do_sss=False, fetch_sss=False, do_ch_fix=False,
-                  gen_ssp=False, apply_ssp=False,
+def do_processing(p, *, fetch_raw=False, do_score=False, push_raw=False,
+                  do_otp=False, do_sss=False, fetch_sss=False,
+                  do_ch_fix=False, gen_ssp=False, apply_ssp=False,
                   write_epochs=False, gen_covs=False, gen_fwd=False,
                   gen_inv=False, gen_report=False, print_status=True):
     """Do M/EEG data processing.
@@ -382,6 +386,8 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
         Do scoring.
     push_raw : bool
         Push raw recording files to SSS workstation.
+    do_otp: bool
+        Apply OTP locally.
     do_sss : bool
         Run SSS remotely on SSS workstation.
     fetch_sss : bool
@@ -413,6 +419,7 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
     bools = [fetch_raw,
              do_score,
              push_raw,
+             do_otp,
              do_sss,
              fetch_sss,
              do_ch_fix,
@@ -428,6 +435,7 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
     texts = ['Pulling raw files from acquisition machine',
              'Scoring subjects',
              'Pushing raw files to remote workstation',
+             'Running OTP',
              'Running SSS using %s' % p.sss_type,
              'Pulling SSS files from remote workstation',
              'Fixing EEG order',
@@ -449,6 +457,7 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
     funcs = [fetch_raw_files,
              score_fun,
              push_raw_files,
+             run_otp,
              run_sss,
              fetch_sss_files,
              fix_eeg_files,

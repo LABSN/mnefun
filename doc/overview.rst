@@ -133,9 +133,19 @@ score : callable | None
 on_process : callable
     Called at each processing step.
 
-.. _do_sss:
+3. do_otp
+---------
+Run OTP processing.
 
-3. do_sss
+1. Run OTP locally using :func:`mne.preprocessing.oversampled_temporal_projection`.
+
+``preprocessing: otp``: OTP parameters
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+otp_dur : float | None
+    The window duration (in seconds) to use. Must be > or equal to tsss_dur if combining with tSSS processing.
+
+
+4. do_sss
 ---------
 
 .. warning:: Before running SSS, set ``params.mf_prebad[SUBJ]`` to a
@@ -281,12 +291,12 @@ cont_as_esss : bool
     Only supported when Python is used for SSS.
 
 
-4. do_ch_fix
+5. do_ch_fix
 ------------
 
 Fix EEG channel ordering, and also anonymize files.
 
-5. gen_ssp
+6. gen_ssp
 ----------
 
 .. warning:: Before running SSP, examine SSS'ed files and make
@@ -441,12 +451,12 @@ plot_drop_logs : bool
     If True, plot drop logs after preprocessing.
 
 
-6. apply_ssp
+7. apply_ssp
 ------------
 Apply SSP vectors and filtering to the files.
 
 
-7. write_epochs
+8. write_epochs
 ---------------
 Write epochs to disk.
 
@@ -537,7 +547,7 @@ allow_resample : bool
     matching sample rate. This is useful when recordings were errantly
     performed at different sample rates.
 
-8. gen_covs
+9. gen_covs
 -----------
 Generate covariances.
 
@@ -566,8 +576,8 @@ force_erm_cov_rank_full : bool
     is short and/or there are a lot of head movements.
 
 
-9. gen_fwd
-----------
+10. gen_fwd
+-----------
 .. warning:: Make SUBJ/trans/SUBJ-trans.fif using :ref:`mne:mne coreg`.
 
 Generate forward solutions (and source space if necessary).
@@ -591,7 +601,7 @@ fwd_mindist : float
     Minimum distance (mm) for sources in the brain from the skull in order
     for them to be included in the forward solution source space.
 
-10. gen_inv
+11. gen_inv
 -----------
 
 Generate inverses.
@@ -604,7 +614,7 @@ inv_runs : list of int
     Runs to use for each inverse.
 
 
-11. gen_report
+12. gen_report
 --------------
 
 Write :class:`mne.Report` HTML of results to disk.
@@ -677,8 +687,12 @@ keep_orig : bool
     Keep original files after anonymization.
 raw_fif_tag : str
     File tag for raw data, usually "_raw.fif".
+otp_fif_tag : str
+    File tag for OTP-processed files, usually "_raw_otp.fif".
 sss_fif_tag : str
     File tag for SSS-processed files, usually "_raw_sss.fif".
+otp_dir : str
+    Directory for OTP-processed files, usually "otp_fif".
 sss_dir : str
     Directory to use for SSS processed files, usually "sss_fif".
 pca_dir : str

@@ -29,8 +29,8 @@ _REPORT_KEYS = {
 _KEYS_TO_FLATTEN = {
     'general', 'naming', 'fetch_raw', 'scoring', 'bads', 'raw', 'annotations',
     'multithreading',
-    'preprocessing', 'head_position_estimation', 'sss', 'filtering', 'ssp',
-    'epochs', 'epoching',
+    'preprocessing', 'head_position_estimation', 'otp', 'sss', 'filtering',
+    'ssp', 'epochs', 'epoching',
     'covariance', 'forward', 'inverse',
 }
 
@@ -140,7 +140,9 @@ def _flatten_dicts(d, out, keys_to_flatten):
     assert isinstance(out, dict)
     for key, val in d.items():
         if key in keys_to_flatten:
-            _flatten_dicts(val, out, keys_to_flatten)
+            assert isinstance(d[key], dict)
+            if len(d[key]) > 0:  # don't keep empty ones like "otp"
+                _flatten_dicts(val, out, keys_to_flatten)
         else:
             assert key not in out, f'parameter {key} may be repeated'
             out[key] = val
