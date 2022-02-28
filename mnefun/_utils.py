@@ -1,6 +1,6 @@
 """Miscellaneous utilities."""
 
-from functools import reduce, partial
+from functools import reduce
 import os
 import os.path as op
 import re
@@ -17,10 +17,7 @@ from mne.fixes import _get_args as get_args  # noqa: F401
 from mne.io.constants import FIFF
 from mne.utils import verbose
 
-from h5io import read_hdf5 as _read_hdf5, write_hdf5 as _write_hdf5
-
-read_hdf5 = partial(_read_hdf5, title='mnepython')
-write_hdf5 = partial(_write_hdf5, title='mnepython')
+from h5io import read_hdf5, write_hdf5
 
 
 def _fix_raw_eog_cals(raws, kind='EOG'):
