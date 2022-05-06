@@ -35,14 +35,26 @@ from ._utils import _handle_dict, get_args, read_hdf5, write_hdf5
 _data_dir = op.join(op.dirname(__file__), 'data')
 
 try:
-    from mne.preprocessing import annotate_flat
+    from mne.preprocessing import annotate_amplitude
 except ImportError:
-    from mne.preprocessing import mark_flat
-else:
+    try:
+        from mne.preprocessing import annotate_flat
+    except ImportError:
+        from mne.preprocessing import mark_flat
+    else:
+        def mark_flat(raw, bad_percent=5., min_duration=0.005, picks=None,
+                    verbose=None):
+            annot, bads = annotate_flat(raw, bad_percent, min_duration, picks,
+                                        verbose)
+            raw.set_annotations(raw.annotations + annot)
+            raw.info['bads'] += bads
+            return raw
+except ImportError:
     def mark_flat(raw, bad_percent=5., min_duration=0.005, picks=None,
                   verbose=None):
-        annot, bads = annotate_flat(raw, bad_percent, min_duration, picks,
-                                    verbose)
+        annot, bads = annotate_amplitude(
+            raw, flat=0., bad_percent=bad_percent, min_duration=min_duration,
+            picks=picks, verbose=verbose)
         raw.set_annotations(raw.annotations + annot)
         raw.info['bads'] += bads
         return raw

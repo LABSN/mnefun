@@ -2,11 +2,11 @@ version: 2
 jobs:
   build_docs:
     docker:
-      - image: circleci/python:3.7-buster
+      - image: cimg/python:3.9.12
     steps:
       # Get our data and merge with upstream
       - checkout
-      - run: sudo apt-get install graphviz-dev graphviz
+      - run: sudo apt update && sudo apt install graphviz-dev graphviz
       - run: python -m pip install --quiet --upgrade --user pip
       - run: python -m pip install --quiet --upgrade --user numpy scipy https://github.com/mne-tools/mne-python/zipball/main numpydoc sphinx sphinx_fontawesome sphinx_bootstrap_theme pygraphviz
       - run: python -c "import mne; mne.sys_info()"
@@ -25,7 +25,7 @@ jobs:
 
   deploy:
     docker:
-      - image: circleci/python:3.6-stretch
+      - image: cimg/python:3.9.12
     steps:
       - add_ssh_keys:
           fingerprints:
