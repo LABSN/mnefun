@@ -1,0 +1,46 @@
+name: 'tests'
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.number }}-${{ github.event.ref }}
+  cancel-in-progress: true
+on:
+  push:
+    branches:
+      - '*'
+  pull_request:
+    branches:
+      - '*'
+
+permissions:
+  contents: read
+
+jobs:
+  # PIP-pre + non-default stim channel + log level info
+  job:
+    name: 'pytest'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -e {0}
+    env:
+      DISPLAY: ':99.0'
+      MNE_LOGGING_LEVEL: 'info'
+      MNE_STIM_CHANNEL: 'STI101'
+      OPENBLAS_NUM_THREADS: '1'
+      PYTHONUNBUFFERED: '1'
+      PYTHON_VERSION: '3.10'
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+        name: 'Setup python'
+      - run: |
+          pip install --upgrade --only-binary=":all:" pip setuptools wheel
+          pip install --upgrade --only-binary=":all:" numpy scipy matplotlib h5io
+          pip install --upgrade pyyaml patsy pytest pytest-cov codecov flake8 pydocstyle numpydoc https://github.com/mne-tools/mne-python/zipball/main
+        name: Install
+      - run: make flake
+      - run: pytest mnefun
+      - uses: codecov/codecov-action@v3
+        if: success()
+        name: 'Upload coverage to CodeCov'

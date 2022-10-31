@@ -1,6 +1,7 @@
 """Miscellaneous utilities."""
 
 from functools import reduce
+import inspect
 import os
 import os.path as op
 import re
@@ -13,11 +14,8 @@ import mne
 from mne import (pick_types, pick_info, make_sphere_model, DipoleFixed, Epochs,
                  Dipole, make_forward_dipole, Projection)
 from mne.channels import make_standard_montage, make_dig_montage
-from mne.fixes import _get_args as get_args  # noqa: F401
 from mne.io.constants import FIFF
 from mne.utils import verbose
-
-from h5io import read_hdf5, write_hdf5
 
 
 def _fix_raw_eog_cals(raws, kind='EOG'):
@@ -211,9 +209,8 @@ def compute_auc(dip, tmin=-np.inf, tmax=np.inf):
 
 
 def _get_epo_kwargs():
-    from mne.fixes import _get_args
     epo_kwargs = dict(verbose=False)
-    if 'overwrite' in _get_args(Epochs.save):
+    if 'overwrite' in get_args(Epochs.save):
         epo_kwargs['overwrite'] = True
     return epo_kwargs
 
@@ -461,3 +458,8 @@ for subject in ('ANTS3-0Months3T', 'ANTS6-0Months3T', 'ANTS12-0Months3T'):
     with np.printoptions(precision=None, suppress=True, linewidth=150, floatmode='unique'):
         print(repr(transform))
 """  # noqa: E501
+
+
+def get_args(obj):
+    """Wrapper."""
+    return inspect.signature(obj).parameters

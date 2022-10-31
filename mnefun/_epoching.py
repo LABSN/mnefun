@@ -2,6 +2,7 @@ import os
 import os.path as op
 import warnings
 
+from h5io import write_hdf5
 import numpy as np
 from scipy import io as spio
 from mne import Epochs, write_evokeds
@@ -16,7 +17,7 @@ from ._scoring import _read_events
 from ._sss import _read_raw_prebad
 from ._utils import (_fix_raw_eog_cals, _get_baseline, get_args, _handle_dict,
                      _restrict_reject_flat, _get_epo_kwargs, _handle_decim,
-                     _check_reject_annot_regex, write_hdf5)
+                     _check_reject_annot_regex)
 
 
 def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
