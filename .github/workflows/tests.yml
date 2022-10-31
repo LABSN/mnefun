@@ -36,7 +36,7 @@ jobs:
         name: 'Setup python'
       - run: |
           pip install --upgrade --only-binary=":all:" pip setuptools wheel
-          pip install --upgrade --only-binary=":all:" numpy scipy matplotlib
+          pip install --upgrade --only-binary=":all:" numpy scipy matplotlib h5io
           pip install --upgrade pyyaml patsy pytest pytest-cov codecov flake8 pydocstyle numpydoc https://github.com/mne-tools/mne-python/zipball/main
         name: Install
       - run: make flake
