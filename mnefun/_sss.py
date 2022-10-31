@@ -43,7 +43,7 @@ except ImportError:
         from mne.preprocessing import mark_flat
     else:
         def mark_flat(raw, bad_percent=5., min_duration=0.005, picks=None,
-                    verbose=None):
+                      verbose=None):
             annot, bads = annotate_flat(raw, bad_percent, min_duration, picks,
                                         verbose)
             raw.set_annotations(raw.annotations + annot)

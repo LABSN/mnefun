@@ -17,8 +17,6 @@ from mne.channels import make_standard_montage, make_dig_montage
 from mne.io.constants import FIFF
 from mne.utils import verbose
 
-from h5io import read_hdf5, write_hdf5
-
 
 def _fix_raw_eog_cals(raws, kind='EOG'):
     """Fix for annoying issue where EOG cals don't match."""
