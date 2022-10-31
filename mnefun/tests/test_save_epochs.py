@@ -25,7 +25,7 @@ def test_exits_with_warning_if_all_epochs_autorejected(params):
             patch('mnefun._epoching._read_events') as _read_events, \
             patch('mnefun._epoching.Epochs') as Epochs:
         Raw = Mock()
-        Raw.info = {'sfreq': 1000, 'bads': []}
+        Raw.info = {'sfreq': 1000, 'bads': [], 'dev_head_t': None}
         Raw._first_samps = [0]
         Raw._last_samps = [1000]
         read_raw_fif.return_value = Raw

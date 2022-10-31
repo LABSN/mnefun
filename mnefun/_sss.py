@@ -16,6 +16,7 @@ from numpy.testing import assert_allclose
 from scipy import linalg
 from scipy.spatial.distance import cdist
 
+from h5io import read_hdf5, write_hdf5
 try:
     from mne.chpi import get_chpi_info
 except Exception:  # <= 0.23
@@ -30,7 +31,7 @@ from mne.utils import (_pl, _TempDir, logger, run_subprocess, use_log_level,
                        verbose, ProgressBar)
 
 from ._paths import _get_config_file, _prebad, get_raw_fnames
-from ._utils import _handle_dict, get_args, read_hdf5, write_hdf5
+from ._utils import _handle_dict, get_args
 
 _data_dir = op.join(op.dirname(__file__), 'data')
 
