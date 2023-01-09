@@ -30,7 +30,7 @@ jobs:
       - add_ssh_keys:
           fingerprints:
             # ssh-keygen -t rsa -b 4096 -m PEM -C "circle@labsn.github.io"
-            - fd:c7:7b:64:4c:35:25:a9:94:b4:bf:51:35:ee:22:e7
+            - "25:b7:f2:bf:d7:38:6d:b6:c7:78:41:05:01:f8:41:7b"
       - attach_workspace:
           at: /tmp/_build
       - run:
