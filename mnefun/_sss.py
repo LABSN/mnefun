@@ -406,7 +406,7 @@ def _get_cal_ct_file(p, raw):
             assert raw.info['description'].startswith('Vectorview')
             cal_file = op.join(_data_dir, 'sss_cal.dat')
 
-    if not getattr(p, 'ct_file', 'uw') =='uw':
+    if not getattr(p, 'ct_file', 'uw') == 'uw':
         ct_file = p.ct_file
     else:
         if raw.info['description'].startswith('TRIUX'):
