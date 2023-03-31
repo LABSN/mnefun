@@ -375,9 +375,6 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
     import matplotlib.pyplot as plt
     if run_indices is None:
         run_indices = [None] * len(subjects)
-    time_kwargs = dict()
-    if 'time_unit' in mne.fixes._get_args(mne.viz.plot_evoked):
-        time_kwargs['time_unit'] = 's'
     known_keys = {
         'good_hpi_count', 'chpi_snr', 'head_movement', 'raw_segments', 'psd',
         'ssp_topomaps', 'source_alignment', 'drop_log', 'bem', 'covariance',
