@@ -405,6 +405,7 @@ def _get_cal_ct_file(p, raw):
         else:
             assert raw.info['description'].startswith('Vectorview')
             cal_file = op.join(_data_dir, 'sss_cal.dat')
+    logger.info('Calibration file = %s' % cal_file.split('/')[-1])
 
     if not getattr(p, 'ct_file', 'uw') == 'uw':
         ct_file = p.ct_file
@@ -414,6 +415,7 @@ def _get_cal_ct_file(p, raw):
         else:
             assert raw.info['description'].startswith('Vectorview')
             ct_file = op.join(_data_dir, 'ct_sparse.fif')
+    logger.info('Cross-talk file = %s' % ct_file.split('/')[-1])
 
     return cal_file, ct_file
 
