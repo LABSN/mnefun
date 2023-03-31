@@ -268,13 +268,11 @@ def _report_raw_segments(report, raw, lowpass=None):
 
 
 def _gen_psd_plot(raw, fmax, n_fft, ax):
-    try:
-        from mne.time_frequency import Spectrum
-    except ImportError:
-        plot = raw.plot_psd(fmax=fmax, n_fft=n_fft, show=False, ax=ax)
-    else:
+    if hasattr(mne.time_frequency.Spectrum, 'plot'):
         plot = raw.compute_psd(fmax=fmax, n_fft=n_fft).plot(show=False,
                                                             axes=ax)
+    else:
+        plot = raw.plot_psd(fmax=fmax, n_fft=n_fft, show=False, ax=ax)
     return plot
 
 
