@@ -50,7 +50,7 @@ except ImportError:
             raw.set_annotations(raw.annotations + annot)
             raw.info['bads'] += bads
             return raw
-except ImportError:
+else:
     def mark_flat(raw, bad_percent=5., min_duration=0.005, picks=None,
                   verbose=None):
         annot, bads = annotate_amplitude(
