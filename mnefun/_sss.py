@@ -396,15 +396,27 @@ def _get_origin(p, raw):
     return origin, kind, extra
 
 
-def _get_cal_ct_file(p):
-    if getattr(p, 'cal_file', 'uw') == 'uw':
-        cal_file = op.join(_data_dir, 'sss_cal.dat')
-    else:
+def _get_cal_ct_file(p, raw):
+    if not getattr(p, 'cal_file', 'uw') == 'uw':
         cal_file = p.cal_file
-    if getattr(p, 'ct_file', 'uw') == 'uw':
-        ct_file = op.join(_data_dir, 'ct_sparse.fif')
     else:
+        if raw.info['description'].startswith('TRIUX'):
+            cal_file = op.join(_data_dir, 'sss_cal_triux.dat')
+        else:
+            assert raw.info['description'].startswith('Vectorview')
+            cal_file = op.join(_data_dir, 'sss_cal.dat')
+    logger.info('Calibration file = %s' % cal_file.split('/')[-1])
+
+    if not getattr(p, 'ct_file', 'uw') == 'uw':
         ct_file = p.ct_file
+    else:
+        if raw.info['description'].startswith('TRIUX'):
+            ct_file = op.join(_data_dir, 'ct_sparse_triux2.fif')
+        else:
+            assert raw.info['description'].startswith('Vectorview')
+            ct_file = op.join(_data_dir, 'ct_sparse.fif')
+    logger.info('Cross-talk file = %s' % ct_file.split('/')[-1])
+
     return cal_file, ct_file
 
 
@@ -418,7 +430,6 @@ def run_sss_locally(p, subjects, run_indices):
     from mne.annotations import _handle_meas_date
 
     from ._ssp import _compute_erm_proj, _proj_nums
-    cal_file, ct_file = _get_cal_ct_file(p)
     assert isinstance(p.tsss_dur, float) and p.tsss_dur > 0
     st_duration = p.tsss_dur
     assert (isinstance(p.sss_regularize, str) or
@@ -518,6 +529,7 @@ def run_sss_locally(p, subjects, run_indices):
                 print('%i sec' % (time.time() - t0,))
 
             # apply maxwell filter
+            cal_file, ct_file = _get_cal_ct_file(p, raw)
             t0 = time.time()
             print('        Running maxwell_filter ...', end='')
             raw_sss = maxwell_filter(
@@ -694,7 +706,7 @@ def _python_autobad(raw, p, skip_start, skip_stop, subj):
     t_window = _get_t_window(p, raw, p.filter_chpi_t_window, subj)
     filter_chpi(raw, t_window=t_window,
                 allow_line_only=True, verbose=False)
-    cal_file, ct_file = _get_cal_ct_file(p)
+    cal_file, ct_file = _get_cal_ct_file(p, raw)
     kwargs = dict()
     if 'h_freq' in get_args(find_bad_channels_maxwell):
         kwargs['h_freq'] = None
