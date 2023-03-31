@@ -273,7 +273,7 @@ def _gen_psd_plot(raw, fmax, n_fft, ax):
     except ImportError:
         plot = raw.plot_psd(fmax=fmax, n_fft=n_fft, show=False, ax=ax)
     else:
-        plot = raw.compute_psd(fmax=fmax, n_fft=n_fft).plot(show=False, 
+        plot = raw.compute_psd(fmax=fmax, n_fft=n_fft).plot(show=False,
                                                             axes=ax)
     return plot
 
