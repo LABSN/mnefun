@@ -267,6 +267,17 @@ def _report_raw_segments(report, raw, lowpass=None):
     print('%5.1f sec' % ((time.time() - t0),))
 
 
+def _gen_psd_plot(raw, fmax, n_fft, ax):
+    try:
+        from mne.time_frequency import Spectrum
+    except ImportError:
+        plot = raw.plot_psd(fmax=fmax, n_fft=n_fft, show=False, ax=ax)
+    else:
+        plot = raw.compute_psd(fmax=fmax, n_fft=n_fft).plot(show=False, 
+                                                            axes=ax)
+    return plot
+
+
 def _report_raw_psd(report, raw, raw_pca=None, raw_erm=None, raw_erm_pca=None,
                     p=None):
     t0 = time.time()
@@ -283,7 +294,7 @@ def _report_raw_psd(report, raw, raw_pca=None, raw_erm=None, raw_erm_pca=None,
     fmax = raw.info['lowpass']
     n_ax = sum(key in raw for key in ('mag', 'grad', 'eeg'))
     _, ax = plt.subplots(n_ax, figsize=(10, 8))
-    figs = [raw.plot_psd(fmax=fmax, n_fft=n_fft, show=False, ax=ax)]
+    figs = [_gen_psd_plot(raw, fmax=fmax, n_fft=n_fft, ax=ax)]
     captions = ['%s: Raw' % section]
     fmax = lp_cut + 2 * lp_trans
     for this_raw, caption in [
@@ -293,8 +304,7 @@ def _report_raw_psd(report, raw, raw_pca=None, raw_erm=None, raw_erm_pca=None,
             (raw_erm_pca, f'{section}: ERM processed (zoomed)')]:
         _, ax = plt.subplots(n_ax, figsize=(10, 8))
         if this_raw is not None:
-            figs.append(
-                this_raw.plot_psd(fmax=fmax, n_fft=n_fft, show=False, ax=ax))
+            figs.append(_gen_psd_plot(this_raw, fmax=fmax, n_fft=n_fft, ax=ax))
             captions.append(caption)
     # shared y limits
     n = len(figs[0].axes) // 2
