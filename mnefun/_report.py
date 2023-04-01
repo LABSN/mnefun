@@ -40,6 +40,7 @@ SQ2STR = '×√2'
 @contextmanager
 def report_context():
     """Create a context for making plt and mlab figures."""
+    mne.viz.set_browser_backend('matplotlib')
     import matplotlib
     import matplotlib.pyplot as plt
     style = {'axes.spines.right': 'off', 'axes.spines.top': 'off',
