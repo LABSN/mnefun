@@ -40,7 +40,6 @@ SQ2STR = '×√2'
 @contextmanager
 def report_context():
     """Create a context for making plt and mlab figures."""
-    mne.viz.set_browser_backend('matplotlib')
     import matplotlib
     import matplotlib.pyplot as plt
     style = {'axes.spines.right': 'off', 'axes.spines.top': 'off',
@@ -49,13 +48,14 @@ def report_context():
     plt.ioff()
     old_backend = matplotlib.get_backend()
     matplotlib.use('Agg', force=True)
-    try:
-        with plt.style.context(style):
-            yield
-    except Exception:
-        matplotlib.use(old_backend, force=True)
-        plt.interactive(is_interactive)
-        raise
+    with mne.viz.use_browser_backend('matplotlib'):
+        try:
+            with plt.style.context(style):
+                yield
+        except Exception:
+            matplotlib.use(old_backend, force=True)
+            plt.interactive(is_interactive)
+            raise
 
 
 # Backward compat wrappers for MNE 1.0+
