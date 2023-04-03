@@ -974,13 +974,22 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                                 this_evoked.add_proj(all_proj)
                             if this_evoked.nave > 0:
                                 with mne.utils.use_log_level('error'):
-                                    fig = this_evoked.plot_joint(
-                                        times, show=False, picks=picks,
-                                        ts_args=dict(proj=proj),
-                                        topomap_args=dict(
-                                            outlines='head',
-                                            vmin=min_, vmax=max_,
-                                            cmap=cmap, proj=proj))
+                                    try:
+                                        fig = this_evoked.plot_joint(
+                                            times, show=False, picks=picks,
+                                            ts_args=dict(proj=proj),
+                                            topomap_args=dict(
+                                                outlines='head',
+                                                vlim=(min_, max_),
+                                                cmap=cmap, proj=proj))
+                                    except TypeError:
+                                        fig = this_evoked.plot_joint(
+                                            times, show=False, picks=picks,
+                                            ts_args=dict(proj=proj),
+                                            topomap_args=dict(
+                                                outlines='head',
+                                                vmin=min_, vmax=max_,
+                                                cmap=cmap, proj=proj))
                                 assert isinstance(fig, plt.Figure)
                                 fig.axes[0].set(ylim=(-max_, max_))
                                 t = fig.axes[-1].texts[0]

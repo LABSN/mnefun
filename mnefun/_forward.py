@@ -74,7 +74,7 @@ def gen_forwards(p, subjects, structurals, run_indices):
 
 
 def _get_bem_src_trans(p, info, subj, struc):
-    subjects_dir = get_subjects_dir(p.subjects_dir, raise_error=True)
+    subjects_dir = str(get_subjects_dir(p.subjects_dir, raise_error=True))
     assert isinstance(subjects_dir, str)
     if struc is None:  # spherical case
         bem, src, trans = _spherical_conductor(info, subj, p.src_pos)
