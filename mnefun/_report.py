@@ -660,7 +660,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                 figs = [epo.plot_drop_log(subject=subj, show=False)]
                 captions = [repr(epo)]
                 _add_figs_to_section(
-                    report, figs, captions, section, image_format='svg')
+                    report, figs, captions, section, image_format='png')
                 print('%5.1f sec' % ((time.time() - t0),))
             else:
                 print('    %s skipped' % section)
