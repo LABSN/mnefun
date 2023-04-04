@@ -998,7 +998,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                                         # old MNE had separate vmin, vmax
                                         topomap_args.update(
                                             zip(('vmin', 'vmax'),
-                                            topomap_args.pop('vlim')))
+                                                topomap_args.pop('vlim')))
                                         fig = this_evoked.plot_joint(
                                             times, **kwargs)
                                 assert isinstance(fig, plt.Figure)
