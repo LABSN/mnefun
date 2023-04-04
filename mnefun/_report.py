@@ -271,7 +271,7 @@ def _report_raw_segments(report, raw, lowpass=None, img_form='webp'):
 
 
 def _gen_psd_plot(raw, fmax, n_fft, ax):
-    if hasattr(mne.time_frequency.Spectrum, 'plot'):
+    if hasattr(raw, 'compute_psd'):
         plot = raw.compute_psd(fmax=fmax, n_fft=n_fft).plot(show=False,
                                                             axes=ax)
     else:
@@ -985,22 +985,22 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                                 this_evoked.add_proj(all_proj)
                             if this_evoked.nave > 0:
                                 with mne.utils.use_log_level('error'):
+                                    topomap_args = dict(outlines='head',
+                                                        vlim=(min_, max_),
+                                                        cmap=cmap, proj=proj)
+                                    kwargs = dict(show=False, picks=picks,
+                                                  ts_args=dict(proj=proj),
+                                                  topomap_args=topomap_args)
                                     try:
                                         fig = this_evoked.plot_joint(
-                                            times, show=False, picks=picks,
-                                            ts_args=dict(proj=proj),
-                                            topomap_args=dict(
-                                                outlines='head',
-                                                vlim=(min_, max_),
-                                                cmap=cmap, proj=proj))
+                                            times, **kwargs)
                                     except TypeError:
+                                        # old MNE had separate vmin, vmax
+                                        topomap_args.update(
+                                            zip(('vmin', 'vmax'),
+                                            topomap_args.pop('vlim')))
                                         fig = this_evoked.plot_joint(
-                                            times, show=False, picks=picks,
-                                            ts_args=dict(proj=proj),
-                                            topomap_args=dict(
-                                                outlines='head',
-                                                vmin=min_, vmax=max_,
-                                                cmap=cmap, proj=proj))
+                                            times, **kwargs)
                                 assert isinstance(fig, plt.Figure)
                                 fig.axes[0].set(ylim=(-max_, max_))
                                 t = fig.axes[-1].texts[0]
