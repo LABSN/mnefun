@@ -260,7 +260,7 @@ def save_epochs(p, subjects, in_names, in_numbers, analyses, out_names,
                     evokeds.append(stde)
                     if kind == 'standard':
                         n_standard += 2
-            write_evokeds(fn, evokeds)
+            write_evokeds(fn, evokeds, overwrite=True)
             naves = [str(n) for n in sorted(set([
                 evoked.nave for evoked in evokeds[:n_standard]]))]
             bad = [evoked.comment for evoked in evokeds[:n_standard:2]
