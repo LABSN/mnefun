@@ -9,7 +9,7 @@ from scipy import linalg
 
 from mne import read_proj, read_events, pick_types
 from mne.utils import verbose, ProgressBar, logger
-from mne.viz.utils import tight_layout, plt_show
+from mne.viz.utils import plt_show
 
 from ._sss import compute_good_coils
 from ._paths import get_raw_fnames
@@ -140,7 +140,7 @@ def plot_reconstruction(evoked, origin=(0., 0., 0.04)):
     info_to['projs'] = []
     op = _map_meg_channels(
         evoked.info, info_to, mode='accurate', origin=(0., 0., 0.04))
-    fig, axs = plt.subplots(3, 2, squeeze=False)
+    fig, axs = plt.subplots(3, 2, squeeze=False, layout="constrained")
     titles = dict(grad='Gradiometers (fT/cm)', mag='Magnetometers (fT)')
     for mi, meg in enumerate(('grad', 'mag')):
         picks = pick_types(evoked.info, meg=meg)
@@ -166,7 +166,6 @@ def plot_reconstruction(evoked, origin=(0., 0., 0.04)):
     axs[0, 0].set_ylabel('Original')
     axs[1, 0].set_ylabel('Projection')
     axs[2, 0].set_ylabel('Reconstruction')
-    fig.tight_layout()
     return fig
 
 
@@ -285,7 +284,7 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics=None, show=True, *,
     logger.info('[done]')
 
     cfreqs_legend = ['%s Hz' % fre for fre in cfreqs]
-    fig, axs = plt.subplots(4, 1, sharex=True)
+    fig, axs = plt.subplots(4, 1, sharex=True, layout="constrained")
 
     # SNR plots for gradiometers and magnetometers
     ax = axs[0]
@@ -330,8 +329,6 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics=None, show=True, *,
     ax.set_title('Residual (unexplained) variance, all gradiometer channels',
                  fontsize=title_fontsize)
     ax.tick_params(axis='both', which='major', labelsize=tick_fontsize)
-    tight_layout(pad=.5, w_pad=.1, h_pad=.2)  # from mne.viz
-    # tight_layout will screw these up
     ax = axs[0]
     box = ax.get_position()
     ax.set_position([box.x0, box.y0, box.width * 0.8, box.height])
@@ -400,7 +397,6 @@ def plot_good_coils(raw, t_step=1., t_window=0.2, dist_limit=0.005,
         ax.fill_between(t, 0, n_coils, where=mask,
                         color=color, edgecolor='none', linewidth=0, zorder=1)
     ax.grid(True)
-    fig.tight_layout()
     plt_show(show)
     return fig
 
