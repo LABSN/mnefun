@@ -22,8 +22,13 @@ try:
 except Exception:  # <= 0.23
     from mne.chpi import _get_hpi_info as get_chpi_info
 from mne.chpi import read_head_pos, write_head_pos, filter_chpi
+from mne.annotations import _handle_meas_date, _annotations_starts_stops
 
 from mne.io import BaseRaw, read_info, read_raw_fif, write_info
+try:
+    from mne._fiff.meas_info import _empty_info
+except ImportError:  # < 1.6
+    from mne.io.meas_info import _empty_info
 from mne.preprocessing import maxwell_filter
 from mne.transforms import (apply_trans, invert_transform, quat_to_rot,
                             rot_to_quat)
@@ -427,8 +432,6 @@ def run_sss_locally(p, subjects, run_indices):
     --------
     mne.preprocessing.maxwell_filter
     """
-    from mne.annotations import _handle_meas_date
-
     from ._ssp import _compute_erm_proj, _proj_nums
     assert isinstance(p.tsss_dur, float) and p.tsss_dur > 0
     st_duration = p.tsss_dur
@@ -847,7 +850,6 @@ def _get_fit_data(raw, p=None, prefix='    ', subj=None):
 def _head_pos_annot(p, subj, raw_fname, prefix='  '):
     """Locate head position estimation file and do annotations."""
     raw = _read_raw_prebad(p, subj, raw_fname, disp=False)
-    from mne.annotations import _handle_meas_date
     printed = False
     if p is not None and p.movecomp is None:
         fit_data = head_pos = t_window = None
@@ -971,7 +973,6 @@ def info_sss_basis(info, origin='auto', int_order=8, ext_order=3,
 def calc_median_hp(p, subj, out_file, ridx):
     """Calculate median head position"""
     print('        Estimating median head position ...')
-    from mne.io.meas_info import _empty_info
     raw_files = get_raw_fnames(p, subj, 'raw', False, False, ridx)
     ts = []
     qs = []
@@ -1001,8 +1002,6 @@ def calc_median_hp(p, subj, out_file, ridx):
 
 def calc_twa_hp(p, subj, out_file, ridx):
     """Calculate time-weighted average head position."""
-    from mne.annotations import _annotations_starts_stops
-    from mne.io.meas_info import _empty_info
     if not p.movecomp:
         # Eventually we could relax this but probably YAGNI
         raise RuntimeError('Cannot use time-weighted average head position '

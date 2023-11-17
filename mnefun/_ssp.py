@@ -14,7 +14,10 @@ from mne.filter import filter_data
 from mne.io import read_raw_fif
 from mne.viz import plot_drop_log
 from mne.utils import _pl
-
+try:
+    from mne._fiff.proj import _needs_eeg_average_ref_proj
+except ImportError:  # MNE < 1.6
+    from mne.io.proj import _needs_eeg_average_ref_proj
 from ._epoching import _raise_bad_epochs
 from ._paths import get_raw_fnames, get_bad_fname
 from ._utils import (get_args, _fix_raw_eog_cals, _handle_dict, _safe_remove,
@@ -43,7 +46,6 @@ def _raw_LRFCP(raw_names, sfreq, l_freq, h_freq, n_jobs, n_jobs_resample,
                fir_design='firwin2', pick=True,
                skip_by_annotation=('bad', 'skip')):
     """Helper to load, filter, concatenate, then project raw files"""
-    from mne.io.proj import _needs_eeg_average_ref_proj
     from ._sss import _read_raw_prebad
     if isinstance(raw_names, str):
         raw_names = [raw_names]
