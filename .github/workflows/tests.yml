@@ -29,8 +29,8 @@ jobs:
       PYTHONUNBUFFERED: '1'
       PYTHON_VERSION: '3.10'
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-python@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
         name: 'Setup python'
@@ -41,6 +41,6 @@ jobs:
         name: Install
       - run: make flake
       - run: pytest mnefun
-      - uses: codecov/codecov-action@v3
+      - uses: codecov/codecov-action@v4
         if: success()
         name: 'Upload coverage to CodeCov'
