@@ -9,9 +9,9 @@ jobs:
       - run: sudo apt update && sudo apt install graphviz-dev graphviz
       - run: python -m pip install --quiet --upgrade --user pip
       - run: python -m pip install --upgrade --user git+https://github.com/mne-tools/mne-python@main numpydoc sphinx sphinx_fontawesome sphinx_bootstrap_theme pygraphviz
-      - run: python -c "import mne; mne.sys_info()"
-      - run: python setup.py develop --user
-      - run: cd doc && make html
+      - run: mne sys_info
+      - run: pip install -ve .
+      - run: make -C doc html
 
       - store_artifacts:
           path: doc/_build/html/
