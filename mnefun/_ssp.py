@@ -388,7 +388,10 @@ def do_preprocessing_combined(p, subjects, run_indices):
             print('  obtained %d epochs from %d events.' % (len(ecg_epochs),
                                                             len(ecg_events)))
             if len(ecg_epochs) >= 20:
-                write_events(ecg_eve, ecg_epochs.events)
+                kwargs = dict()
+                if "overwrite" in get_args(write_events):
+                    kwargs["overwrite"] = True
+                write_events(ecg_eve, ecg_epochs.events, **kwargs)
                 ecg_epochs.save(ecg_epo, **_get_epo_kwargs())
                 desc_prefix = 'ECG-%s-%s' % tuple(ecg_t_lims)
                 pr = compute_proj_wrap(
@@ -396,7 +399,10 @@ def do_preprocessing_combined(p, subjects, run_indices):
                     n_mag=proj_nums[0][1], n_eeg=proj_nums[0][2],
                     desc_prefix=desc_prefix, **proj_kwargs)
                 assert len(pr) == np.sum(proj_nums[0][::p_sl])
-                write_proj(ecg_proj, pr)
+                kwargs = dict()
+                if "overwrite" in get_args(write_events):
+                    kwargs["overwrite"] = True
+                write_proj(ecg_proj, pr, **kwargs)
                 projs.extend(pr)
             else:
                 _raise_bad_epochs(raw, ecg_epochs, ecg_events, 'ECG',
