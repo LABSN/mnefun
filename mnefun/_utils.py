@@ -463,3 +463,9 @@ for subject in ('ANTS3-0Months3T', 'ANTS6-0Months3T', 'ANTS12-0Months3T'):
 def get_args(obj):
     """Wrapper."""
     return inspect.signature(obj).parameters
+
+
+def _overwrite(func, *args, **kwargs):
+    if "overwrite" in get_args(func):
+        kwargs["overwrite"] = True
+    return func(*args, **kwargs)
