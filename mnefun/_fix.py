@@ -3,6 +3,7 @@
 # Distributed under the (new) BSD License. See LICENSE.txt for more info.
 
 from os import path as op
+import datetime
 import glob
 import numpy as np
 import re
@@ -114,6 +115,13 @@ def fix_eeg_channels(raw_files, anon=None, verbose=True):
             if need_reorder:
                 raw._data[picks, :] = raw._data[picks, :][order]
             if need_anon and raw.info['subject_info'] is not None:
+                anon = anon.copy()
+                if (
+                    isinstance(raw.info["subject_info"].get("birthday"), datetime.date)
+                    and isinstance(anon.get("birthday"), tuple)
+                ):
+                    anon["birthday"] = datetime.date(*anon["birthday"])
+                anon['birthday'] = raw.info["subject_info"]["birthday"]
                 raw.info['subject_info'].update(anon)
             raw.info['description'] = write_key + anon_key
             if isinstance(raw_file, str):

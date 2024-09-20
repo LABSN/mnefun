@@ -53,6 +53,7 @@ def report_context():
             with plt.style.context(style):
                 yield
         except Exception:
+            plt.close("all")
             matplotlib.use(old_backend, force=True)
             plt.interactive(is_interactive)
             raise
@@ -129,7 +130,6 @@ def _report_good_hpi(report, fnames, p=None, subj=None, img_form='webp'):
             break
         fig = plot_good_coils(fit_data, show=False)
         fig.set_size_inches(10, 2)
-        fig.tight_layout()
         figs.append(fig)
         captions.append('%s: %s' % (section, op.basename(fname)))
     _add_figs_to_section(
@@ -151,8 +151,6 @@ def _report_chpi_snr(report, fnames, p=None, subj=None, img_form='webp'):
         fig = plot_chpi_snr_raw(raw, t_window, show=False,
                                 verbose=False)
         fig.set_size_inches(10, 5)
-        fig.subplots_adjust(0.1, 0.1, 0.8, 0.95,
-                            wspace=0, hspace=0.5)
         figs.append(fig)
         captions.append('%s: %s' % (section, op.basename(fname)))
     _add_figs_to_section(
@@ -162,6 +160,7 @@ def _report_chpi_snr(report, fnames, p=None, subj=None, img_form='webp'):
 
 def _report_head_movement(report, fnames, p=None, subj=None, run_indices=None,
                           img_form='webp'):
+    import matplotlib.pyplot as plt
     section = 'Head movement'
     print(('    %s ... ' % section).ljust(LJUST), end='')
     t0 = time.time()
@@ -171,8 +170,9 @@ def _report_head_movement(report, fnames, p=None, subj=None, run_indices=None,
         fname, raw = _check_fname_raw(fname, p, subj)
         _, pos, _ = _get_fit_data(raw, p, prefix='      ')
         trans_to = _load_trans_to(p, subj, run_indices, raw)
+        axes = plt.subplots(3, 2, sharex=True, layout="constrained")[1]
         fig = plot_head_positions(pos=pos, destination=trans_to,
-                                  info=raw.info, show=False)
+                                  info=raw.info, show=False, axes=axes)
         for ax in fig.axes[::2]:
             """
             # tighten to the sensor limits
@@ -198,7 +198,6 @@ def _report_head_movement(report, fnames, p=None, subj=None, run_indices=None,
             assert (mx >= coord).all()
             ax.set_ylim(mn, mx)
         fig.set_size_inches(10, 6)
-        fig.tight_layout()
         figs.append(fig)
         captions.append('%s: %s' % (section, op.basename(fname)))
     del trans_to
@@ -220,7 +219,6 @@ def _report_events(report, fnames, p=None, subj=None, img_form='webp'):
         if len(events) > 0:
             fig = plot_events(events, raw.info['sfreq'], raw.first_samp)
             fig.set_size_inches(10, 4)
-            fig.subplots_adjust(0.1, 0.1, 0.9, 0.99, wspace=0, hspace=0)
             figs.append(fig)
             captions.append('%s: %s' % (section, op.basename(fname)))
     if len(figs):
@@ -254,7 +252,7 @@ def _report_raw_segments(report, raw, lowpass=None, img_form='webp'):
                            np.ones_like(new_events)]).T
     with mne.utils.use_log_level('error'):
         fig = raw_plot.plot(group_by='selection', butterfly=True,
-                            events=new_events, lowpass=lowpass)
+                            events=new_events, lowpass=lowpass, show=False)
     fig.axes[0].lines[-1].set_zorder(10)  # events
     fig.axes[0].set(xticks=np.arange(0, len(times)) + 0.5)
     xticklabels = ['%0.1f' % t for t in times]
@@ -265,15 +263,17 @@ def _report_raw_segments(report, raw, lowpass=None, img_form='webp'):
         fig.delaxes(fig.axes[-1])
     fig.set(figheight=(fig.axes[0].get_yticks() != 0).sum(),
             figwidth=12)
-    fig.subplots_adjust(0.025, 0.0, 1, 1, 0, 0)
     _add_figs_to_section(report, fig, section, section, image_format=img_form)
     print('%5.1f sec' % ((time.time() - t0),))
 
 
 def _gen_psd_plot(raw, fmax, n_fft, ax):
+    n_fft = min(n_fft, len(raw.times))
     if hasattr(raw, 'compute_psd'):
-        plot = raw.compute_psd(fmax=fmax, n_fft=n_fft).plot(show=False,
-                                                            axes=ax)
+        with warnings.catch_warnings(record=True):
+            plot = raw.compute_psd(fmax=fmax, n_fft=n_fft).plot(
+                show=False, axes=ax,
+            )
     else:
         plot = raw.plot_psd(fmax=fmax, n_fft=n_fft, show=False, ax=ax)
     return plot
@@ -294,7 +294,7 @@ def _report_raw_psd(report, raw, raw_pca=None, raw_erm=None, raw_erm_pca=None,
     n_fft = min(8192, len(raw.times))
     fmax = raw.info['lowpass']
     n_ax = sum(key in raw for key in ('mag', 'grad', 'eeg'))
-    _, ax = plt.subplots(n_ax, figsize=(10, 8))
+    _, ax = plt.subplots(n_ax, figsize=(10, 8), layout="constrained")
     figs = [_gen_psd_plot(raw, fmax=fmax, n_fft=n_fft, ax=ax)]
     captions = ['%s: Raw' % section]
     fmax = lp_cut + 2 * lp_trans
@@ -303,7 +303,7 @@ def _report_raw_psd(report, raw, raw_pca=None, raw_erm=None, raw_erm_pca=None,
             (raw_pca, f'{section}: Raw processed (zoomed)'),
             (raw_erm, f'{section}: ERM (zoomed)'),
             (raw_erm_pca, f'{section}: ERM processed (zoomed)')]:
-        _, ax = plt.subplots(n_ax, figsize=(10, 8))
+        _, ax = plt.subplots(n_ax, figsize=(10, 8), layout="constrained")
         if this_raw is not None:
             figs.append(_gen_psd_plot(this_raw, fmax=fmax, n_fft=n_fft, ax=ax))
             captions.append(caption)
@@ -398,7 +398,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
     preload = p.report_params.get('preload', False)
     for si, subj in enumerate(subjects):
         struc = structurals[si] if structurals is not None else None
-        report = Report(verbose=False)
+        report = Report(title=subj, verbose=False)
         print('  Processing subject %s/%s (%s)'
               % (si + 1, len(subjects), subj))
 
@@ -771,7 +771,8 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                         n_e = len(all_evoked)
                         n_row = n_s * n_e + 1
                         figs, axes = plt.subplots(
-                            n_row, 1, figsize=(7, 3 * n_row))
+                            n_row, 1, figsize=(7, 3 * n_row), layout="constrained",
+                        )
                         captions = [
                             '%s: %s["%s"] (N=%s)'
                             % (section, analysis, all_evoked[0].comment,
@@ -782,7 +783,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                             sl = slice(ei, n_e * n_s, n_e)
                             these_axes = list(axes[sl]) + [axes[-1]]
                             evo.plot_white(
-                                noise_cov, verbose='error', axes=these_axes)
+                                noise_cov, verbose='error', axes=these_axes, show=False)
                             for ax in these_axes[:-1]:
                                 n_text = 'N=%d' % (evo.nave,)
                                 if ei != 0:
@@ -826,7 +827,6 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                             axes[-1].set_title(
                                 f'{axes[-1].get_title()} (halves {SQ2STR})')
                         axes[-1]
-                        figs.tight_layout()
                         figs = [figs]
                         _add_figs_to_section(
                             report, figs, captions, section=section,
@@ -864,7 +864,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                               % op.basename(fname_evoked), end='')
                     else:
                         inv = mne.minimum_norm.read_inverse_operator(fname_inv)
-                        figs, ax = plt.subplots(1, figsize=(7, 5))
+                        figs, ax = plt.subplots(1, figsize=(7, 5), layout="constrained")
                         all_evoked = _get_std_even_odd(fname_evoked, name)
                         for ei, evoked in enumerate(all_evoked):
                             if ei != 0:
@@ -873,7 +873,7 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                             try:
                                 evoked.nave = max(orig, 1)
                                 plot_snr_estimate(
-                                    evoked, inv, axes=ax, verbose='error')
+                                    evoked, inv, show=False, axes=ax, verbose='error')
                             finally:
                                 evoked.nave = orig
                         if len(all_evoked) > 1:
@@ -899,7 +899,6 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                                     % (section, analysis, name,
                                        '/'.join(str(e.nave)
                                                 for e in all_evoked)))
-                        figs.tight_layout()
                         _add_figs_to_section(
                             report, figs, captions, section=section,
                             image_format=img_form)
@@ -1003,9 +1002,6 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                                             times, **kwargs)
                                 assert isinstance(fig, plt.Figure)
                                 fig.axes[0].set(ylim=(-max_, max_))
-                                t = fig.axes[-1].texts[0]
-                                t.set_text(
-                                    f'{t.get_text()}; {n_text})')
                             else:
                                 fig = plt.figure()
                             all_figs += [fig]
@@ -1161,8 +1157,6 @@ def gen_html_report(p, subjects, structurals, run_indices=None):
                                  % (section, analysis, name, extra,
                                     this_evoked.nave,))
                         captions = ['%2.3f sec' % t for t in times]
-                        print(f'add {repr(title)}')
-                        print(repr(captions))
                         _add_slider_to_section(
                             report, figs, captions=captions, section=section,
                             title=title, image_format=img_form)
@@ -1235,7 +1229,7 @@ def _proj_fig(fname, info, proj_nums, proj_meg, kind, use_ch, duration):
         ch_names = [info['ch_names'][pick]
                     for pick in mne.pick_types(info, meg=meg, eeg=eeg)]
         # Some of these will be missing because of prebads
-        idx = np.where([np.in1d(ch_names, proj['data']['col_names']).all()
+        idx = np.where([np.isin(ch_names, proj['data']['col_names']).all()
                         for proj in projs])[0]
         if len(idx) != count:
             raise RuntimeError('Expected %d %s projector%s for channel type '
@@ -1253,17 +1247,17 @@ def _proj_fig(fname, info, proj_nums, proj_meg, kind, use_ch, duration):
                        for name in ch_names]
             proj['data']['data'] = proj['data']['data'][:, sub_idx]
             proj['data']['col_names'] = ch_names
-        topo_axes = [plt.subplot2grid(shape, (ri, ci + cs_trace))
+        fig = plt.figure(layout="constrained")
+        topo_axes = [plt.subplot2grid(shape, (ri, ci + cs_trace), fig=fig)
                      for ci in range(count)]
         # topomaps
-        with warnings.catch_warnings(record=True):
-            plot_projs_topomap(these_projs, info=info, show=False,
-                               axes=topo_axes)
+        plot_projs_topomap(these_projs, info=info, show=False,
+                            axes=topo_axes)
         plt.setp(topo_axes, title='', xlabel='')
         unit = mne.defaults.DEFAULTS['units'][ch_type]
         if cs_trace:
             ax = plt.subplot2grid(shape, (ri, n_col - cs_trace - 1),
-                                  colspan=cs_trace)
+                                  colspan=cs_trace, fig=fig)
             this_evoked = evoked.copy().pick_channels(ch_names)
             p = np.concatenate([p['data']['data'] for p in these_projs])
             assert p.shape == (len(these_projs), len(this_evoked.data))
@@ -1274,8 +1268,7 @@ def _proj_fig(fname, info, proj_nums, proj_meg, kind, use_ch, duration):
                 ch_traces = evoked.copy().pick_channels(use_ch).data
                 ch_traces -= np.mean(ch_traces, axis=1, keepdims=True)
                 ch_traces /= np.abs(ch_traces).max()
-            with warnings.catch_warnings(record=True):  # tight_layout
-                this_evoked.plot(picks='all', axes=[ax])
+            this_evoked.plot(picks='all', axes=[ax], show=False)
             for line in ax.lines:
                 line.set(lw=0.5, zorder=3)
             for t in list(ax.texts):
@@ -1307,16 +1300,14 @@ def _proj_fig(fname, info, proj_nums, proj_meg, kind, use_ch, duration):
                 need_legend = False
             last_ax[1] = ax
             # Before and after traces
-            ax = plt.subplot2grid(shape, (ri, 0), colspan=cs_trace)
-            with warnings.catch_warnings(record=True):  # tight_layout
-                this_evoked.plot(
-                    picks='all', axes=[ax])
+            ax = plt.subplot2grid(shape, (ri, 0), colspan=cs_trace, fig=fig)
+            this_evoked.plot(picks='all', axes=[ax], show=False)
             for line in ax.lines:
                 line.set(lw=0.5, zorder=3)
             loff = len(ax.lines)
-            with warnings.catch_warnings(record=True):  # tight_layout
-                this_evoked.copy().add_proj(projs).apply_proj().plot(
-                    picks='all', axes=[ax])
+            e = this_evoked.copy().add_proj(projs)
+            e.info.normalize_proj()
+            e.apply_proj().plot(picks='all', axes=[ax], show=False)
             for line in ax.lines[loff:]:
                 line.set(lw=0.5, zorder=4, color='g')
             for t in list(ax.texts):
@@ -1328,7 +1319,6 @@ def _proj_fig(fname, info, proj_nums, proj_meg, kind, use_ch, duration):
     if cs_trace:
         for ax in last_ax:
             ax.set(xlabel='Time (sec)')
-    fig.subplots_adjust(0.1, 0.15, 1.0, 0.9, wspace=0.25, hspace=0.2)
     assert used.all() and (used <= 2).all()
     return fig
 
