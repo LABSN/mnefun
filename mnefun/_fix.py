@@ -118,7 +118,7 @@ def fix_eeg_channels(raw_files, anon=None, verbose=True):
                 anon = anon.copy()
                 if (
                     isinstance(raw.info["subject_info"].get("birthday"), datetime.date)
-                    and isinstance(anon.get("birthday"), tuple)
+                    and isinstance(anon.get("birthday"), tuple)  # noqa
                 ):
                     anon["birthday"] = datetime.date(*anon["birthday"])
                 anon['birthday'] = raw.info["subject_info"]["birthday"]
