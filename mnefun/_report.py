@@ -1251,8 +1251,9 @@ def _proj_fig(fname, info, proj_nums, proj_meg, kind, use_ch, duration):
         topo_axes = [plt.subplot2grid(shape, (ri, ci + cs_trace), fig=fig)
                      for ci in range(count)]
         # topomaps
-        plot_projs_topomap(these_projs, info=info, show=False,
-                            axes=topo_axes)
+        plot_projs_topomap(
+            these_projs, info=info, show=False, axes=topo_axes,
+        )
         plt.setp(topo_axes, title='', xlabel='')
         unit = mne.defaults.DEFAULTS['units'][ch_type]
         if cs_trace:
