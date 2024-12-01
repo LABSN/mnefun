@@ -41,6 +41,6 @@ jobs:
         name: Install
       - run: make flake
       - run: pytest mnefun
-      - uses: codecov/codecov-action@v4
+      - uses: codecov/codecov-action@v5
         if: success()
         name: 'Upload coverage to CodeCov'
