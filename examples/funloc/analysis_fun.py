@@ -37,10 +37,10 @@ params.report_params['post_fun'] = post_fun
 params.subject_indices = [0, 1]
 
 # Set what processing steps will execute
-default = False
+default = False  # except for first and last steps which have other defaults
 mnefun.do_processing(
     params,
-    fetch_raw=default,     # Fetch raw recording files from acquisition machine
+    fetch_raw=False,     # Fetch raw recording files from acquisition machine
     do_score=default,      # Do scoring to slice data into trials
 
     # Before running SSS, make SUBJ/raw_fif/SUBJ_prebad.txt file with
@@ -56,9 +56,9 @@ mnefun.do_processing(
     write_epochs=default,  # Write epochs to disk
     gen_covs=default,      # Generate covariances
 
-    # Make SUBJ/trans/SUBJ-trans.fif using mne_analyze; needed for fwd calc.
+    # Make SUBJ/trans/SUBJ-trans.fif using mne coreg; needed for fwd calc.
     gen_fwd=default,       # Generate forward solutions (and source space)
     gen_inv=default,       # Generate inverses
     gen_report=default,    # Write mne report html of results to disk
-    print_status=default,  # Print completeness status update
+    print_status=True,  # Print completeness status update
 )
