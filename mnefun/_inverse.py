@@ -16,6 +16,7 @@ from mne.utils import get_subjects_dir, verbose, logger
 from ._cov import _compute_rank
 from ._paths import (get_epochs_evokeds_fnames, safe_inserter,
                      get_cov_fwd_inv_fnames)
+from ._utils import _overwrite
 
 try:
     from mne import spatial_src_adjacency
@@ -121,7 +122,7 @@ def gen_inverses(p, subjects, run_indices):
                         inv = make_inverse_operator(
                             epochs.info, fwd_restricted, cov, rank=rank,
                             **kwargs)
-                        write_inverse_operator(inv_name, inv)
+                        _overwrite(write_inverse_operator, inv_name, inv)
         if p.disp_files:
             print()
 
