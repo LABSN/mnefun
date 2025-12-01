@@ -16,7 +16,7 @@ from mne.viz import plot_cov
 from ._epoching import _concat_resamp_raws
 from ._paths import get_epochs_evokeds_fnames, get_raw_fnames, safe_inserter
 from ._scoring import _read_events
-from ._utils import (get_args, _get_baseline, _restrict_reject_flat,
+from ._utils import (get_args, _get_baseline, _restrict_reject_flat, _overwrite,
                      _handle_dict, _handle_decim, _check_reject_annot_regex)
 
 
@@ -119,7 +119,7 @@ def gen_covariances(p, subjects, run_indices, decim):
                 del use_flat['eeg']
             cov = compute_raw_covariance(raw, reject=use_reject, flat=use_flat,
                                          method=p.cov_method, **kwargs_erm)
-            write_cov(empty_cov_name, cov)
+            _overwrite(write_cov, empty_cov_name, cov)
 
         # Make evoked covariances
         for ii, (inv_name, inv_run) in enumerate(zip(p.inv_names, p.inv_runs)):
@@ -187,5 +187,5 @@ def gen_covariances(p, subjects, run_indices, decim):
                     epochs2.copy().crop(*baseline).plot()
                     raise RuntimeError('Error computing rank')
 
-            write_cov(cov_name, cov)
+            _overwrite(write_cov, cov_name, cov)
         print()
