@@ -132,7 +132,7 @@ def _read_events(p, subj, ridx, raw, ratios, picker=None):
         else:
             these_events = read_events(fname)
             if ids is not None:
-                these_events = these_events[np.in1d(these_events[:, 2], ids)]
+                these_events = these_events[np.isin(these_events[:, 2], ids)]
         events.append(these_events)
     assert len(events) == len(fnames)
     if len(events) == 1 and len(raw._first_samps) > 1:  # for split raw

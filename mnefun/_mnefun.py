@@ -504,7 +504,7 @@ def do_processing(p, fetch_raw=False, do_score=False, push_raw=False,
     run_indices = [np.array(run_idx) if run_idx is not None
                    else np.arange(len(p.run_names)) for run_idx in run_indices]
     assert all(run_idx.ndim == 1 for run_idx in run_indices)
-    assert all(np.in1d(r, np.arange(len(p.run_names))).all()
+    assert all(np.isin(r, np.arange(len(p.run_names))).all()
                for r in run_indices)
 
     # Actually do the work

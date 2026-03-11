@@ -158,8 +158,8 @@ def get_fsaverage_medial_vertices(concatenate=True, subjects_dir=None,
     lh = read_label(op.join(label_dir, 'lh.Medial_wall.label'))
     rh = read_label(op.join(label_dir, 'rh.Medial_wall.label'))
     if concatenate:
-        bad_left = np.where(np.in1d(vertices[0], lh.vertices))[0]
-        bad_right = np.where(np.in1d(vertices[1], rh.vertices))[0]
+        bad_left = np.where(np.isin(vertices[0], lh.vertices))[0]
+        bad_right = np.where(np.isin(vertices[1], rh.vertices))[0]
         return np.concatenate((bad_left, bad_right + len(vertices[0])))
     else:
         return [lh.vertices, rh.vertices]
@@ -184,7 +184,7 @@ def get_fsaverage_label_operator(parc='aparc.a2009s', remove_bads=True,
         bads = dict(lh=bads[0], rh=bads[1])
         assert all(b.size > 1 for b in bads.values())
         labels = [label for label in labels
-                  if np.in1d(label.vertices, bads[label.hemi]).mean() < 0.8]
+                  if np.isin(label.vertices, bads[label.hemi]).mean() < 0.8]
         del bads
     if combine_medial:
         labels = combine_medial_labels(labels)

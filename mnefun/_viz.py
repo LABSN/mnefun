@@ -245,8 +245,8 @@ def plot_chpi_snr_raw(raw, win_length, n_harmonics=None, show=True, *,
     pick_grad = pick_types(raw.info, meg='grad', exclude=[])
     nchan = len(pick_meg)
     # grad and mag indices into an array that already has meg channels only
-    pick_mag_ = np.in1d(pick_meg, pick_mag).nonzero()[0]
-    pick_grad_ = np.in1d(pick_meg, pick_grad).nonzero()[0]
+    pick_mag_ = np.isin(pick_meg, pick_mag).nonzero()[0]
+    pick_grad_ = np.isin(pick_meg, pick_grad).nonzero()[0]
 
     # create general linear model for the data
     t = np.arange(buflen) / float(sfreq)
