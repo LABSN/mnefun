@@ -4,13 +4,9 @@
 
 from os import path as op
 
-from .externals import tabulate
 from ._paths import (get_raw_fnames, get_event_fnames, get_cov_fwd_inv_fnames,
                      get_epochs_evokeds_fnames, get_report_fnames, _prebad)
 from ._fix import _all_files_fixed
-
-# make our table tighter
-tabulate.MIN_PADDING = 0
 
 
 def _have_all(fnames):
@@ -115,6 +111,8 @@ def print_proc_status(p, subjects, structurals, analyses, run_indices):
     assert all(len(steps) == len(s) for s in steps_all)
 
     # Print it out in a tabular manner
+    import tabulate
+    tabulate.MIN_PADDING = 0  # make our table tighter
     headers = [''] + steps
     table = [[subj] + [status_mapping[key] for key in subj_steps]
              for subj, subj_steps in zip(subjects, steps_all)]
