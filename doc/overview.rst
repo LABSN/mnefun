@@ -458,9 +458,9 @@ tmax : float
     tmax for events.
 t_adjust : float
     Adjustment for delays, e.g., -65e-3 compensates for a 65 ms delay
-    between when the trigger happened and the actual event (like a screen display)
-    by moving the trigger later in time.
-    It is used in the `epoching` and `covariance` steps as::
+    between when the trigger was sent and the actual real-life event occurred
+    (like a screen display) by moving the trigger later in time.
+    It is used in the ``epoching`` and ``covariance`` steps as::
 
             events[:, 0] += int(np.round(-params.t_adjust * sfreq))
 baseline : tuple | None | str
