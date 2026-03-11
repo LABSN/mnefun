@@ -214,7 +214,7 @@ def get_atlas_roi_mask(stc, roi, atlas='IXI', atlas_subject=None,
     src = read_source_spaces(fname_src)
     mri = op.join(subjects_dir, atlas_subject, 'mri',
                   '%s_brain_ANTS_%s_atlas.mgz' % (atlas_subject, atlas))
-    if not np.in1d(stc.vertices, src[0]['vertno']).all():
+    if not np.isin(stc.vertices, src[0]['vertno']).all():
         raise RuntimeError('stc does not appear to be created from %s '
                            'volumetric source space' % (atlas_subject,))
     rr = src[0]['rr'][stc.vertices]
