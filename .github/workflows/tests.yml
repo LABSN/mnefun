@@ -40,7 +40,7 @@ jobs:
         name: Install
       - run: make flake
       - run: pytest mnefun
-      - uses: codecov/codecov-action@v5
+      - uses: codecov/codecov-action@v6
         if: success() || failure()
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
