@@ -74,9 +74,8 @@ def plot_colorbar(lims, ticks=None, ticklabels=None, figsize=(1, 2),
         if ticks is None:
             ticks = none_ticks
         del colormap, lims, use_lims
-        adjust = (ax is None)
         if ax is None:
-            fig, ax = plt.subplots(1, figsize=figsize)
+            fig, ax = plt.subplots(1, figsize=figsize, layout="constrained")
         else:
             fig = ax.figure
         norm = Normalize(vmin=vmin, vmax=vmax)
@@ -111,8 +110,6 @@ def plot_colorbar(lims, ticks=None, ticklabels=None, figsize=(1, 2),
                 vas = ['top', 'bottom']
             for x, y, l, ha, va in zip(xs, ys, end_labels, has, vas):
                 ax.text(x, y, l, ha=ha, va=va, fontsize=ticklabelsize)
-        if adjust:
-            fig.subplots_adjust(0.01, 0.05, 0.2, 0.95)
     return fig
 
 
@@ -383,7 +380,7 @@ def plot_good_coils(raw, t_step=1., t_window=0.2, dist_limit=0.005,
         t, counts, n_coils = compute_good_coils(raw, t_step, t_window,
                                                 dist_limit)
     del t_step, t_window, dist_limit
-    fig, ax = plt.subplots(figsize=(8, 2))
+    fig, ax = plt.subplots(figsize=(8, 2), layout="constrained")
     ax.step(t, counts, zorder=4, color='k', clip_on=False)
     ax.set(xlim=t[[0, -1]], ylim=[0, n_coils], xlabel='Time (sec)',
            ylabel='Good coils')
