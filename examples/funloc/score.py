@@ -50,7 +50,7 @@ def score(p, subjects):
                 events[ii, 2] = _expyfun_dict[events[ii, 2]]
             fname_out = op.join(out_dir,
                                 'ALL_' + (run_name % subj) + '-eve.lst')
-            mne.write_events(fname_out, events)
+            mne.write_events(fname_out, events, overwrite=True)
 
             # get subject performance
             devs = (events[:, 2] >= 20)
